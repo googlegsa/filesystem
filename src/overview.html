@@ -1,0 +1,56 @@
+<body>
+<center>File-System Adaptor Deployment.</center>
+
+Starting point (aka .Requirements.):<br><ul>
+<li> Have a Google domain that you can administer
+<li> Have Java JRE 1.6u27 or higher on computer that runs adaptor
+<li> Get binary (Java jar file) 
+</ul>
+
+<br>
+
+<br>
+Step 3 -- Configure your adaptor by creating an adaptor-config.properties file.<br>
+<ul>
+    <li>Make a text file, that is named adaptor-config.properties, in the directory that has binary.
+    <li>Here is a model for its contents:
+<pre>
+TODO : ADD FS SPECIFIC STEPS
+docs.consumerKey=Client ID
+docs.consumerSecret=Client secret
+</pre>
+</ul>
+
+
+<br>
+Step 4 -- Configure your GSA <br>
+<ul>
+    <li>In the GSA's Admin Console, go to Crawl and Index &gt; Feeds, and scroll down to List of Trusted IP Addresses. Add the IP address for the adaptor to the list.
+    <li>In the Admin console, go to Crawl And Index &gt; Crawl URLs, and scroll down to Follow and Crawl Only URLs with the Following Patterns. Add an entry like hostname:port/ . Default port is 5678. Hostname is the machine where the adaptor is running.
+</ul>
+
+<br>
+in command line: java -jar adaptor-db-xxxxxxxx.jar
+
+
+<hr>
+
+
+When running, to control logging, use the following logging.properties file:
+<pre>
+.level=FINER
+com.google.gdata.level=INFO
+com.google.enterprise.adaptor.level=FINER
+com.google.enterprise.adaptor.db.level=FINER
+handlers=java.util.logging.FileHandler,java.util.logging.ConsoleHandler
+
+java.util.logging.FileHandler.formatter=com.google.enterprise.adaptor.CustomFormatter
+java.util.logging.FileHandler.pattern=adaptor.%g.log
+java.util.logging.FileHandler.limit=10485760
+java.util.logging.FileHandler.count=5
+
+java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomFormatter
+java.util.logging.ConsoleHandler.level=INFO
+</pre>
+
+</body>
