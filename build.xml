@@ -112,7 +112,7 @@ lib/plexi submodule or add the the command line argument
     <mkdir dir="${build-src.dir}"/>
 
     <javac srcdir="${src.dir}" destdir="${build-src.dir}" debug="true"
-      includeantruntime="false" encoding="utf-8">
+      includeantruntime="false" encoding="utf-8" target="1.7" source="1.7">
       <compilerarg value="-Xlint:unchecked"/>
       <classpath refid="adaptor.build.classpath"/>
     </javac>
@@ -120,7 +120,7 @@ lib/plexi submodule or add the the command line argument
     <mkdir dir="${build-test.dir}"/>
     <!-- Compile JUnit helper -->
     <javac srcdir="${lib.dir}" destdir="${build-test.dir}" debug="true"
-      includeantruntime="true" encoding="utf-8">
+      includeantruntime="true" encoding="utf-8" target="1.7" source="1.7">
       <compilerarg value="-Xlint:unchecked"/>
       <classpath location="${junit.jar}"/>
       <include name="JUnitLogFixFormatter.java"/>
@@ -128,7 +128,7 @@ lib/plexi submodule or add the the command line argument
 
     <!-- Compile tests, excluding example tests. -->
     <javac srcdir="${test.dir}" destdir="${build-test.dir}" debug="true"
-      includeantruntime="false" encoding="utf-8">
+      includeantruntime="false" encoding="utf-8" target="1.7" source="1.7">
       <compilerarg value="-Xlint:unchecked"/>
       <classpath refid="adaptor.build.classpath"/>
       <classpath location="${build-src.dir}"/>
