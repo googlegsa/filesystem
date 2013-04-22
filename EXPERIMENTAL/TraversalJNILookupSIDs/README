@@ -1,0 +1,14 @@
+This code traverses a specified path, extracts ACLs and resolves SIDs.
+
+3 parts:
+ * JNI part to perform extraction of ACL from file system
+ * SID lookup part based on jCIFS (the jcifs jar contains a modified version which has caching disabled)
+ * actual traversal using Java7 classes
+
+The code expects that the remote file system is mounted and ACL support is enabled in kernel.
+
+To compile the native code I've used the following command:
+$ gcc -I"/usr/include/x86_64-linux-gnu/sys/" -I"/usr/lib/jvm/java-1.7.0-openjdk-amd64/include/" -I"/usr/lib/jvm/java-1.7.0-openjdk-amd64/include/linux" -o libacl.so -fPIC -shared Acl.c
+
+To run the code:
+$ java -cp .:jcifs-1.3.17.jar -Djava.library.path=. Main /mnt/10M-Windows/ | tee rates.txt
