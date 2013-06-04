@@ -22,11 +22,23 @@ import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
-import com.google.enterprise.adaptor.prebuilt.RecursiveFileIterator;
 
-import java.io.*;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.logging.Level;
 import java.util.logging.Logger;
+
+// TODO(mifern): Support\Verify that we can handle \\host\C$ shares.
+// TODO(mifern): Support\Verify that we can handle \\host only shares.
+//   And decide what we want to discover within \\host only shares.
 
 /**
  * Simple example adaptor that serves files from the local filesystem.
@@ -35,7 +47,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
 
-  private File serveDir;
+  private Path rootPath;
+
+  public FsAdaptor() {
+  }
 
   @Override
   public void initConfig(Config config) {
@@ -51,63 +66,130 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @Override
   public void init(AdaptorContext context) throws Exception {
-    // Process configuration.
+    // TODO(mifern): Read the config information.
     String source = context.getConfig().getValue("filesystemadaptor.src");
-    serveDir = new File(source).getCanonicalFile();
+    rootPath = Paths.get(source);
+    // TODO(mifern): Verify that we have a valid path.
+    if (rootPath == null) {
+      log.log(Level.WARNING, "Failed to open start path {0}.", rootPath);
+      // TODO(mifern): throw an exception for the failure.
+      return;
+    }
   }
 
+  // TODO(mifern): Change crawl to use graph traversal.
+  // TODO(mifern): In Windows only change '\' to '/'.
   @Override
   public void getDocIds(DocIdPusher pusher) throws IOException,
       InterruptedException {
-    ArrayList<DocId> mockDocIds = new ArrayList<DocId>();
-    String parent = serveDir.toString();
-    try {
-      for (File file : new RecursiveFileIterator(serveDir)) {
-        String name = file.toString();
-        if (!name.startsWith(parent)) {
-          throw new IllegalStateException(
-              "Internal problem: the file's path does not begin with parent.");
-        }
-        // +1 for slash
-        name = name.substring(parent.length() + 1);
-        mockDocIds.add(new DocId(name));
+    pushDocIds(pusher, rootPath);
+  }
+
+  // TODO(mifern): Remove this when change to graph traversal.
+  private void pushDocIds(DocIdPusher pusher, Path parent)
+      throws IOException, InterruptedException {
+    ArrayList<DocId> docIds = new ArrayList<DocId>();
+    for (Path file : Files.newDirectoryStream(parent)) {
+      if (file.toFile().isFile()) {
+        DocId docId = new DocId(file.toString());
+        log.info("Sending " + docId + " to feed.");
+        docIds.add(docId);
+      } else if (file.toFile().isDirectory()) {
+        pushDocIds(pusher, file);
       }
-    } catch (RecursiveFileIterator.WrappedIOException ex) {
-      throw ex.getCause();
     }
-    pusher.pushDocIds(mockDocIds);
+    pusher.pushDocIds(docIds);
   }
 
   @Override
   public void getDocContent(Request req, Response resp) throws IOException {
     DocId id = req.getDocId();
-    File file = new File(serveDir, id.getUniqueId()).getCanonicalFile();
-    // The DocId provided by Request.getDocId() MUST NOT be trusted. Here we
-    // try to verify that this file is allowed to be served.
-    if (!isFileDescendantOfServeDir(file)) {
+    // TODO(mifern): We need to normalize the doc path.
+    String docPath = id.getUniqueId();
+    log.log(Level.FINE, "Getting content for file {0}.", docPath);
+
+    Path doc = Paths.get(docPath);
+
+    if (!isFileDescendantOfRoot(doc)) {
+      log.log(Level.WARNING,
+        "Skipping {0} since it is not a descendant of {1}.",
+        new Object[] { doc, rootPath });
       resp.respondNotFound();
       return;
     }
-    InputStream input;
+
+    // Populate the document content.
+    InputStream input = null;
     try {
-      input = new FileInputStream(file);
-    } catch (FileNotFoundException ex) {
-      resp.respondNotFound();
-      return;
-    }
-    try {
+      input = new FileInputStream(doc.toFile());
       IOHelper.copyStream(input, resp.getOutputStream());
     } finally {
-      input.close();
+      if (input != null) {
+        input.close();
+      }
     }
-  }
 
-  private boolean isFileDescendantOfServeDir(File file) {
+    // Populate the document metadata.
+    // TODO(mifern): What about these?
+    //resp.setContentType(String contentType);
+    //resp.setSecure(boolean secure);
+    //resp.addAnchor(URI uri, String text);
+    //resp.setNoIndex(boolean noIndex);
+    //resp.setNoFollow(boolean noFollow);
+    //resp.setNoArchive(boolean noArchive);
+    BasicFileAttributes attrs = Files.readAttributes(doc,
+        BasicFileAttributes.class);
+    resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
+
+    resp.addMetadata("CreationTime",
+        new Date(attrs.creationTime().toMillis()).toString());
+    resp.addMetadata("LastAccessTime",
+        new Date(attrs.lastAccessTime().toMillis()).toString());
+    resp.addMetadata("FileSize", Long.toString(attrs.size()));
+/*
+    if (attrs.isDirectory()) {
+      //Preconditions.checkState(aclProperties.supportsInheritedAcls(),
+      //    "Feeding directories is not supported with legacy ACLs.");
+      //addProperty(SpiConstants.PROPNAME_DOCUMENTTYPE,
+      //    SpiConstants.DocumentType.ACL.toString());
+      //addProperty(SpiConstants.PROPNAME_ACLINHERITANCETYPE,
+      //    SpiConstants.AclInheritanceType.CHILD_OVERRIDES.toString());
+    } else {
+      try {
+        resp.addMetadata(SpiConstants.PROPNAME_CONTENT_LENGTH, String value);
+        //long length = file.length();
+        //addProperty(SpiConstants.PROPNAME_CONTENT_LENGTH,
+        //            Value.getLongValue(length));
+      } catch (IOException e) {
+        log.log(Level.WARNING, "Failed to get file length for "
+            + file.getPath(), e);
+      }
+    }
+*/
+    //addProperty(SpiConstants.PROPNAME_FEEDTYPE,
+    //    SpiConstants.FeedType.CONTENTURL.toString());
+    //addProperty(SpiConstants.PROPNAME_DOCID, getDocumentId());
+    //addProperty(SpiConstants.PROPNAME_DISPLAYURL, file.getDisplayUrl());
+    //properties.put(SpiConstants.PROPNAME_MIMETYPE, null);
+    //properties.put(SpiConstants.PROPNAME_CONTENT, null);
+    // TODO(mifern): Include SpiConstants.PROPNAME_FOLDER.
+    // TODO(mifern): Include Filesystem-specific properties (length, etc).
+    // TODO(mifern): Include extended attributes (Java 7 java.nio.file.attributes).
+    // TODO(mifern): Include extended office attributes.
+
+    // Populate the document ACL.
+  }
+/*
+  private String normalizeDocPath(String doc) {
+    File docFile = new File(doc).getCanonicalFile();
+  }
+*/
+  private boolean isFileDescendantOfRoot(Path file) {
     while (file != null) {
-      if (file.equals(serveDir)) {
+      if (file.equals(rootPath)) {
         return true;
       }
-      file = file.getParentFile();
+      file = file.getParent();
     }
     return false;
   }
