@@ -69,12 +69,8 @@ public class FsAdaptor extends AbstractAdaptor {
     // TODO(mifern): Read the config information.
     String source = context.getConfig().getValue("filesystemadaptor.src");
     rootPath = Paths.get(source);
-    // TODO(mifern): Verify that we have a valid path.
-    if (rootPath == null) {
-      log.log(Level.WARNING, "Failed to open start path {0}.", rootPath);
-      // TODO(mifern): throw an exception for the failure.
-      return;
-    }
+    // TODO(mifern): Verify that we have a valid path and that we has access.
+    return;
   }
 
   // TODO(mifern): Change crawl to use graph traversal.
@@ -90,11 +86,11 @@ public class FsAdaptor extends AbstractAdaptor {
       throws IOException, InterruptedException {
     ArrayList<DocId> docIds = new ArrayList<DocId>();
     for (Path file : Files.newDirectoryStream(parent)) {
-      if (file.toFile().isFile()) {
+      if (Files.isRegularFile(file)) {
         DocId docId = new DocId(file.toString());
         log.info("Sending " + docId + " to feed.");
         docIds.add(docId);
-      } else if (file.toFile().isDirectory()) {
+      } else if (Files.isDirectory(file)) {
         pushDocIds(pusher, file);
       }
     }
@@ -106,78 +102,46 @@ public class FsAdaptor extends AbstractAdaptor {
     DocId id = req.getDocId();
     // TODO(mifern): We need to normalize the doc path.
     String docPath = id.getUniqueId();
-    log.log(Level.FINE, "Getting content for file {0}.", docPath);
 
     Path doc = Paths.get(docPath);
 
     if (!isFileDescendantOfRoot(doc)) {
       log.log(Level.WARNING,
-        "Skipping {0} since it is not a descendant of {1}.",
-        new Object[] { doc, rootPath });
+          "Skipping {0} since it is not a descendant of {1}.",
+          new Object[] { doc, rootPath });
       resp.respondNotFound();
       return;
-    }
-
-    // Populate the document content.
-    InputStream input = null;
-    try {
-      input = new FileInputStream(doc.toFile());
-      IOHelper.copyStream(input, resp.getOutputStream());
-    } finally {
-      if (input != null) {
-        input.close();
-      }
     }
 
     // Populate the document metadata.
     // TODO(mifern): What about these?
     //resp.setContentType(String contentType);
     //resp.setSecure(boolean secure);
-    //resp.addAnchor(URI uri, String text);
     //resp.setNoIndex(boolean noIndex);
     //resp.setNoFollow(boolean noFollow);
     //resp.setNoArchive(boolean noArchive);
     BasicFileAttributes attrs = Files.readAttributes(doc,
         BasicFileAttributes.class);
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
-
     resp.addMetadata("CreationTime",
         new Date(attrs.creationTime().toMillis()).toString());
     resp.addMetadata("LastAccessTime",
         new Date(attrs.lastAccessTime().toMillis()).toString());
     resp.addMetadata("FileSize", Long.toString(attrs.size()));
-/*
-    if (attrs.isDirectory()) {
-      //Preconditions.checkState(aclProperties.supportsInheritedAcls(),
-      //    "Feeding directories is not supported with legacy ACLs.");
-      //addProperty(SpiConstants.PROPNAME_DOCUMENTTYPE,
-      //    SpiConstants.DocumentType.ACL.toString());
-      //addProperty(SpiConstants.PROPNAME_ACLINHERITANCETYPE,
-      //    SpiConstants.AclInheritanceType.CHILD_OVERRIDES.toString());
-    } else {
-      try {
-        resp.addMetadata(SpiConstants.PROPNAME_CONTENT_LENGTH, String value);
-        //long length = file.length();
-        //addProperty(SpiConstants.PROPNAME_CONTENT_LENGTH,
-        //            Value.getLongValue(length));
-      } catch (IOException e) {
-        log.log(Level.WARNING, "Failed to get file length for "
-            + file.getPath(), e);
-      }
-    }
-*/
-    //addProperty(SpiConstants.PROPNAME_FEEDTYPE,
-    //    SpiConstants.FeedType.CONTENTURL.toString());
-    //addProperty(SpiConstants.PROPNAME_DOCID, getDocumentId());
-    //addProperty(SpiConstants.PROPNAME_DISPLAYURL, file.getDisplayUrl());
-    //properties.put(SpiConstants.PROPNAME_MIMETYPE, null);
-    //properties.put(SpiConstants.PROPNAME_CONTENT, null);
     // TODO(mifern): Include SpiConstants.PROPNAME_FOLDER.
     // TODO(mifern): Include Filesystem-specific properties (length, etc).
     // TODO(mifern): Include extended attributes (Java 7 java.nio.file.attributes).
     // TODO(mifern): Include extended office attributes.
 
     // Populate the document ACL.
+
+    // Populate the document content.
+    InputStream input = Files.newInputStream(doc);
+    try {
+      IOHelper.copyStream(input, resp.getOutputStream());
+    } finally {
+      input.close();
+    }
   }
 /*
   private String normalizeDocPath(String doc) {
