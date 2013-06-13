@@ -27,18 +27,24 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 // TODO(mifern): Support\Verify that we can handle \\host\C$ shares.
 // TODO(mifern): Support\Verify that we can handle \\host only shares.
-//   And decide what we want to discover within \\host only shares.
+// TODO(mifern): Decide what we want to discover within \\host only shares.
 
 /**
  * Simple example adaptor that serves files from the local filesystem.
@@ -46,6 +52,11 @@ import java.util.logging.Logger;
 public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
+
+  /** Charset used in generated HTML responses. */
+  private static final Charset CHARSET = Charset.forName("UTF-8");
+
+  private AdaptorContext context;
 
   private Path rootPath;
 
@@ -66,6 +77,7 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @Override
   public void init(AdaptorContext context) throws Exception {
+    this.context = context;
     // TODO(mifern): Read the config information.
     String source = context.getConfig().getValue("filesystemadaptor.src");
     rootPath = Paths.get(source);
@@ -73,34 +85,21 @@ public class FsAdaptor extends AbstractAdaptor {
     return;
   }
 
-  // TODO(mifern): Change crawl to use graph traversal.
   // TODO(mifern): In Windows only change '\' to '/'.
   @Override
-  public void getDocIds(DocIdPusher pusher) throws IOException,
-      InterruptedException {
-    pushDocIds(pusher, rootPath);
-  }
-
-  // TODO(mifern): Remove this when change to graph traversal.
-  private void pushDocIds(DocIdPusher pusher, Path parent)
-      throws IOException, InterruptedException {
-    ArrayList<DocId> docIds = new ArrayList<DocId>();
-    for (Path file : Files.newDirectoryStream(parent)) {
-      if (Files.isRegularFile(file)) {
-        DocId docId = new DocId(file.toString());
-        log.info("Sending " + docId + " to feed.");
-        docIds.add(docId);
-      } else if (Files.isDirectory(file)) {
-        pushDocIds(pusher, file);
-      }
-    }
-    pusher.pushDocIds(docIds);
+  public void getDocIds(DocIdPusher pusher) throws InterruptedException {
+    log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
+    // TODO(mifern): rootPath was verified in the config but the directory
+    // could have changed so we need to verify access again.
+    pusher.pushDocIds(Arrays.asList(new DocId(rootPath.toString())));
+    log.exiting("FsAdaptor", "getDocIds");
   }
 
   @Override
   public void getDocContent(Request req, Response resp) throws IOException {
     DocId id = req.getDocId();
-    // TODO(mifern): We need to normalize the doc path.
+    // TODO(mifern): We need to normalize the doc path and confirm that the 
+    // normalized path is the same of the requested path.
     String docPath = id.getUniqueId();
 
     Path doc = Paths.get(docPath);
@@ -122,11 +121,13 @@ public class FsAdaptor extends AbstractAdaptor {
     //resp.setNoArchive(boolean noArchive);
     BasicFileAttributes attrs = Files.readAttributes(doc,
         BasicFileAttributes.class);
+    final FileTime lastAccessTime = attrs.lastAccessTime();
+
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("CreationTime",
         new Date(attrs.creationTime().toMillis()).toString());
     resp.addMetadata("LastAccessTime",
-        new Date(attrs.lastAccessTime().toMillis()).toString());
+        new Date(lastAccessTime.toMillis()).toString());
     resp.addMetadata("FileSize", Long.toString(attrs.size()));
     // TODO(mifern): Include SpiConstants.PROPNAME_FOLDER.
     // TODO(mifern): Include Filesystem-specific properties (length, etc).
@@ -136,14 +137,46 @@ public class FsAdaptor extends AbstractAdaptor {
     // Populate the document ACL.
 
     // Populate the document content.
-    InputStream input = Files.newInputStream(doc);
-    try {
-      IOHelper.copyStream(input, resp.getOutputStream());
-    } finally {
-      input.close();
+    if (Files.isRegularFile(doc)) {
+      InputStream input = Files.newInputStream(doc);
+      try {
+        IOHelper.copyStream(input, resp.getOutputStream());
+      } finally {
+        try {
+          input.close();
+        } finally {
+          Files.setAttribute(doc, "lastAccessTime", lastAccessTime);
+        }
+      }
+    } else if (Files.isDirectory(doc)) {
+      HtmlResponseWriter writer = createHtmlResponseWriter(resp);
+      writer.start(id, getPathName(doc));
+      for (Path file : Files.newDirectoryStream(doc)) {
+        if (Files.isRegularFile(file) || Files.isDirectory(file)) {
+          writer.addLink(new DocId(file.toString()), getPathName(file));
+        }
+      }
+      writer.finish();
+    } else {
+      // This is a non-supported file type.
+      resp.respondNotFound();
     }
   }
-/*
+
+  private HtmlResponseWriter createHtmlResponseWriter(Response response)
+      throws IOException {
+    Writer writer = new OutputStreamWriter(response.getOutputStream(),
+        CHARSET);
+    // TODO(ejona): Get locale from request.
+    return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
+        Locale.ENGLISH);
+  }
+  
+  private String getPathName(Path file) {
+    return file.getName(file.getNameCount() - 1).toString();
+  }
+ 
+ /*
   private String normalizeDocPath(String doc) {
     File docFile = new File(doc).getCanonicalFile();
   }

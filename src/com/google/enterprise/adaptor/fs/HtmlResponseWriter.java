@@ -40,17 +40,10 @@ class HtmlResponseWriter implements Closeable {
      * other content.
      */
     STARTED,
-    /** {@link #startSection} has been called, so we are within a section. */
-    //IN_SECTION,
     /** {@link #finish} has been called, so the HTML footer has been written. */
     FINISHED,
     /** The writer has been closed. */
     CLOSED,
-  }
-
-  public enum ObjectType {
-    DOCUMENT,
-    FOLDER,
   }
 
   private final Writer writer;
@@ -80,10 +73,9 @@ class HtmlResponseWriter implements Closeable {
    * Start writing HTML document.
    *
    * @param docId the DocId for the document being written out
-   * @param type type of document referred to by {@code docId}
    * @param label possibly-{@code null} title or name of {@code docId}
    */
-  public void start(DocId docId, ObjectType type, String label)
+  public void start(DocId docId, String label)
       throws IOException {
     if (state != State.INITIAL) {
       throw new IllegalStateException("In unexpected state: " + state);
@@ -92,7 +84,7 @@ class HtmlResponseWriter implements Closeable {
     this.docUri = docIdEncoder.encodeDocId(docId);
     // TODO(ejona): Localize.
     String header = MessageFormat.format("{0} {1}",
-        computeTypeHeaderLabel(type), computeLabel(label, docId));
+        "Folder", computeLabel(label, docId));
     writer.write("<!DOCTYPE html>\n<html><head><title>");
     writer.write(escapeContent(header));
     writer.write("</title></head><body><h1>");
@@ -101,31 +93,11 @@ class HtmlResponseWriter implements Closeable {
     state = State.STARTED;
   }
 
-/*
-  public void startSection(ObjectType type) throws IOException {
-    if (state != State.STARTED && state != State.IN_SECTION) {
-      throw new IllegalStateException("In unexpected state: " + state);
-    }
-    checkAndCloseSection();
-    writer.write("<p>");
-    writer.write(escapeContent(computeTypeSectionLabel(type)));
-    writer.write("</p><ul>");
-    state = State.IN_SECTION;
-  }
-
-  private void checkAndCloseSection() throws IOException {
-    if (state == State.IN_SECTION) {
-      writer.write("</ul>");
-    }
-  }
-*/
-
   /**
    * @param docId docId to add as a link in the document
    * @param label possibly-{@code null} title or description of {@code docId}
    */
   public void addLink(DocId doc, String label) throws IOException {
-//    if (state != State.IN_SECTION) {
     if (state != State.STARTED) {
       throw new IllegalStateException("In unexpected state: " + state);
     }
@@ -144,11 +116,9 @@ class HtmlResponseWriter implements Closeable {
    */
   public void finish() throws IOException {
     log.entering("HtmlResponseWriter", "finish");
-//    if (state != State.STARTED && state != State.IN_SECTION) {
     if (state != State.STARTED) {
       throw new IllegalStateException("In unexpected state: " + state);
     }
-    //checkAndCloseSection();
     writer.write("</body></html>");
     writer.flush();
     state = State.FINISHED;
@@ -250,32 +220,6 @@ class HtmlResponseWriter implements Closeable {
       label = parts[parts.length - 1];
     }
     return label;
-  }
-
-  private String computeTypeHeaderLabel(ObjectType type) {
-    // TODO(ejona): Localize.
-    switch (type) {
-      case DOCUMENT:
-        return "Document";
-      case FOLDER:
-        return "Folder";
-      default:
-        log.log(Level.WARNING, "Unexpected ObjectType: {0}", type);
-        return "";
-    }
-  }
-
-  private String computeTypeSectionLabel(ObjectType type) {
-    // TODO(ejona): Localize.
-    switch (type) {
-      case DOCUMENT:
-        return "Documents";
-      case FOLDER:
-        return "Folders";
-      default:
-        log.log(Level.WARNING, "Unexpected ObjectType: {0}", type);
-        return "";
-    }
   }
 
   private String escapeContent(String raw) {
