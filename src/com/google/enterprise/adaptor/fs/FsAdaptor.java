@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Strings;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
@@ -35,9 +36,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
+import java.nio.ByteBuffer;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -97,12 +103,15 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @Override
   public void getDocContent(Request req, Response resp) throws IOException {
+    log.entering("FsAdaptor", "getDocContent",
+        new Object[] {req, resp});
     DocId id = req.getDocId();
     // TODO(mifern): We need to normalize the doc path and confirm that the 
     // normalized path is the same of the requested path.
     String docPath = id.getUniqueId();
 
     Path doc = Paths.get(docPath);
+    final String docName = getPathName(doc);
 
     if (!isFileDescendantOfRoot(doc)) {
       log.log(Level.WARNING,
@@ -112,27 +121,34 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
+    if (!Files.isRegularFile(doc) && !Files.isDirectory(doc)) {
+      // This is a non-supported file type.
+      resp.respondNotFound();
+      return;
+    }
+
+    // TODO(mifern): What should the display URL be?
+    //resp.setDisplayUrl(URI displayUrl);
+
     // Populate the document metadata.
-    // TODO(mifern): What about these?
-    //resp.setContentType(String contentType);
-    //resp.setSecure(boolean secure);
-    //resp.setNoIndex(boolean noIndex);
-    //resp.setNoFollow(boolean noFollow);
-    //resp.setNoArchive(boolean noArchive);
     BasicFileAttributes attrs = Files.readAttributes(doc,
         BasicFileAttributes.class);
+    final DateFormat df = new SimpleDateFormat("yyyy-MM-dd");
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
-    resp.addMetadata("CreationTime",
-        new Date(attrs.creationTime().toMillis()).toString());
-    resp.addMetadata("LastAccessTime",
-        new Date(lastAccessTime.toMillis()).toString());
-    resp.addMetadata("FileSize", Long.toString(attrs.size()));
-    // TODO(mifern): Include SpiConstants.PROPNAME_FOLDER.
-    // TODO(mifern): Include Filesystem-specific properties (length, etc).
-    // TODO(mifern): Include extended attributes (Java 7 java.nio.file.attributes).
-    // TODO(mifern): Include extended office attributes.
+    resp.addMetadata("Creation Time", df.format(
+        new Date(attrs.creationTime().toMillis())));
+    resp.addMetadata("Last Access Time",  df.format(
+        new Date(lastAccessTime.toMillis())));
+    resp.addMetadata("File Name", docName);
+    if (!Files.isDirectory(doc)) {
+      // TODO(mifern): Do not set the content type for now.
+      //resp.setContentType(Files.probeContentType(doc));
+      resp.addMetadata("File Size", Long.toString(attrs.size()));
+    }
+
+    //populateExtendedAttributes(doc, resp);
 
     // Populate the document ACL.
 
@@ -145,7 +161,14 @@ public class FsAdaptor extends AbstractAdaptor {
         try {
           input.close();
         } finally {
-          Files.setAttribute(doc, "lastAccessTime", lastAccessTime);
+          try {
+            Files.setAttribute(doc, "lastAccessTime", lastAccessTime);
+          } catch (Throwable e) {
+            // This failure can be expected. We can have full permissions
+            // to read but not write/update.
+            log.log(Level.CONFIG,
+                "Unable to update last access time for {0}.", doc);
+          }
         }
       }
     } else if (Files.isDirectory(doc)) {
@@ -157,11 +180,33 @@ public class FsAdaptor extends AbstractAdaptor {
         }
       }
       writer.finish();
-    } else {
-      // This is a non-supported file type.
-      resp.respondNotFound();
+    }
+    log.exiting("FsAdaptor", "getDocContent");
+  }
+/*
+  private void populateExtendedAttributes(Path doc, Response resp) {
+    try {
+      UserDefinedFileAttributeView userView = Files.getFileAttributeView(doc,
+          UserDefinedFileAttributeView.class);
+      List<String> attribList = userView.list();
+      if (attribList != null) {
+        // TODO(mifern); Implement parsing the attributes
+        // DocumentSummaryInformation & SummaryInformation.
+        for (String name : attribList) {
+          ByteBuffer buf = ByteBuffer.allocate(userView.size(name));
+          userView.read(name, buf);
+          buf.flip();
+          String value = Charset.defaultCharset().decode(buf).toString();
+          if (!Strings.isNullOrEmpty(value)) {
+            resp.addMetadata(name, value);
+          }
+        }
+      }
+    } catch (UnsupportedOperationException e) {
+      log.log(Level.FINE, "Extended attributes not supported for {0}.", doc);
     }
   }
+*/
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
       throws IOException {
@@ -175,7 +220,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private String getPathName(Path file) {
     return file.getName(file.getNameCount() - 1).toString();
   }
- 
+
  /*
   private String normalizeDocPath(String doc) {
     File docFile = new File(doc).getCanonicalFile();
