@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Strings;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
@@ -53,6 +54,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
 
+  /** The config parameter name for the root path. */
+  private static final String CONFIG_SRC = "filesystemadaptor.src";
+
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
 
@@ -66,23 +70,21 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void initConfig(Config config) {
     // Setup default configuration values. The user is allowed to override them.
-
-    // Create a new configuration key for letting the user configure this
-    // adaptor.
-    config.addKey("filesystemadaptor.src", ".");
-    // Change the default to automatically provide unzipped zip contents to the
-    // GSA.
-    config.overrideKey("adaptor.autoUnzip", "true");
+    config.addKey(CONFIG_SRC, ".");
   }
 
   @Override
   public void init(AdaptorContext context) throws Exception {
     this.context = context;
-    // TODO(mifern): Read the config information.
-    String source = context.getConfig().getValue("filesystemadaptor.src");
+    String source = context.getConfig().getValue(CONFIG_SRC);
+    if (Strings.isNullOrEmpty(source)) {
+      String message = "The configuration value " + CONFIG_SRC
+          + " is empty. Please specific a valid root path.";
+      log.severe(message);
+      throw new IOException(message);
+    }
     rootPath = Paths.get(source);
-    // TODO(mifern): Verify that we have a valid path and that we has access.
-    return;
+    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
   }
 
   // TODO(mifern): In Windows only change '\' to '/'.
