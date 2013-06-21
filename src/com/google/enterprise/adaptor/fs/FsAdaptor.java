@@ -62,6 +62,15 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
 
+  private static final ThreadLocal<SimpleDateFormat> dateFormatter =
+      new ThreadLocal<SimpleDateFormat>() {
+          @Override
+          protected SimpleDateFormat initialValue()
+          {
+              return new SimpleDateFormat("yyyy-MM-dd");
+          }
+      };
+
   private AdaptorContext context;
 
   private Path rootPath;
@@ -127,28 +136,22 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
-    // TODO(mifern): What should the display URL be?
-    //resp.setDisplayUrl(URI displayUrl);
-
     // Populate the document metadata.
     BasicFileAttributes attrs = Files.readAttributes(doc,
         BasicFileAttributes.class);
-    final DateFormat df = new SimpleDateFormat("yyyy-MM-dd");
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
-    resp.addMetadata("Creation Time", df.format(
+    resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
-    resp.addMetadata("Last Access Time",  df.format(
+    resp.addMetadata("Last Access Time",  dateFormatter.get().format(
         new Date(lastAccessTime.toMillis())));
-    resp.addMetadata("File Name", docName);
     if (!Files.isDirectory(doc)) {
-      // TODO(mifern): Do not set the content type for now.
-      //resp.setContentType(Files.probeContentType(doc));
+      resp.setContentType(Files.probeContentType(doc));
       resp.addMetadata("File Size", Long.toString(attrs.size()));
     }
 
-    //populateExtendedAttributes(doc, resp);
+    // TODO(mifern): Include extended attributes.
 
     // Populate the document ACL.
 
@@ -163,9 +166,9 @@ public class FsAdaptor extends AbstractAdaptor {
         } finally {
           try {
             Files.setAttribute(doc, "lastAccessTime", lastAccessTime);
-          } catch (Throwable e) {
+          } catch (IOException e) {
             // This failure can be expected. We can have full permissions
-            // to read but not write/update.
+            // to read but not write/update permissions.
             log.log(Level.CONFIG,
                 "Unable to update last access time for {0}.", doc);
           }
@@ -183,30 +186,6 @@ public class FsAdaptor extends AbstractAdaptor {
     }
     log.exiting("FsAdaptor", "getDocContent");
   }
-/*
-  private void populateExtendedAttributes(Path doc, Response resp) {
-    try {
-      UserDefinedFileAttributeView userView = Files.getFileAttributeView(doc,
-          UserDefinedFileAttributeView.class);
-      List<String> attribList = userView.list();
-      if (attribList != null) {
-        // TODO(mifern); Implement parsing the attributes
-        // DocumentSummaryInformation & SummaryInformation.
-        for (String name : attribList) {
-          ByteBuffer buf = ByteBuffer.allocate(userView.size(name));
-          userView.read(name, buf);
-          buf.flip();
-          String value = Charset.defaultCharset().decode(buf).toString();
-          if (!Strings.isNullOrEmpty(value)) {
-            resp.addMetadata(name, value);
-          }
-        }
-      }
-    } catch (UnsupportedOperationException e) {
-      log.log(Level.FINE, "Extended attributes not supported for {0}.", doc);
-    }
-  }
-*/
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
       throws IOException {
