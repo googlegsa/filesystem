@@ -84,20 +84,21 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void initConfig(Config config) {
     // Setup default configuration values. The user is allowed to override them.
-    config.addKey(CONFIG_SRC, ".");
+    config.addKey(CONFIG_SRC, null);
   }
 
   @Override
   public void init(AdaptorContext context) throws Exception {
     this.context = context;
     String source = context.getConfig().getValue(CONFIG_SRC);
-    if (Strings.isNullOrEmpty(source)) {
-      String message = "The configuration value " + CONFIG_SRC
-          + " is empty. Please specific a valid root path.";
-      log.severe(message);
-      throw new IOException(message);
+    if (source.isEmpty()) {
+      throw new IOException("The configuration value " + CONFIG_SRC
+          + " is empty. Please specific a valid root path.");
     }
     rootPath = Paths.get(source);
+    if (!isValidPath(rootPath)) {
+      throw new IOException("The path " + rootPath + " is not a valid path.");
+    }
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
   }
 
@@ -131,7 +132,7 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
-    if (!Files.isRegularFile(doc) && !Files.isDirectory(doc)) {
+    if (!isValidPath(doc)) {
       // This is a non-supported file type.
       resp.respondNotFound();
       return;
@@ -200,6 +201,11 @@ public class FsAdaptor extends AbstractAdaptor {
   private String getPathName(Path file) {
     return file.getName(file.getNameCount() - 1).toString();
   }
+
+  private static boolean isValidPath(Path p) {
+    return Files.isRegularFile(p) || !Files.isDirectory(p);
+  }
+
 
  /*
   private String normalizeDocPath(String doc) {
