@@ -93,11 +93,12 @@ public class FsAdaptor extends AbstractAdaptor {
     String source = context.getConfig().getValue(CONFIG_SRC);
     if (source.isEmpty()) {
       throw new IOException("The configuration value " + CONFIG_SRC
-          + " is empty. Please specific a valid root path.");
+          + " is empty. Please specify a valid root path.");
     }
     rootPath = Paths.get(source);
     if (!isValidPath(rootPath)) {
-      throw new IOException("The path " + rootPath + " is not a valid path.");
+      throw new IOException("The path " + rootPath + " is not a valid path. "
+          + "The path does not exist or it is not a file or directory.");
     }
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
   }
@@ -203,9 +204,8 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   private static boolean isValidPath(Path p) {
-    return Files.isRegularFile(p) || !Files.isDirectory(p);
+    return Files.isRegularFile(p) || Files.isDirectory(p);
   }
-
 
  /*
   private String normalizeDocPath(String doc) {
