@@ -14,8 +14,13 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Function;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
+import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
@@ -42,9 +47,13 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -62,6 +71,14 @@ public class FsAdaptor extends AbstractAdaptor {
   /** The config parameter name for the root path. */
   private static final String CONFIG_SRC = "filesystemadaptor.src";
 
+  /** The config parameter name for the supported Windows accounts. */
+  private static final String CONFIG_SUPPORTED_ACCOUNTS =
+      "filesystemadaptor.supportedAccounts";
+
+  /** The config parameter name for the prefix for BUILTIN groups. */
+  private static final String CONFIG_BUILTIN_PREFIX =
+      "filesystemadaptor.builtinGroupPrefix";
+
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
 
@@ -78,13 +95,20 @@ public class FsAdaptor extends AbstractAdaptor {
 
   private Path rootPath;
 
+  private DocId rootPathDocId;
+
+  private FileDelegate delegate;
+
   public FsAdaptor() {
   }
 
   @Override
   public void initConfig(Config config) {
-    // Setup default configuration values. The user is allowed to override them.
     config.addKey(CONFIG_SRC, null);
+    config.addKey(CONFIG_SUPPORTED_ACCOUNTS,
+        "BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
+        + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
+    config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
   }
 
   @Override
@@ -101,15 +125,28 @@ public class FsAdaptor extends AbstractAdaptor {
           + "The path does not exist or it is not a file or directory.");
     }
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
+
+    String builtinPrefix =
+        context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
+    log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
+
+    String accountsStr =
+        context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
+    Set<String> supportedWindowsAccounts = Sets.newHashSet(
+        Splitter.on(',').trimResults().split(accountsStr));
+    log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
+        supportedWindowsAccounts);
+    delegate = new WindowsFileDelegate(supportedWindowsAccounts,
+        builtinPrefix);
+
+    rootPathDocId = delegate.newDocId(rootPath);
   }
 
-  // TODO(mifern): In Windows only change '\' to '/'.
   @Override
-  public void getDocIds(DocIdPusher pusher) throws InterruptedException {
+  public void getDocIds(DocIdPusher pusher) throws InterruptedException,
+      IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
-    // TODO(mifern): rootPath was verified in the config but the directory
-    // could have changed so we need to verify access again.
-    pusher.pushDocIds(Arrays.asList(new DocId(rootPath.toString())));
+    pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
     log.exiting("FsAdaptor", "getDocIds");
   }
 
@@ -118,11 +155,14 @@ public class FsAdaptor extends AbstractAdaptor {
     log.entering("FsAdaptor", "getDocContent",
         new Object[] {req, resp});
     DocId id = req.getDocId();
-    // TODO(mifern): We need to normalize the doc path and confirm that the 
-    // normalized path is the same of the requested path.
     String docPath = id.getUniqueId();
-
     Path doc = Paths.get(docPath);
+
+    if (!id.equals(delegate.newDocId(doc))) {
+      resp.respondNotFound();
+      return;
+    }
+
     final String docName = getPathName(doc);
 
     if (!isFileDescendantOfRoot(doc)) {
@@ -157,6 +197,7 @@ public class FsAdaptor extends AbstractAdaptor {
     // TODO(mifern): Include extended attributes.
 
     // Populate the document ACL.
+    resp.setAcl(delegate.getDirectAcl(doc, id.equals(rootPathDocId)));
 
     // Populate the document content.
     if (Files.isRegularFile(doc)) {
@@ -182,7 +223,7 @@ public class FsAdaptor extends AbstractAdaptor {
       writer.start(id, getPathName(doc));
       for (Path file : Files.newDirectoryStream(doc)) {
         if (Files.isRegularFile(file) || Files.isDirectory(file)) {
-          writer.addLink(new DocId(file.toString()), getPathName(file));
+          writer.addLink(delegate.newDocId(file), getPathName(file));
         }
       }
       writer.finish();
@@ -207,11 +248,6 @@ public class FsAdaptor extends AbstractAdaptor {
     return Files.isRegularFile(p) || Files.isDirectory(p);
   }
 
- /*
-  private String normalizeDocPath(String doc) {
-    File docFile = new File(doc).getCanonicalFile();
-  }
-*/
   private boolean isFileDescendantOfRoot(Path file) {
     while (file != null) {
       if (file.equals(rootPath)) {
