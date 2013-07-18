@@ -14,14 +14,26 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.DocId;
 
 import java.io.IOException;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Path;
 
 interface FileDelegate {
-  Acl getDirectAcl(Path doc, boolean isRoot) throws IOException;
+  /**
+   * Returns an {@link AclFileAttributeView} that contains Acl for the
+   * specified path.
+   *
+   * @param doc The file/folder to get the {@link AclFileAttributeView} for.
+   */
+  AclFileAttributeView getAclView(Path doc);
 
+  /**
+   * Creates a new {@link DocId}.
+   *
+   * @param doc The file/folder to get the {@link DocId} for.
+   * @throws IOException
+   */
   DocId newDocId(Path doc) throws IOException;
 }

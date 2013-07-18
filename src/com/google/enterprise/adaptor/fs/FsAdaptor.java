@@ -14,13 +14,10 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import com.google.common.base.Function;
 import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
-import com.google.common.collect.Collections2;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
-import com.google.enterprise.adaptor.Acl.InheritanceType;
+import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
@@ -41,18 +38,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.nio.file.attribute.UserDefinedFileAttributeView;
-import java.nio.ByteBuffer;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -75,6 +69,14 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SUPPORTED_ACCOUNTS =
       "filesystemadaptor.supportedAccounts";
 
+  private static final String SHARE_ACL_PREFIX = "shareAcl:";
+  private static final String ALL_FOLDER_INHERIT_ACL_PREFIX = "allFoldersAcl:";
+  private static final String ALL_FILE_INHERIT_ACL_PREFIX = "allFiles:";
+  private static final String CHILD_FOLDER_INHERIT_ACL_PREFIX =
+      "childFoldersAcl:";
+  private static final String CHILD_FILE_INHERIT_ACL_PREFIX =
+      "childFilesAcl:";
+
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
@@ -91,13 +93,23 @@ public class FsAdaptor extends AbstractAdaptor {
           }
       };
 
+  /**
+   * The set of Windows accounts that qualify for inclusion in an Acl
+   * regardless of the value returned by {@link #isBuiltin(String)}.
+   */
+  private Set<String> supportedWindowsAccounts;
+
+  /**
+   * The prefix used to determine if an account is a built-in account.
+   * If an account starts with this string then it is considered a built-in
+   * account.
+   */
+  private String builtinPrefix;
+
   private AdaptorContext context;
-
   private Path rootPath;
-
   private DocId rootPathDocId;
-
-  private FileDelegate delegate;
+  private FileDelegate delegate = new WindowsFileDelegate();
 
   public FsAdaptor() {
   }
@@ -126,18 +138,15 @@ public class FsAdaptor extends AbstractAdaptor {
     }
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
-    String builtinPrefix =
-        context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
+    builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
 
     String accountsStr =
         context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
-    Set<String> supportedWindowsAccounts = Sets.newHashSet(
-        Splitter.on(',').trimResults().split(accountsStr));
+    supportedWindowsAccounts = Collections.unmodifiableSet(Sets.newHashSet(
+        Splitter.on(',').trimResults().split(accountsStr)));
     log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
         supportedWindowsAccounts);
-    delegate = new WindowsFileDelegate(supportedWindowsAccounts,
-        builtinPrefix);
 
     rootPathDocId = delegate.newDocId(rootPath);
   }
@@ -157,6 +166,7 @@ public class FsAdaptor extends AbstractAdaptor {
     DocId id = req.getDocId();
     String docPath = id.getUniqueId();
     Path doc = Paths.get(docPath);
+    final boolean docIsDirectory = Files.isDirectory(doc);
 
     if (!id.equals(delegate.newDocId(doc))) {
       resp.respondNotFound();
@@ -189,7 +199,7 @@ public class FsAdaptor extends AbstractAdaptor {
         new Date(attrs.creationTime().toMillis())));
     resp.addMetadata("Last Access Time",  dateFormatter.get().format(
         new Date(lastAccessTime.toMillis())));
-    if (!Files.isDirectory(doc)) {
+    if (!docIsDirectory) {
       resp.setContentType(Files.probeContentType(doc));
       resp.addMetadata("File Size", Long.toString(attrs.size()));
     }
@@ -197,8 +207,56 @@ public class FsAdaptor extends AbstractAdaptor {
     // TODO(mifern): Include extended attributes.
 
     // Populate the document ACL.
-    resp.setAcl(delegate.getDirectAcl(doc, id.equals(rootPathDocId)));
+    final boolean isRoot = id.equals(rootPathDocId);
+    final Path parent = doc.getParent();
+    final DocId parentDocId = delegate.newDocId(parent);
+    AclBuilder builder = new AclBuilder(doc, delegate.getAclView(doc),
+        supportedWindowsAccounts, builtinPrefix);
 
+    DocId inheritDocId;
+    if (isRoot) {
+      inheritDocId = newNamedResourceDocId(rootPathDocId, SHARE_ACL_PREFIX);
+    } else if (docIsDirectory) {
+      inheritDocId = newNamedResourceDocId(parentDocId,
+          CHILD_FOLDER_INHERIT_ACL_PREFIX);
+    } else {
+      inheritDocId = newNamedResourceDocId(parentDocId,
+          CHILD_FILE_INHERIT_ACL_PREFIX);
+    }
+    resp.setAcl(builder.getAcl(inheritDocId));
+
+    if (docIsDirectory) {
+      Map<DocId, Acl> resources = new HashMap<DocId, Acl>();
+      DocId parentFolderInherit =
+          newNamedResourceDocId(parentDocId, ALL_FOLDER_INHERIT_ACL_PREFIX);
+      DocId parentFileInherit =
+          newNamedResourceDocId(parentDocId, ALL_FILE_INHERIT_ACL_PREFIX);
+
+      if (isRoot) {
+        // TODO(mifern): Get share Acls needs to be implemented. We may need to
+        // use JNA to get the share Acl information.
+        resources.put(newNamedResourceDocId(id, SHARE_ACL_PREFIX),
+            new Acl.Builder().build());
+      }
+      resources.put(newNamedResourceDocId(id, ALL_FOLDER_INHERIT_ACL_PREFIX),
+          builder.getInheritableByAllDesendentFoldersAcl(parentFolderInherit));
+      resources.put(newNamedResourceDocId(id, ALL_FILE_INHERIT_ACL_PREFIX),
+          builder.getInheritableByAllDesendentFilesAcl(parentFileInherit));
+      resources.put(newNamedResourceDocId(id, CHILD_FOLDER_INHERIT_ACL_PREFIX),
+          builder.getInheritableByChildFoldersOnlyAcl(parentFolderInherit));
+      resources.put(newNamedResourceDocId(id, CHILD_FILE_INHERIT_ACL_PREFIX),
+          builder.getInheritableByChildFilesOnlyAcl(parentFileInherit));
+
+      new Thread(new ThreadSetAcl(context.getDocIdPusher(), resources, doc))
+          .start();
+    }
+
+    // TODO(mifern): Flip these two conditionals to
+    // "if (docIsDirectory) { ... } else { ... }" to eliminate the use of
+    // Files.isRegularFile(doc).
+    // TODO(mifern): The conditional
+    // "if (Files.isRegularFile(file) || Files.isDirectory(file))" below
+    // should be changed to use isValidPath.
     // Populate the document content.
     if (Files.isRegularFile(doc)) {
       InputStream input = Files.newInputStream(doc);
@@ -218,7 +276,7 @@ public class FsAdaptor extends AbstractAdaptor {
           }
         }
       }
-    } else if (Files.isDirectory(doc)) {
+    } else if (docIsDirectory) {
       HtmlResponseWriter writer = createHtmlResponseWriter(resp);
       writer.start(id, getPathName(doc));
       for (Path file : Files.newDirectoryStream(doc)) {
@@ -256,6 +314,42 @@ public class FsAdaptor extends AbstractAdaptor {
       file = file.getParent();
     }
     return false;
+  }
+
+  private DocId newNamedResourceDocId(DocId id, String idPrefix) {
+    return new DocId(idPrefix + id.getUniqueId());
+  }
+
+  // TODO(mifern): Consider using BlockingQueueBatcher and only have one
+  // thread. The current implementation creates a thread for every folder
+  // being crawled, the thread does a send then exists. This may be an issue
+  // if we crawl a folder that has 100's of subfolders since we'll create
+  // 100's of short lived threads.
+  // NOTE: Using a thread to send a named resource may not be the final
+  // approach.
+  // NOTE: An an API may be exposed in the Adaptor Library that lets us
+  // send a named resources from Response and uses BlockingQueueBatcher
+  // behind the scenes.
+  private class ThreadSetAcl implements Runnable {
+    private DocIdPusher pusher;
+    private Map<DocId, Acl> resources;
+    private Path doc;
+
+    public ThreadSetAcl(DocIdPusher pusher, Map<DocId, Acl> resources,
+        Path doc) {
+      this.pusher = pusher;
+      this.resources = resources;
+      this.doc = doc;
+    }
+
+    public void run() {
+      try {
+        pusher.pushNamedResources(resources);
+      } catch (InterruptedException e) {
+        log.log(Level.WARNING, "Unable to set ACLs for {0}.", doc);
+        Thread.currentThread().interrupt();
+      }
+    }
   }
 
   /** Call default main for adaptors. */
