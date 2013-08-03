@@ -19,6 +19,7 @@ import com.google.enterprise.adaptor.DocId;
 import java.io.IOException;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Path;
+import java.util.concurrent.BlockingQueue;
 
 interface FileDelegate {
   /**
@@ -36,4 +37,11 @@ interface FileDelegate {
    * @throws IOException
    */
   DocId newDocId(Path doc) throws IOException;
+
+  void startMonitorPath(Path watchPath, BlockingQueue<Path> queue)
+      throws IOException;
+
+  void stopMonitorPath();
+
+  void destroy();
 }

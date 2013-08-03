@@ -27,10 +27,10 @@
   <property name="adaptor.suffix" value="-${DSTAMP}"/>
 
   <path id="adaptor.build.classpath">
-<!--
     <fileset dir="${lib.dir}">
+      <include name="jna.jar"/>
+      <include name="jna-platform.jar"/>
     </fileset>
--->
     <pathelement location="${adaptor.jar}"/>
   </path>
 

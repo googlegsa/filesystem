@@ -81,6 +81,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
 
+  /** The config parameter name for the max incremental batch size. */
+  private static final String CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES =
+      "filesystemadaptor.maxIncrementalLatencyMinutes";
+
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
 
@@ -111,6 +115,8 @@ public class FsAdaptor extends AbstractAdaptor {
   private DocId rootPathDocId;
   private FileDelegate delegate = new WindowsFileDelegate();
 
+  private FsMonitor monitor;
+
   public FsAdaptor() {
   }
 
@@ -121,6 +127,7 @@ public class FsAdaptor extends AbstractAdaptor {
         "BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
+    config.addKey(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES, "5");
   }
 
   @Override
@@ -148,7 +155,23 @@ public class FsAdaptor extends AbstractAdaptor {
     log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
         supportedWindowsAccounts);
 
+    int maxFeed = Integer.parseInt(
+        context.getConfig().getValue("feed.maxUrls"));
+    int maxLatencyMinutes = Integer.parseInt(
+        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES));
+
     rootPathDocId = delegate.newDocId(rootPath);
+    monitor = new FsMonitor(delegate, context.getDocIdPusher(), maxFeed,
+        maxLatencyMinutes);
+    delegate.startMonitorPath(rootPath, monitor.getQueue());
+    monitor.start();
+  }
+
+  @Override
+  public void destroy() {
+    delegate.destroy();
+    monitor.destroy();
+    monitor = null;
   }
 
   @Override
