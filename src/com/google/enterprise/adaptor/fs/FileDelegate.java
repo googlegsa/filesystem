@@ -31,6 +31,14 @@ interface FileDelegate {
   AclFileAttributeView getAclView(Path doc);
 
   /**
+   * Returns an {@link AclFileAttributeView} that contains share Acl for the
+   * specified path.
+   *
+   * @param doc The file/folder to get the {@link AclFileAttributeView} for.
+   */
+  AclFileAttributeView getShareAclView(Path doc) throws IOException;
+
+  /**
    * Creates a new {@link DocId}.
    *
    * @param doc The file/folder to get the {@link DocId} for.
