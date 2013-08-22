@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
@@ -47,7 +48,8 @@ public class WindowsFileDelegate implements FileDelegate {
 
   @Override
   public AclFileAttributeView getAclView(Path doc) {
-    return Files.getFileAttributeView(doc, AclFileAttributeView.class);
+    return Files.getFileAttributeView(doc, AclFileAttributeView.class,
+        LinkOption.NOFOLLOW_LINKS);
   }
 
   @Override
@@ -69,7 +71,7 @@ public class WindowsFileDelegate implements FileDelegate {
     // Stop the current running monitor thread.
     stopMonitorPath();
 
-    if (!Files.isDirectory(watchPath)) {
+    if (!Files.isDirectory(watchPath, LinkOption.NOFOLLOW_LINKS)) {
       throw new IOException("Could not monitor " + watchPath
           + ". The path is not a valid directory.");
     }
@@ -231,7 +233,7 @@ public class WindowsFileDelegate implements FileDelegate {
       info.read();
       do {
         Path changePath = watchPath.resolve(info.getFilename());
-        switch(info.Action) {
+        switch (info.Action) {
           case Kernel32.FILE_ACTION_MODIFIED:
             log.log(Level.FINEST, "Modified: {0}", changePath);
             break;
