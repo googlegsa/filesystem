@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
@@ -22,6 +23,7 @@ import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
+import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
@@ -34,6 +36,7 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -41,6 +44,7 @@ import java.nio.file.attribute.FileTime;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -48,6 +52,9 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -146,7 +153,7 @@ public class FsAdaptor extends AbstractAdaptor {
           + " is empty. Please specify a valid root path.");
     }
     rootPath = Paths.get(source);
-    if (!isValidPath(rootPath)) {
+    if (!isSupportedPath(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist or it is not a file or directory.");
     }
@@ -196,16 +203,15 @@ public class FsAdaptor extends AbstractAdaptor {
     DocId id = req.getDocId();
     String docPath = id.getUniqueId();
     Path doc = Paths.get(docPath);
-    final boolean docIsDirectory = Files.isDirectory(doc);
+    final boolean docIsDirectory = Files.isDirectory(doc,
+        LinkOption.NOFOLLOW_LINKS);
 
     if (!id.equals(delegate.newDocId(doc))) {
       resp.respondNotFound();
       return;
     }
 
-    final String docName = getPathName(doc);
-
-    if (!isFileDescendantOfRoot(doc)) {
+    if (!isDescendantOfRoot(doc)) {
       log.log(Level.WARNING,
           "Skipping {0} since it is not a descendant of {1}.",
           new Object[] { doc, rootPath });
@@ -213,7 +219,7 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
-    if (!isValidPath(doc)) {
+    if (!isSupportedPath(doc)) {
       // This is a non-supported file type.
       resp.respondNotFound();
       return;
@@ -221,7 +227,7 @@ public class FsAdaptor extends AbstractAdaptor {
 
     // Populate the document metadata.
     BasicFileAttributes attrs = Files.readAttributes(doc,
-        BasicFileAttributes.class);
+        BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
@@ -288,7 +294,7 @@ public class FsAdaptor extends AbstractAdaptor {
     // "if (Files.isRegularFile(file) || Files.isDirectory(file))" below
     // should be changed to use isValidPath.
     // Populate the document content.
-    if (Files.isRegularFile(doc)) {
+    if (Files.isRegularFile(doc, LinkOption.NOFOLLOW_LINKS)) {
       InputStream input = Files.newInputStream(doc);
       try {
         IOHelper.copyStream(input, resp.getOutputStream());
@@ -297,7 +303,8 @@ public class FsAdaptor extends AbstractAdaptor {
           input.close();
         } finally {
           try {
-            Files.setAttribute(doc, "lastAccessTime", lastAccessTime);
+            Files.setAttribute(doc, "lastAccessTime", lastAccessTime,
+                LinkOption.NOFOLLOW_LINKS);
           } catch (IOException e) {
             // This failure can be expected. We can have full permissions
             // to read but not write/update permissions.
@@ -310,7 +317,7 @@ public class FsAdaptor extends AbstractAdaptor {
       HtmlResponseWriter writer = createHtmlResponseWriter(resp);
       writer.start(id, getPathName(doc));
       for (Path file : Files.newDirectoryStream(doc)) {
-        if (Files.isRegularFile(file) || Files.isDirectory(file)) {
+        if (isSupportedPath(file)) {
           writer.addLink(delegate.newDocId(file), getPathName(file));
         }
       }
@@ -327,16 +334,17 @@ public class FsAdaptor extends AbstractAdaptor {
     return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
         Locale.ENGLISH);
   }
-  
+
   private String getPathName(Path file) {
     return file.getName(file.getNameCount() - 1).toString();
   }
 
-  private static boolean isValidPath(Path p) {
-    return Files.isRegularFile(p) || Files.isDirectory(p);
+  private boolean isSupportedPath(Path p) {
+    return Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS) ||
+        Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS);
   }
 
-  private boolean isFileDescendantOfRoot(Path file) {
+  private boolean isDescendantOfRoot(Path file) {
     while (file != null) {
       if (file.equals(rootPath)) {
         return true;
@@ -378,6 +386,93 @@ public class FsAdaptor extends AbstractAdaptor {
       } catch (InterruptedException e) {
         log.log(Level.WARNING, "Unable to set ACLs for {0}.", doc);
         Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  private class FsMonitor {
+    private final DocIdPusher pusher;
+    private final PushThread pushThread;
+    private final BlockingQueue<Path> queue;
+    private final int maxFeedSize;
+    private final int maxLatencyMinutes;
+
+    public FsMonitor(FileDelegate delegate, DocIdPusher pusher,
+        int maxFeedSize, int maxLatencyMinutes) {
+      Preconditions.checkNotNull(delegate, "the delegate may not be null");
+      Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
+      Preconditions.checkArgument(maxFeedSize > 0,
+          "the maxFeedSize must be greater than zero");
+      Preconditions.checkArgument(maxLatencyMinutes > 0,
+          "the maxLatencyMinutes must be greater than zero");
+      this.pusher = pusher;
+      this.maxFeedSize = maxFeedSize;
+      this.maxLatencyMinutes = maxLatencyMinutes;
+      queue = new LinkedBlockingQueue<Path>(20 * maxFeedSize);
+      pushThread = new PushThread();
+    }
+
+    public BlockingQueue<Path> getQueue() {
+      return queue;
+    }
+
+    public void start() {
+      pushThread.start();
+    }
+
+    public synchronized void destroy() {
+      pushThread.terminate();
+      try {
+        pushThread.join();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    private class PushThread extends Thread {
+      public PushThread() {
+      }
+
+      public void terminate() {
+        interrupt();
+      }
+
+      public void run() {
+        log.entering("FsMonitor", "PushThread.run");
+        Set<Path> docs = new HashSet<Path>();
+        Set<Record> records = new HashSet<Record>();
+        while (true) {
+          try {
+            BlockingQueueBatcher.take(queue, docs, maxFeedSize,
+                maxLatencyMinutes, TimeUnit.MINUTES);
+            createRecords(records, docs);
+            log.log(Level.FINER, "Sending crawl immediately records: {0}",
+                records);
+            pusher.pushRecords(records);
+            records.clear();
+            docs.clear();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            break;
+          }
+        }
+        log.exiting("FsMonitor", "PushThread.run");
+      }
+
+      private void createRecords(Set<Record> records, Collection<Path> docs) {
+        for (Path doc : docs) {
+          try {
+            if (isSupportedPath(doc)) {
+              records.add(new DocIdPusher.Record.Builder(delegate.newDocId(doc))
+                  .setCrawlImmediately(true).build());
+            } else {
+              log.log(Level.INFO,
+                  "Skipping path {0}. It is not a supported file type.", doc);
+            }
+          } catch (IOException e) {
+            log.log(Level.WARNING, "Unable to create new DocId for " + doc, e);
+          }
+        }
       }
     }
   }
