@@ -113,11 +113,18 @@ public class FsAdaptor extends AbstractAdaptor {
   private AdaptorContext context;
   private Path rootPath;
   private DocId rootPathDocId;
-  private FileDelegate delegate = new WindowsFileDelegate();
+  private FileDelegate delegate;
 
   private FsMonitor monitor;
 
   public FsAdaptor() {
+    // At the moment, we only support Windows.
+    if (System.getProperty("os.name").startsWith("Windows")) {
+      delegate = new WindowsFileDelegate();
+    } else {
+      throw new IllegalStateException(
+          "Windows is the only supported platform.");
+    }
   }
 
   @Override
