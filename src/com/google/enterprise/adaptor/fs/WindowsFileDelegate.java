@@ -394,7 +394,7 @@ public class WindowsFileDelegate implements FileDelegate {
       }
     }
     if (id.startsWith("//")) {
-      id = id.replaceFirst("//", "\\\\");
+      id = id.replaceFirst("//", "\\\\\\\\");
     }
     return new DocId(id);
   }
