@@ -18,6 +18,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.DocId;
 
+import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
@@ -146,33 +147,53 @@ public class WindowsFileDelegate implements FileDelegate {
   public AclFileAttributeView getShareAclView(Path doc)
       throws IOException, UnsupportedOperationException {
     if (Shlwapi.INSTANCE.PathIsUNC(doc.toString())) {
-      Matcher match = UNC_PATTERN.matcher(doc.toString());
-      if (!match.find()) {
-        throw new IOException("The UNC path " + doc + " is not valid. "
-            + "A UNC path of the form \\\\<host>\\<share> is required.");
+      log.log(Level.FINEST, "Using a UNC path.");
+      return getUncShareAclView(doc.toString());
+    } else if (Shlwapi.INSTANCE.PathIsNetworkPath(doc.toString())) {
+      log.log(Level.FINEST, "Using a mapped drive.");
+      // Call WNetGetUniversalNameW with the size needed for 
+      // UNIVERSAL_NAME_INFO. If WNetGetUniversalNameW returns ERROR_MORE_DATA
+      // that indicates that a larger buffer is needed. If this happens, make
+      // a second call to WNetGetUniversalNameW with a buffer big enough.
+      Mpr mprlib = Mpr.INSTANCE;
+      Memory buf = new Memory(1024);
+      IntByReference bufSize = new IntByReference((int)buf.size());
+      int result = mprlib.WNetGetUniversalNameW(doc.getRoot().toString(),
+          Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
+      if (result == WinNT.ERROR_MORE_DATA) {
+        buf = new Memory(bufSize.getValue());
+        result = Mpr.INSTANCE.WNetGetUniversalNameW(doc.getRoot().toString(),
+            Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       }
-      String host = match.group(1);
-      String share = match.group(2);
-      log.log(Level.FINEST, "Using a UNC share path. host: {0}, share: {1}.",
-          new Object[] { host, share });
-      return getShareAclView(host, share);
+      if (result != WinNT.NO_ERROR) {
+        throw new IOException("Unable to get UNC path for the mapped path " +
+            doc + ". Result: " + result);
+      }
+
+      Mpr.UNIVERSAL_NAME_INFO info = new Mpr.UNIVERSAL_NAME_INFO(buf);
+      return getUncShareAclView(info.lpUniversalName);
+    } else {
+      log.log(Level.FINEST, "Using a local drive.");
+      return new WindowsAclFileAttributeView(Collections.<AclEntry>emptyList());
     }
-
-    // TODO(mifern): For a mapped drive, the share Acl must be the
-    // NT share Acl, the same as UNC. To get the UNC path for a 
-    // mapped drive use:
-    // 1) WMI and do a query with Win32_LogicalDisk
-    // 2) WNetGetUniversalName
-    // Also, can use GetDriveType or PathIsNetworkPath to determine
-    // if drive is mapped.
-
-    // TODO(mifern): For a local drive, the share Acl must be the
-    // folded ACE's walking up the parent hierarchy.
-
-    throw new UnsupportedOperationException(
-        "Unsupported share type specified.");
+    // TODO(mifern): For a local drive, mapped and UNC the share Acl must also
+    // include the Acls from the config point to the root.
   }
 
+  private AclFileAttributeView getUncShareAclView(String uncPath)
+      throws IOException {
+    Matcher match = UNC_PATTERN.matcher(uncPath);
+    if (!match.find()) {
+      throw new IOException("The UNC path " + uncPath + " is not valid. "
+          + "A UNC path of the form \\\\<host>\\<share> is required.");
+    }
+    String host = match.group(1);
+    String share = match.group(2);
+    log.log(Level.FINEST, "UNC: host: {0}, share: {1}.",
+        new Object[] { host, share });
+    return getShareAclView(host, share);
+  }
+  
   private AclFileAttributeView getShareAclView(String host, String share)
       throws IOException {
     Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
@@ -612,9 +633,38 @@ public class WindowsFileDelegate implements FileDelegate {
     Shlwapi INSTANCE = (Shlwapi) Native.loadLibrary("Shlwapi",
         Shlwapi.class, W32APIOptions.UNICODE_OPTIONS);
 
+    boolean PathIsNetworkPath(String pszPath);
     boolean PathIsUNC(String pszPath);
   }
 
+  private interface Mpr extends StdCallLibrary {
+    Mpr INSTANCE = (Mpr) Native.loadLibrary("Mpr", Mpr.class,
+        W32APIOptions.UNICODE_OPTIONS);
+
+    public final int UNIVERSAL_NAME_INFO_LEVEL = 1;
+
+    int WNetGetUniversalNameW(String lpLocalPath, int dwInfoLevel,
+        Pointer lpBuffer, IntByReference lpBufferSize);
+
+    public static class UNIVERSAL_NAME_INFO extends Structure {
+      public String lpUniversalName;
+
+      public UNIVERSAL_NAME_INFO() {
+        super();
+      }
+
+      public UNIVERSAL_NAME_INFO(Pointer memory) {
+        useMemory(memory);
+        read();
+      }
+
+      @Override
+      protected List<String> getFieldOrder() {
+        return Arrays.asList(new String[] { "lpUniversalName" });
+      }
+    }
+  }
+  
   @Override
   public void destroy() {
     stopMonitorPath();
