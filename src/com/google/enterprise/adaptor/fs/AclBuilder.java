@@ -60,32 +60,37 @@ public class AclBuilder {
     this.builtinPrefix = builtinPrefix.toUpperCase();
   }
 
-  public Acl getAcl(DocId inheritId) throws IOException {
-    return getAcl(inheritId, false, isDirectEntry);
+  public Acl getAcl(DocId inheritId, String fragmentName) throws IOException {
+    return getAcl(inheritId, false, fragmentName, isDirectEntry);
   }
 
-  public Acl getInheritableByAllDesendentFoldersAcl(DocId inheritId)
-      throws IOException {
-    return getAcl(inheritId, true, isInheritableByAllDesendentFoldersEntry);
+  public Acl getInheritableByAllDesendentFoldersAcl(DocId inheritId,
+      String fragmentName) throws IOException {
+    return getAcl(inheritId, true, fragmentName,
+        isInheritableByAllDesendentFoldersEntry);
   }
 
-  public Acl getInheritableByAllDesendentFilesAcl(DocId inheritId)
-      throws IOException {
-    return getAcl(inheritId, true, isInheritableByAllDesendentFilesEntry);
+  public Acl getInheritableByAllDesendentFilesAcl(DocId inheritId,
+      String fragmentName) throws IOException {
+    return getAcl(inheritId, true, fragmentName,
+        isInheritableByAllDesendentFilesEntry);
   }
 
-  public Acl getInheritableByChildFoldersOnlyAcl(DocId inheritId)
-      throws IOException {
-    return getAcl(inheritId, true, isInheritableByChildFoldersOnlyEntry);
+  public Acl getInheritableByChildFoldersOnlyAcl(DocId inheritId,
+      String fragmentName) throws IOException {
+    return getAcl(inheritId, true, fragmentName,
+        isInheritableByChildFoldersOnlyEntry);
   }
 
-  public Acl getInheritableByChildFilesOnlyAcl(DocId inheritId)
-      throws IOException {
-    return getAcl(inheritId, true, isInheritableByChildFilesOnlyEntry);
+  public Acl getInheritableByChildFilesOnlyAcl(DocId inheritId,
+      String fragmentName) throws IOException {
+    return getAcl(inheritId, true, fragmentName,
+        isInheritableByChildFilesOnlyEntry);
   }
 
   private Acl getAcl(DocId inheritId, boolean isInheritable,
-      Predicate<Set<AclEntryFlag>> predicate) throws IOException {
+      String fragmentName, Predicate<Set<AclEntryFlag>> predicate)
+      throws IOException {
     Set<Principal> permits = new HashSet<Principal>();
     Set<Principal> denies = new HashSet<Principal>();
     for (AclEntry entry : aclView.getAcl()) {
@@ -118,7 +123,7 @@ public class AclBuilder {
     Acl.Builder builder = new Acl.Builder()
         .setPermits(permits)
         .setDenies(denies)
-        .setInheritFrom(inheritId)
+        .setInheritFrom(inheritId, fragmentName)
         .setEverythingCaseInsensitive();
     if (isInheritable) {
       builder.setInheritanceType(InheritanceType.CHILD_OVERRIDES);
