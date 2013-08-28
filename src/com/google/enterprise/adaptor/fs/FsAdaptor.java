@@ -271,7 +271,7 @@ public class FsAdaptor extends AbstractAdaptor {
       inheritDocId = newNamedResourceDocId(parentDocId,
           CHILD_FILE_INHERIT_ACL_PREFIX);
     }
-    Acl acl = builder.getAcl(inheritDocId);
+    Acl acl = builder.getAcl(inheritDocId, docIsDirectory);
     log.log(Level.FINEST, "Setting Acl: doc: {0}, acl: {1}",
         new Object[] { doc, acl });
     resp.setAcl(acl);
@@ -287,7 +287,7 @@ public class FsAdaptor extends AbstractAdaptor {
         AclBuilder builderShare = new AclBuilder(doc, shareAclView,
             supportedWindowsAccounts, builtinPrefix);
         resources.put(newNamedResourceDocId(id, SHARE_ACL_PREFIX),
-            builderShare.getAcl(null));
+            builderShare.getShareAcl());
         parentFolderInherit = null;
         parentFileInherit = null;
       } else {

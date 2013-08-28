@@ -60,31 +60,40 @@ public class AclBuilder {
     this.builtinPrefix = builtinPrefix.toUpperCase();
   }
 
-  public Acl getAcl(DocId inheritId) throws IOException {
-    return getAcl(inheritId, false, isDirectEntry);
+  public Acl getAcl(DocId inheritId, boolean isDirectory) throws IOException {
+    Acl.Builder b = getAcl(inheritId, isDirectEntry);
+    if (!isDirectory) {
+      b.setInheritanceType(InheritanceType.LEAF_NODE);
+    }
+    return b.build();
   }
 
   public Acl getInheritableByAllDesendentFoldersAcl(DocId inheritId)
       throws IOException {
-    return getAcl(inheritId, true, isInheritableByAllDesendentFoldersEntry);
+    return getAcl(inheritId, isInheritableByAllDesendentFoldersEntry).build();
   }
 
   public Acl getInheritableByAllDesendentFilesAcl(DocId inheritId)
       throws IOException {
-    return getAcl(inheritId, true, isInheritableByAllDesendentFilesEntry);
+    return getAcl(inheritId, isInheritableByAllDesendentFilesEntry).build();
   }
 
   public Acl getInheritableByChildFoldersOnlyAcl(DocId inheritId)
       throws IOException {
-    return getAcl(inheritId, true, isInheritableByChildFoldersOnlyEntry);
+    return getAcl(inheritId, isInheritableByChildFoldersOnlyEntry).build();
   }
 
   public Acl getInheritableByChildFilesOnlyAcl(DocId inheritId)
       throws IOException {
-    return getAcl(inheritId, true, isInheritableByChildFilesOnlyEntry);
+    return getAcl(inheritId, isInheritableByChildFilesOnlyEntry).build();
   }
 
-  private Acl getAcl(DocId inheritId, boolean isInheritable,
+  public Acl getShareAcl() throws IOException {
+    return getAcl(null, isDirectEntry)
+        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
+  }
+
+  private Acl.Builder getAcl(DocId inheritId,
       Predicate<Set<AclEntryFlag>> predicate) throws IOException {
     Set<Principal> permits = new HashSet<Principal>();
     Set<Principal> denies = new HashSet<Principal>();
@@ -115,16 +124,9 @@ public class AclBuilder {
       }
     }
 
-    Acl.Builder builder = new Acl.Builder()
-        .setPermits(permits)
-        .setDenies(denies)
-        .setInheritFrom(inheritId)
-        .setEverythingCaseInsensitive();
-    if (isInheritable) {
-      builder.setInheritanceType(InheritanceType.CHILD_OVERRIDES);
-    }
-
-    return builder.build();
+    return new Acl.Builder().setPermits(permits).setDenies(denies)
+        .setInheritFrom(inheritId).setEverythingCaseInsensitive()
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES);
   }
 
   /**
