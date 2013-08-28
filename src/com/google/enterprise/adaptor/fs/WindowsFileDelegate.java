@@ -44,7 +44,6 @@ import com.sun.jna.win32.W32APIOptions;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.UnsupportedOperationException;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
@@ -78,13 +77,18 @@ public class WindowsFileDelegate implements FileDelegate {
       Pattern.compile("^\\\\\\\\([^\\\\]+)\\\\([^\\\\]+)");
 
   /** The set of SID_NAME_USE which are groups and not users. */
-  private static final Set<Integer> GROUP_SID_TYPES = Sets.newHashSet(
-      SID_NAME_USE.SidTypeAlias, SID_NAME_USE.SidTypeGroup,
-          SID_NAME_USE.SidTypeWellKnownGroup);
+  private static final Set<Integer> GROUP_SID_TYPES =
+      Collections.unmodifiableSet(Sets.newHashSet(
+        SID_NAME_USE.SidTypeAlias, SID_NAME_USE.SidTypeGroup,
+            SID_NAME_USE.SidTypeWellKnownGroup));
+
+  /** The set of SID_NAME_USE which are user and not groups. */
+  private static final Set<Integer> USER_SID_TYPES =
+      Collections.unmodifiableSet(Sets.newHashSet(SID_NAME_USE.SidTypeUser));
 
   /** The map of Acl permissions from NT to AclEntryPermission. */
   private static final Map<Integer, AclEntryPermission> ACL_PERMS_MAP =
-      new HashMap<Integer, AclEntryPermission>() {
+      Collections.unmodifiableMap(new HashMap<Integer, AclEntryPermission>() {
           {
             put(WinNT.FILE_READ_DATA, AclEntryPermission.READ_DATA);
             put(WinNT.FILE_READ_ATTRIBUTES,
@@ -103,11 +107,11 @@ public class WindowsFileDelegate implements FileDelegate {
             put(WinNT.SYNCHRONIZE, AclEntryPermission.SYNCHRONIZE);
             put(WinNT.FILE_EXECUTE, AclEntryPermission.EXECUTE);
           }
-      };
+      });
 
   /** The map of Acl entry flags from NT to AclEntryFlag. */
   private static final Map<Byte, AclEntryFlag> ACL_FLAGS_MAP =
-      new HashMap<Byte, AclEntryFlag>() {
+      Collections.unmodifiableMap(new HashMap<Byte, AclEntryFlag>() {
           {
             put(WinNT.OBJECT_INHERIT_ACE, AclEntryFlag.FILE_INHERIT);
             put(WinNT.CONTAINER_INHERIT_ACE, AclEntryFlag.DIRECTORY_INHERIT);
@@ -115,16 +119,16 @@ public class WindowsFileDelegate implements FileDelegate {
             put(WinNT.NO_PROPAGATE_INHERIT_ACE,
                 AclEntryFlag.NO_PROPAGATE_INHERIT);
           }
-      };
+      });
 
   /** The map of Acl entry type from NT to AclEntryType. */
   private static final Map<Byte, AclEntryType> ACL_TYPE_MAP =
-      new HashMap<Byte, AclEntryType>() {
+      Collections.unmodifiableMap(new HashMap<Byte, AclEntryType>() {
           {
             put(WinNT.ACCESS_ALLOWED_ACE_TYPE, AclEntryType.ALLOW);
             put(WinNT.ACCESS_DENIED_ACE_TYPE, AclEntryType.DENY);
           }
-      };
+      });
 
   private MonitorThread monitorThread;
   private final Object monitorThreadLock = new Object();
@@ -143,16 +147,15 @@ public class WindowsFileDelegate implements FileDelegate {
       throws IOException, UnsupportedOperationException {
     if (Shlwapi.INSTANCE.PathIsUNC(doc.toString())) {
       Matcher match = UNC_PATTERN.matcher(doc.toString());
-      if (match.find()) {
-        String host = match.group(1);
-        String share = match.group(2);
-        log.log(Level.FINEST, "Using a UNC share path. host: {0}, share: {1}",
-            new Object[] { host, share });
-        return getShareAclView(host, share);
-      } else {
+      if (!match.find()) {
         throw new IOException("The UNC path " + doc + " is not valid. "
             + "A UNC path of the form \\\\<host>\\<share> is required.");
       }
+      String host = match.group(1);
+      String share = match.group(2);
+      log.log(Level.FINEST, "Using a UNC share path. host: {0}, share: {1}.",
+          new Object[] { host, share });
+      return getShareAclView(host, share);
     }
 
     // TODO(mifern): For a mapped drive, the share Acl must be the
@@ -175,7 +178,7 @@ public class WindowsFileDelegate implements FileDelegate {
     Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
     PointerByReference buf = new PointerByReference();
     
-    // Call NetShareGetInfo with a 502 to ge the security descriptor of the
+    // Call NetShareGetInfo with a 502 to get the security descriptor of the
     // share. The security descriptor contains the Acl details for the share
     // that the adaptor needs.
     int result = netapi32.NetShareGetInfo(host, share, 502, buf);
@@ -222,10 +225,8 @@ public class WindowsFileDelegate implements FileDelegate {
    */
   private AclEntry newAclEntry(ACCESS_ACEStructure ace) {
     // Map the type.
-    AclEntryType aclType;
-    if (ACL_TYPE_MAP.containsKey(ace.AceType)) {
-      aclType = ACL_TYPE_MAP.get(ace.AceType);
-    } else {
+    AclEntryType aclType = ACL_TYPE_MAP.get(ace.AceType);
+    if (aclType == null) {
       log.log(Level.WARNING, "Unsupported access type: {0}.", ace.AceType);
       return null;
     }
@@ -237,13 +238,18 @@ public class WindowsFileDelegate implements FileDelegate {
           ace.getSidString());
       return null;
     }
+    final String accountName = (account.domain == null ?
+        account.name : account.domain + "\\" + account.name);
     UserPrincipal aclPrincipal;
-    final String domain = (account.domain == null ? "" : account.domain);
-    final String userName = domain + "\\" + account.name;
-    if (GROUP_SID_TYPES.contains(account.accountType)) {
-      aclPrincipal = new Group(userName);
+    if (USER_SID_TYPES.contains(account.accountType)) {
+      aclPrincipal = new User(accountName);
+    } else if (GROUP_SID_TYPES.contains(account.accountType)) {
+      aclPrincipal = new Group(accountName);
     } else {
-      aclPrincipal = new User(userName);
+      log.log(Level.WARNING,
+          "Non supported account type {0}. Skipping account {1}.",
+          new Object[] { account.accountType, accountName });
+      return null;
     }
     
     // Map the permissions.
@@ -299,8 +305,7 @@ public class WindowsFileDelegate implements FileDelegate {
     }
   }
 
-  private class WindowsAclFileAttributeView implements AclFileAttributeView
-  {
+  private class WindowsAclFileAttributeView implements AclFileAttributeView {
     private final List<AclEntry> acl;
 
     WindowsAclFileAttributeView(List<AclEntry> acl) {
@@ -339,13 +344,6 @@ public class WindowsFileDelegate implements FileDelegate {
     Netapi32Ex INSTANCE = (Netapi32Ex) Native.loadLibrary("Netapi32",
         Netapi32Ex.class, W32APIOptions.UNICODE_OPTIONS);
 
-    /**
-     * NetShareGetInfo returns details on a network resource.
-     *
-     * NOTE: We must call NetShareGetInfo with a 502 to ge the security
-     * descriptor of the share. The security descriptor contains the Acl
-     * details for the share that the adaptor needs.
-     */
     public int NetShareGetInfo(String servername, String netname, int level,
         PointerByReference bufptr);
 
@@ -389,20 +387,16 @@ public class WindowsFileDelegate implements FileDelegate {
   @Override
   public DocId newDocId(Path doc) throws IOException {
     File file = doc.toFile().getCanonicalFile();
-    String id = file.getAbsolutePath();
-    final boolean startsWithSlashes = (id.charAt(0) == '\\') &&
-        (id.charAt(1) == '\\');
-    id = id.replace('\\', '/');
+    String id = file.getAbsolutePath().replace('\\', '/');
     if (file.isDirectory()) {
       if (!id.endsWith("/")) {
         id += "/";
       }
     }
-    if (startsWithSlashes) {
-      return new DocId("\\\\" + id.substring(2));
-    } else {
-      return new DocId(id);
+    if (id.startsWith("//")) {
+      id = id.replaceFirst("//", "\\\\");
     }
+    return new DocId(id);
   }
 
   @Override
