@@ -78,13 +78,11 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SUPPORTED_ACCOUNTS =
       "filesystemadaptor.supportedAccounts";
 
-  private static final String SHARE_ACL_PREFIX = "shareAcl:";
-  private static final String ALL_FOLDER_INHERIT_ACL_PREFIX = "allFoldersAcl:";
-  private static final String ALL_FILE_INHERIT_ACL_PREFIX = "allFiles:";
-  private static final String CHILD_FOLDER_INHERIT_ACL_PREFIX =
-      "childFoldersAcl:";
-  private static final String CHILD_FILE_INHERIT_ACL_PREFIX =
-      "childFilesAcl:";
+  private static final String SHARE_ACL = "shareAcl";
+  private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
+  private static final String ALL_FILE_INHERIT_ACL = "allFiles";
+  private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
+  private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
 
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
@@ -155,6 +153,15 @@ public class FsAdaptor extends AbstractAdaptor {
           + " is empty. Please specify a valid root path.");
     }
     rootPath = Paths.get(source);
+    if (!rootPath.equals(rootPath.getRoot())) {
+      // We currently only support a config path that is a root.
+      // Non-root paths will fail to produce Acls for all the folders up
+      // to the root from the configured path, so we limit configuration
+      // only to root paths.
+      throw new IllegalStateException(
+          "Only root paths are supported. " +
+          "Use a path such as C:\\ or X:\\ or \\\\host\\share.");
+    }
     if (!isSupportedPath(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist or it is not a file or directory.");
@@ -261,53 +268,48 @@ public class FsAdaptor extends AbstractAdaptor {
     AclBuilder builder = new AclBuilder(doc, delegate.getAclView(doc),
         supportedWindowsAccounts, builtinPrefix);
 
-    DocId inheritDocId;
+    Acl acl;
     if (isRoot) {
-      inheritDocId = newNamedResourceDocId(rootPathDocId, SHARE_ACL_PREFIX);
+      acl = builder.getAcl(id, docIsDirectory, SHARE_ACL);
     } else if (docIsDirectory) {
-      inheritDocId = newNamedResourceDocId(parentDocId,
-          CHILD_FOLDER_INHERIT_ACL_PREFIX);
+      acl = builder.getAcl(parentDocId, docIsDirectory, CHILD_FOLDER_INHERIT_ACL);
     } else {
-      inheritDocId = newNamedResourceDocId(parentDocId,
-          CHILD_FILE_INHERIT_ACL_PREFIX);
+      acl = builder.getAcl(parentDocId, docIsDirectory, CHILD_FILE_INHERIT_ACL);
     }
-    Acl acl = builder.getAcl(inheritDocId);
     log.log(Level.FINEST, "Setting Acl: doc: {0}, acl: {1}",
         new Object[] { doc, acl });
     resp.setAcl(acl);
 
     // Push the additional Acls for a folder.
     if (docIsDirectory) {
-      Map<DocId, Acl> resources = new HashMap<DocId, Acl>();
-      DocId parentFolderInherit;
-      DocId parentFileInherit;
-
       if (isRoot) {
-        AclFileAttributeView shareAclView = delegate.getShareAclView(doc);
-        AclBuilder builderShare = new AclBuilder(doc, shareAclView,
-            supportedWindowsAccounts, builtinPrefix);
-        resources.put(newNamedResourceDocId(id, SHARE_ACL_PREFIX),
-            builderShare.getAcl(null));
-        parentFolderInherit = null;
-        parentFileInherit = null;
+        AclBuilder builderShare = new AclBuilder(doc,
+            delegate.getShareAclView(doc), supportedWindowsAccounts,
+            builtinPrefix);
+        resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
+   
+        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
+            builder.getInheritableByAllDesendentFoldersAcl(id, SHARE_ACL));
+        resp.putNamedResource(ALL_FILE_INHERIT_ACL,
+            builder.getInheritableByAllDesendentFilesAcl(id, SHARE_ACL));
+        resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
+            builder.getInheritableByChildFoldersOnlyAcl(id, SHARE_ACL));
+        resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
+            builder.getInheritableByChildFilesOnlyAcl(id, SHARE_ACL));
       } else {
-        parentFolderInherit =
-            newNamedResourceDocId(parentDocId, ALL_FOLDER_INHERIT_ACL_PREFIX);
-        parentFileInherit =
-            newNamedResourceDocId(parentDocId, ALL_FILE_INHERIT_ACL_PREFIX);
+        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
+            builder.getInheritableByAllDesendentFoldersAcl(parentDocId,
+                ALL_FOLDER_INHERIT_ACL));
+        resp.putNamedResource(ALL_FILE_INHERIT_ACL,
+            builder.getInheritableByAllDesendentFilesAcl(parentDocId,
+                ALL_FILE_INHERIT_ACL));
+        resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
+            builder.getInheritableByChildFoldersOnlyAcl(parentDocId,
+                ALL_FOLDER_INHERIT_ACL));
+        resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
+            builder.getInheritableByChildFilesOnlyAcl(parentDocId,
+                ALL_FILE_INHERIT_ACL));
       }
-
-      resources.put(newNamedResourceDocId(id, ALL_FOLDER_INHERIT_ACL_PREFIX),
-          builder.getInheritableByAllDesendentFoldersAcl(parentFolderInherit));
-      resources.put(newNamedResourceDocId(id, ALL_FILE_INHERIT_ACL_PREFIX),
-          builder.getInheritableByAllDesendentFilesAcl(parentFileInherit));
-      resources.put(newNamedResourceDocId(id, CHILD_FOLDER_INHERIT_ACL_PREFIX),
-          builder.getInheritableByChildFoldersOnlyAcl(parentFolderInherit));
-      resources.put(newNamedResourceDocId(id, CHILD_FILE_INHERIT_ACL_PREFIX),
-          builder.getInheritableByChildFilesOnlyAcl(parentFileInherit));
-
-      new Thread(new ThreadSetAcl(context.getDocIdPusher(), resources, doc))
-          .start();
     }
 
     // TODO(mifern): Flip these two conditionals to
@@ -376,45 +378,6 @@ public class FsAdaptor extends AbstractAdaptor {
       file = file.getParent();
     }
     return false;
-  }
-
-  private DocId newNamedResourceDocId(DocId id, String idPrefix) {
-    return new DocId(idPrefix + id.getUniqueId());
-  }
-
-  // TODO(mifern): Consider using BlockingQueueBatcher and only have one
-  // thread. The current implementation creates a thread for every folder
-  // being crawled, the thread does a send then exists. This may be an issue
-  // if we crawl a folder that has 100's of subfolders since we'll create
-  // 100's of short lived threads.
-  // NOTE: Using a thread to send a named resource may not be the final
-  // approach.
-  // NOTE: An an API may be exposed in the Adaptor Library that lets us
-  // send a named resources from Response and uses BlockingQueueBatcher
-  // behind the scenes.
-  private class ThreadSetAcl implements Runnable {
-    private DocIdPusher pusher;
-    private Map<DocId, Acl> resources;
-    private Path doc;
-
-    public ThreadSetAcl(DocIdPusher pusher, Map<DocId, Acl> resources,
-        Path doc) {
-      this.pusher = pusher;
-      this.resources = resources;
-      this.doc = doc;
-    }
-
-    public void run() {
-      try {
-        log.log(Level.FINEST,
-            "Pushing named resources: doc: {0}, resources: {1}",
-            new Object[] { doc, resources });
-        pusher.pushNamedResources(resources);
-      } catch (InterruptedException e) {
-        log.log(Level.WARNING, "Unable to set ACLs for {0}.", doc);
-        Thread.currentThread().interrupt();
-      }
-    }
   }
 
   private class FsMonitor {

@@ -157,7 +157,7 @@ public class WindowsFileDelegate implements FileDelegate {
       // a second call to WNetGetUniversalNameW with a buffer big enough.
       Mpr mprlib = Mpr.INSTANCE;
       Memory buf = new Memory(1024);
-      IntByReference bufSize = new IntByReference((int)buf.size());
+      IntByReference bufSize = new IntByReference((int) buf.size());
       int result = mprlib.WNetGetUniversalNameW(doc.getRoot().toString(),
           Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       if (result == WinNT.ERROR_MORE_DATA) {
@@ -415,7 +415,10 @@ public class WindowsFileDelegate implements FileDelegate {
       }
     }
     if (id.startsWith("//")) {
-      id = id.replaceFirst("//", "\\\\");
+      // String.replaceFirst uses regular expression string and replacement
+      // so they need to be escaped appropriately. The above String.replace
+      // does NOT use expressions so regex escaping is not needed.
+      id = id.replaceFirst("//", "\\\\\\\\");
     }
     return new DocId(id);
   }
