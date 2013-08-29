@@ -153,6 +153,15 @@ public class FsAdaptor extends AbstractAdaptor {
           + " is empty. Please specify a valid root path.");
     }
     rootPath = Paths.get(source);
+    if (!rootPath.equals(rootPath.getRoot())) {
+      // We currently only support a config path that is a root.
+      // Non-root paths will fail to produce Acls for all the folders up
+      // to the root from the configured path, so we limit configuration
+      // only to root paths.
+      throw new IllegalStateException(
+          "Only root paths are supported. " +
+          "Use a path such as C:\\ or X:\\ or \\\\host\\share.");
+    }
     if (!isSupportedPath(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist or it is not a file or directory.");
