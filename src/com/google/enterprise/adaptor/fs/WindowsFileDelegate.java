@@ -397,7 +397,7 @@ public class WindowsFileDelegate implements FileDelegate {
       // String.replaceFirst uses regular expression string and replacement
       // so they need to be escaped appropriately. The above String.replace
       // does NOT use expressions so regex escaping is not needed.
-      id = id.replaceFirst("//", "\\\\");
+      id = id.replaceFirst("//", "\\\\\\\\");
     }
     return new DocId(id);
   }
