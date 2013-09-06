@@ -265,16 +265,27 @@ public class FsAdaptor extends AbstractAdaptor {
       parentDocId = delegate.newDocId(parent);
     }
 
-    AclBuilder builder = new AclBuilder(doc, delegate.getAclView(doc),
-        supportedWindowsAccounts, builtinPrefix);
-
+    AclFileAttributeViews aclViews = delegate.getAclViews(doc);
+    boolean hasNoInheritedAcl =
+        aclViews.getInheritedAclView().getAcl().isEmpty();
+    AclBuilder builder;
     Acl acl;
     if (isRoot) {
-      acl = builder.getAcl(id, docIsDirectory, SHARE_ACL);
-    } else if (docIsDirectory) {
-      acl = builder.getAcl(parentDocId, docIsDirectory, CHILD_FOLDER_INHERIT_ACL);
+      builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
+          supportedWindowsAccounts, builtinPrefix);
+      acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
     } else {
-      acl = builder.getAcl(parentDocId, docIsDirectory, CHILD_FILE_INHERIT_ACL);
+      builder = new AclBuilder(doc, aclViews.getDirectAclView(),
+          supportedWindowsAccounts, builtinPrefix);
+      if (hasNoInheritedAcl) {
+        acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
+      } else if (docIsDirectory) {
+        acl = builder.getAcl(parentDocId, docIsDirectory,
+                             CHILD_FOLDER_INHERIT_ACL);
+      } else {
+        acl = builder.getAcl(parentDocId, docIsDirectory,
+                             CHILD_FILE_INHERIT_ACL);
+      }
     }
     log.log(Level.FINEST, "Setting Acl: doc: {0}, acl: {1}",
         new Object[] { doc, acl });
@@ -287,15 +298,20 @@ public class FsAdaptor extends AbstractAdaptor {
             delegate.getShareAclView(doc), supportedWindowsAccounts,
             builtinPrefix);
         resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
-   
+      }
+      if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFoldersAcl(id, SHARE_ACL));
+            builder.getInheritableByAllDesendentFoldersAcl(rootPathDocId,
+                                                           SHARE_ACL));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFilesAcl(id, SHARE_ACL));
+            builder.getInheritableByAllDesendentFilesAcl(rootPathDocId,
+                                                         SHARE_ACL));
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
-            builder.getInheritableByChildFoldersOnlyAcl(id, SHARE_ACL));
+            builder.getInheritableByChildFoldersOnlyAcl(rootPathDocId,
+                                                        SHARE_ACL));
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
-            builder.getInheritableByChildFilesOnlyAcl(id, SHARE_ACL));
+            builder.getInheritableByChildFilesOnlyAcl(rootPathDocId,
+                                                      SHARE_ACL));
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
             builder.getInheritableByAllDesendentFoldersAcl(parentDocId,

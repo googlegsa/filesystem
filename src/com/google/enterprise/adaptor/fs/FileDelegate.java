@@ -23,38 +23,19 @@ import java.util.concurrent.BlockingQueue;
 
 interface FileDelegate {
   /**
-   * Returns an {@link AclFileAttributeView} that contains the ACL for the
-   * specified path.  The ACL contains no inherited permissions.
+   * Returns an {@link AclFileAttributeViews} that contains the directly
+   * applied and inherited {@link AclFileAttributeView} for the specified path.
    *
-   * @param doc The file/folder to get the {@link AclFileAttributeView} for.
-   * @return AclFileAttributeView of directly applied ACL entries
+   * @param doc The file/folder to get the {@link AclFileAttributeViews} for.
+   * @return AclFileAttributeViews for the specified path
    */
-  AclFileAttributeView getAclView(Path doc) throws IOException;
+  AclFileAttributeViews getAclViews(Path doc) throws IOException;
 
   /**
-   * Returns an {@link AclFileAttributeView} that contains the inherited ACL
-   * for the specified path. The ACL contains only permissions inherited
-   * from the parent.
-   * <p/>
-   * Note that there is a distinct difference between a return value of
-   * {@code null} and an empty ACL list. A return of {@code null} indicates
-   * that the file did not inherit any aces from its parent.  An empty
-   * {@code List} indicates that the file did inherit some permissions
-   * from its parent, but inherited no {@code ACCESS_ALLOWED} or
-   * {@code ACCESS_DENIED} permissions for user or group accounts.
-   *
-   * @param doc The file/folder to get the {@link AclFileAttributeView} for.
-   * @return AclFileAttributeView of inherited ACL entries, or {@code null}
-   *         if there were no inherited ACLs entries.
-   */
-  AclFileAttributeView getInheritedAclView(Path doc) throws IOException;
-
-  /**
-   * Returns an {@link AclFileAttributeView} that contains share ACL for the
+   * Returns an {@link AclFileAttributeView} that contains share Acl for the
    * specified path.
    *
    * @param doc The file/folder to get the {@link AclFileAttributeView} for.
-   * @return AclFileAttributeView of ACL entries imposed by the share
    */
   AclFileAttributeView getShareAclView(Path doc) throws IOException;
 

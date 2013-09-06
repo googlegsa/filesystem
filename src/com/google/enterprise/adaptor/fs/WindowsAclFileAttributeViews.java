@@ -16,6 +16,7 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
@@ -48,7 +49,10 @@ import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.UserPrincipal;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,118 +62,127 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Factory for generating various {@code AclFileAttributeViews}
- * for Windows files.
+ * Generate various {@link AclFileAttributeView}s for Windows files.
  */
-public class WindowsAclFileAttributeViews {
+class WindowsAclFileAttributeViews {
 
-  private static final Logger LOG = 
+  private static final Logger log = 
       Logger.getLogger(WindowsAclFileAttributeViews.class.getName());
 
-  private static final Kernel32 KERNEL32 = (Kernel32) Native.loadLibrary(
-      "Kernel32", Kernel32.class, W32APIOptions.UNICODE_OPTIONS);
-
-  private static final Advapi32 ADVAPI32 = (Advapi32) Native.loadLibrary(
-      "Advapi32", Advapi32.class, W32APIOptions.UNICODE_OPTIONS);
+  private static final Kernel32 KERNEL32 = Kernel32.INSTANCE;
+  private static final Advapi32 ADVAPI32 = Advapi32.INSTANCE; 
 
   /** This pattern parses a UNC path to get the host and share details. */
   private static final Pattern UNC_PATTERN =
       Pattern.compile("^\\\\\\\\([^\\\\]+)\\\\([^\\\\]+)");
 
+  /** The set of SID_NAME_USE which are groups and not users. */
+  private static final Set<Integer> GROUP_SID_TYPES =
+      Collections.unmodifiableSet(Sets.newHashSet(
+        SID_NAME_USE.SidTypeAlias, SID_NAME_USE.SidTypeGroup,
+            SID_NAME_USE.SidTypeWellKnownGroup));
 
-  private WindowsAclFileAttributeViews() {
-    // Prevents instantiation.
-  }
+  /** The set of SID_NAME_USE which are user and not groups. */
+  private static final Set<Integer> USER_SID_TYPES =
+      Collections.unmodifiableSet(Sets.newHashSet(SID_NAME_USE.SidTypeUser));
+
+  /** The map of Acl permissions from NT to AclEntryPermission. */
+  private static final Map<Integer, AclEntryPermission> ACL_PERMS_MAP =
+      Collections.unmodifiableMap(new HashMap<Integer, AclEntryPermission>() {
+          {
+            put(WinNT.FILE_READ_DATA, AclEntryPermission.READ_DATA);
+            put(WinNT.FILE_READ_ATTRIBUTES,
+                AclEntryPermission.READ_ATTRIBUTES);
+            put(WinNT.FILE_READ_EA, AclEntryPermission.READ_NAMED_ATTRS);
+            put(WinNT.READ_CONTROL, AclEntryPermission.READ_ACL);
+            put(WinNT.FILE_WRITE_DATA, AclEntryPermission.WRITE_DATA);
+            put(WinNT.FILE_APPEND_DATA, AclEntryPermission.APPEND_DATA);
+            put(WinNT.FILE_WRITE_ATTRIBUTES,
+                AclEntryPermission.WRITE_ATTRIBUTES);
+            put(WinNT.FILE_WRITE_EA, AclEntryPermission.WRITE_NAMED_ATTRS);
+            put(WinNT.WRITE_DAC, AclEntryPermission.WRITE_ACL);
+            put(WinNT.WRITE_OWNER, AclEntryPermission.WRITE_OWNER);
+            put(WinNT.DELETE, AclEntryPermission.DELETE);
+            put(WinNT.FILE_DELETE_CHILD, AclEntryPermission.DELETE_CHILD);
+            put(WinNT.SYNCHRONIZE, AclEntryPermission.SYNCHRONIZE);
+            put(WinNT.FILE_EXECUTE, AclEntryPermission.EXECUTE);
+          }
+      });
+
+  /** The map of Acl entry flags from NT to AclEntryFlag. */
+  private static final Map<Byte, AclEntryFlag> ACL_FLAGS_MAP =
+      Collections.unmodifiableMap(new HashMap<Byte, AclEntryFlag>() {
+          {
+            put(WinNT.OBJECT_INHERIT_ACE, AclEntryFlag.FILE_INHERIT);
+            put(WinNT.CONTAINER_INHERIT_ACE, AclEntryFlag.DIRECTORY_INHERIT);
+            put(WinNT.INHERIT_ONLY_ACE, AclEntryFlag.INHERIT_ONLY);
+            put(WinNT.NO_PROPAGATE_INHERIT_ACE,
+                AclEntryFlag.NO_PROPAGATE_INHERIT);
+          }
+      });
+
+  /** The map of Acl entry type from NT to AclEntryType. */
+  private static final Map<Byte, AclEntryType> ACL_TYPE_MAP =
+      Collections.unmodifiableMap(new HashMap<Byte, AclEntryType>() {
+          {
+            put(WinNT.ACCESS_ALLOWED_ACE_TYPE, AclEntryType.ALLOW);
+            put(WinNT.ACCESS_DENIED_ACE_TYPE, AclEntryType.DENY);
+          }
+      });
+
 
   /**
-   * Returns the access control list. The returned list does not include any
-   * permissions that the file inherited from its parent.
+   * Returns a container for the direct and inherited ACLs for
+   * the supplied file.
    *
-   * @param doc a Path representing a Windows file or directory
-   * @return AclFileAttributeView of direct ACL entries
+   * @param path The file/folder to get the {@link AclFileAttributeViews} for
+   * @return AclFileAttributeViews of direct and inherited ACL entries
    */
-  public static AclFileAttributeView  getAclView(Path doc) throws IOException {
-    String pathname = doc.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
-    WinNT.ACCESS_ACEStructure[] aces =
-        getFileSecurity(pathname, WinNT.DACL_SECURITY_INFORMATION);
-    ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
-    for (WinNT.ACCESS_ACEStructure ace : aces) {
-      if ((ace.AceFlags & WinNT.INHERITED_ACE) == 0) {
-        AclEntry aclEntry = newAclEntry(ace);
-        if (aclEntry != null) {
-          builder.add(aclEntry);
-        }
-      }
-    }
-    List<AclEntry> acl = builder.build();
-    if (LOG.isLoggable(Level.FINEST)) {
-      LOG.log(Level.FINEST, "Direct ACL for {0}: {1}",
-              new Object[] { pathname, acl.toString() });
-    }
-    return new WindowsAclFileAttributeView(acl);
-  }
-
-  /**
-   * Returns an access control list.  The returned list contains only
-   * permissions that were inherited from the file's parent.
-   * <p/>
-   * Note that there is a distinct difference between a return value of
-   * {@code null} and an empty list. A return of {@code null} indicates
-   * that the file did not inherit any aces from its parent.  An empty
-   * {@code List} indicates that the file did inherit some permissions
-   * from its parent, but inherited no {@code ACCESS_ALLOWED} or
-   * {@code ACCESS_DENIED} permissions for user or group accounts.
-   *
-   * @param doc a Path representing a Windows file or directory
-   * @return AclFileAttributeView of inherited ACL entries, or {@code null}
-   *         if there were no inherited ACLs entries.
-   */
-  public static AclFileAttributeView getInheritedAclView(Path doc) 
-      throws IOException {
-    String pathname = doc.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
+  public AclFileAttributeViews getAclViews(Path path) throws IOException {
+    String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
     WinNT.ACCESS_ACEStructure[] aces =
         getFileSecurity(pathname, WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
-    boolean hasInheritedAces = false;
-    ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
+    ImmutableList.Builder<AclEntry> inherited = ImmutableList.builder();
+    ImmutableList.Builder<AclEntry> direct = ImmutableList.builder();
+
     for (WinNT.ACCESS_ACEStructure ace : aces) {
-      if ((ace.AceFlags & WinNT.INHERITED_ACE) == WinNT.INHERITED_ACE) {
-        hasInheritedAces = true;
-        AclEntry aclEntry = newAclEntry(ace);
-        if (aclEntry != null) {
-          builder.add(aclEntry);
+      AclEntry aclEntry = newAclEntry(ace);      
+      if (aclEntry != null) {
+        if ((ace.AceFlags & WinNT.INHERITED_ACE) == WinNT.INHERITED_ACE) {
+          inherited.add(aclEntry);
+        } else {
+          direct.add(aclEntry);
         }
       }
     }
 
-    // If there any inherited ACEs return an AclView, even if it is empty.
-    // If there were no inherited ACEs, return null.
-    if (hasInheritedAces) {
-      List<AclEntry> acl = builder.build();
-      if (LOG.isLoggable(Level.FINEST)) {
-        LOG.log(Level.FINEST, "Inherited ACL for {0}: {1}",
-                new Object[] { pathname, acl.toString() });
-      }
-      return new WindowsAclFileAttributeView(acl);
-    } else {
-      LOG.log(Level.FINEST, "Inherited ACL for {0}: none", pathname);
-      return null;
-    }
+    List<AclEntry> inheritedAcl = inherited.build();
+    log.log(Level.FINEST, "Inherited ACL for {0}: {1}",
+        new Object[] { pathname, inheritedAcl });
+
+    List<AclEntry> directAcl = direct.build();
+    log.log(Level.FINEST, "Direct ACL for {0}: {1}",
+        new Object[] { pathname, directAcl });
+
+    return new AclFileAttributeViews(
+        new SimpleAclFileAttributeView(directAcl),
+        new SimpleAclFileAttributeView(inheritedAcl));
   }
 
   /**
    * Returns the access control list for the file share which contains
    * the supplied file.
    *
-   * @param doc a Path representing a Windows file or directory
+   * @param path The file/folder to get the {@link AclFileAttributeView} for
    * @return AclFileAttributeView of ACL entries imposed by the share
    */
-  public static AclFileAttributeView getShareAclView(Path doc)
+  public AclFileAttributeView getShareAclView(Path path)
       throws IOException, UnsupportedOperationException {
-    if (Shlwapi.INSTANCE.PathIsUNC(doc.toString())) {
-      LOG.log(Level.FINEST, "Using a UNC path.");
-      return getUncShareAclView(doc.toString());
-    } else if (Shlwapi.INSTANCE.PathIsNetworkPath(doc.toString())) {
-      LOG.log(Level.FINEST, "Using a mapped drive.");
+    if (Shlwapi.INSTANCE.PathIsUNC(path.toString())) {
+      log.log(Level.FINEST, "Using a UNC path.");
+      return getUncShareAclView(path.toString());
+    } else if (Shlwapi.INSTANCE.PathIsNetworkPath(path.toString())) {
+      log.log(Level.FINEST, "Using a mapped drive.");
       // Call WNetGetUniversalNameW with the size needed for 
       // UNIVERSAL_NAME_INFO. If WNetGetUniversalNameW returns ERROR_MORE_DATA
       // that indicates that a larger buffer is needed. If this happens, make
@@ -177,29 +190,29 @@ public class WindowsAclFileAttributeViews {
       Mpr mprlib = Mpr.INSTANCE;
       Memory buf = new Memory(1024);
       IntByReference bufSize = new IntByReference((int) buf.size());
-      int result = mprlib.WNetGetUniversalNameW(doc.getRoot().toString(),
+      int result = mprlib.WNetGetUniversalNameW(path.getRoot().toString(),
           Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       if (result == WinNT.ERROR_MORE_DATA) {
         buf = new Memory(bufSize.getValue());
-        result = Mpr.INSTANCE.WNetGetUniversalNameW(doc.getRoot().toString(),
+        result = Mpr.INSTANCE.WNetGetUniversalNameW(path.getRoot().toString(),
             Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       }
       if (result != WinNT.NO_ERROR) {
         throw new IOException("Unable to get UNC path for the mapped path " +
-            doc + ". Result: " + result);
+            path + ". Result: " + result);
       }
 
       Mpr.UNIVERSAL_NAME_INFO info = new Mpr.UNIVERSAL_NAME_INFO(buf);
       return getUncShareAclView(info.lpUniversalName);
     } else {
-      LOG.log(Level.FINEST, "Using a local drive.");
-      return new WindowsAclFileAttributeView(ImmutableList.<AclEntry>of());
+      log.log(Level.FINEST, "Using a local drive.");
+      return new SimpleAclFileAttributeView(Collections.<AclEntry>emptyList());
     }
     // TODO(mifern): For a local drive, mapped and UNC the share Acl must also
     // include the Acls from the config point to the root.
   }
 
-  private static AclFileAttributeView getUncShareAclView(String uncPath)
+  private AclFileAttributeView getUncShareAclView(String uncPath)
       throws IOException {
     Matcher match = UNC_PATTERN.matcher(uncPath);
     if (!match.find()) {
@@ -208,12 +221,12 @@ public class WindowsAclFileAttributeViews {
     }
     String host = match.group(1);
     String share = match.group(2);
-    LOG.log(Level.FINEST, "UNC: host: {0}, share: {1}.",
+    log.log(Level.FINEST, "UNC: host: {0}, share: {1}.",
         new Object[] { host, share });
     return getShareAclView(host, share);
   }
   
-  private static AclFileAttributeView getShareAclView(String host, String share)
+  private AclFileAttributeView getShareAclView(String host, String share)
       throws IOException {
     Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
     PointerByReference buf = new PointerByReference();
@@ -249,7 +262,7 @@ public class WindowsAclFileAttributeViews {
         new WinNT.SECURITY_DESCRIPTOR_RELATIVE(info.shi502_security_descriptor);
     WinNT.ACL dacl = sdr.getDiscretionaryACL();
 
-    ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();    
+    ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
     for (WinNT.ACCESS_ACEStructure ace : dacl.getACEStructures()) {
       AclEntry entry = newAclEntry(ace);
       if (entry != null) {
@@ -258,15 +271,115 @@ public class WindowsAclFileAttributeViews {
     }
 
     List<AclEntry> acl = builder.build();
-    if (LOG.isLoggable(Level.FINEST)) {
-      LOG.log(Level.FINEST, "Share ACL for \\\\{0}\\{1}: {2}",
-              new Object[] { host, share, acl.toString() });
+    if (log.isLoggable(Level.FINEST)) {
+      log.log(Level.FINEST, "Share ACL for \\\\{0}\\{1}: {2}",
+          new Object[] { host, share, acl.toString() });
     }
-    return new WindowsAclFileAttributeView(acl);
+    return new SimpleAclFileAttributeView(acl);
   }
 
+  /**
+   * Creates an {@link AclEntry} from a {@code WinNT.ACCESS_ACEStructure}.
+   *
+   * @param ace Windows ACE returned by JNA
+   * @return AclEntry representing the ace, or {@code null} if a valid
+   *         AclEntry could not be created from the ace.
+   */
+  private AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
+    // Map the type.
+    AclEntryType aclType = ACL_TYPE_MAP.get(ace.AceType);
+    if (aclType == null) {
+      log.log(Level.FINEST, "Skipping ACE with unsupported access type: {0}.",
+          ace.AceType);
+      return null;
+    }
+    
+    // Map the user.
+    Account account = Advapi32Util.getAccountBySid(ace.getSID());
+    if (account == null) {
+      log.log(Level.WARNING, "Skipping ACE with unresolvable SID: {0}.",
+          ace.getSidString());
+      return null;
+    }
+    String accountName = (account.domain == null ?
+        account.name : account.domain + "\\" + account.name);
+    UserPrincipal aclPrincipal;
+    String accountType = getSidTypeString(account.accountType);
+    if (USER_SID_TYPES.contains(account.accountType)) {
+      aclPrincipal = new User(accountName, accountType);
+    } else if (GROUP_SID_TYPES.contains(account.accountType)) {
+      aclPrincipal = new Group(accountName, accountType);
+    } else {
+      log.log(Level.FINEST,
+          "Skipping ACE with unsupported account type {0} ({1}).",
+          new Object[] { accountName, accountType });
+      return null;
+    }
+    
+    // Map the permissions.
+    Set<AclEntryPermission> aclPerms = EnumSet.noneOf(AclEntryPermission.class);
+    for (Map.Entry<Integer, AclEntryPermission> e : ACL_PERMS_MAP.entrySet()) {
+      if ((ace.Mask & e.getKey()) == e.getKey()) {
+        aclPerms.add(e.getValue());
+      }
+    }
+    
+    // Map the flags.
+    Set<AclEntryFlag> aclFlags = EnumSet.noneOf(AclEntryFlag.class);
+    for (Map.Entry<Byte, AclEntryFlag> e : ACL_FLAGS_MAP.entrySet()) {
+      if ((ace.Mask & e.getKey()) == e.getKey()) {
+        aclFlags.add(e.getValue());
+      }
+    }
 
-  private static interface Netapi32Ex extends Netapi32 {
+    return AclEntry.newBuilder()
+        .setType(aclType)
+        .setPrincipal(aclPrincipal)
+        .setPermissions(aclPerms)
+        .setFlags(aclFlags)
+        .build();
+  }
+
+  // One-to-one corresponance to WinNT.SID_NAME_USE "enumeration".
+  private static final List<String> SID_TYPE_NAMES = ImmutableList.of(
+      "Unknown", "User", "Group", "Domain", "Alias", "Well-known Group",
+      "Deleted", "Invalid", "Computer");
+
+  private static String getSidTypeString(int sidType) {
+    if (sidType < 0 || sidType > SID_TYPE_NAMES.size()) {
+      return SID_TYPE_NAMES.get(0);
+    } else {
+      return SID_TYPE_NAMES.get(sidType);
+    }
+  }
+
+  private class User implements UserPrincipal {
+    private final String accountName;
+    private final String accountType;
+
+    User(String accountName, String accountType) {
+      this.accountName = accountName;
+      this.accountType = accountType;
+    }
+
+    @Override
+    public String getName() {
+      return accountName;
+    }
+
+    @Override
+    public String toString() {
+      return accountName + " (" + accountType + ")";
+    }
+  }
+
+  private class Group extends User implements GroupPrincipal {
+    Group(String accountName, String accountType) {
+      super(accountName, accountType);
+    }
+  }
+
+  private interface Netapi32Ex extends Netapi32 {
     Netapi32Ex INSTANCE = (Netapi32Ex) Native.loadLibrary("Netapi32",
         Netapi32Ex.class, W32APIOptions.UNICODE_OPTIONS);
 
@@ -300,243 +413,17 @@ public class WindowsAclFileAttributeViews {
       
       @Override
       protected List<String> getFieldOrder() {
-        return ImmutableList.<String>of(
+        return Arrays.asList(new String[] {
             "shi502_netname", "shi502_type", "shi502_remark",
             "shi502_permissions", "shi502_max_uses", "shi502_current_uses",
             "shi502_path", "shi502_passwd", "shi502_reserved",
             "shi502_security_descriptor"
-            );
+            });
       }
     }
   }
 
-  /**
-   * Creates an {@link AclEntry} from a {@code WinNT.ACCESS_ACEStructure}.
-   *
-   * @param ace Windows ACE returned by JNA
-   * @return AclEntry representing the ace, or {@code null} if a valid
-   *         AclEntry could not be created from the ace.
-   */
-  private static AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
-    AclEntryType type;
-    if (ace.AceType == WinNT.ACCESS_ALLOWED_ACE_TYPE) {
-      type = AclEntryType.ALLOW;
-    } else if (ace.AceType == WinNT.ACCESS_DENIED_ACE_TYPE) {
-      type = AclEntryType.DENY;
-    } else {
-      LOG.log(Level.FINEST, "Skipping ACE with unsupported access type: {0}.",
-              ace.AceType);
-      return null;
-    }
-
-    UserPrincipal userPrincipal = newUserPrincipal(ace.getSID());
-    if (userPrincipal == null) {
-      return null;
-    }
-
-    Set<AclEntryFlag> flags = EnumSet.noneOf(AclEntryFlag.class);
-    if ((ace.AceFlags & WinNT.OBJECT_INHERIT_ACE) != 0) {
-      flags.add(AclEntryFlag.FILE_INHERIT);
-    }
-    if ((ace.AceFlags & WinNT.CONTAINER_INHERIT_ACE) != 0) {
-      flags.add(AclEntryFlag.DIRECTORY_INHERIT);
-    }
-    if ((ace.AceFlags & WinNT.NO_PROPAGATE_INHERIT_ACE) != 0) {
-      flags.add(AclEntryFlag.NO_PROPAGATE_INHERIT);
-    }
-    if ((ace.AceFlags & WinNT.INHERIT_ONLY_ACE) != 0) {
-      flags.add(AclEntryFlag.INHERIT_ONLY);
-    }
-
-    Set<AclEntryPermission> perms = EnumSet.noneOf(AclEntryPermission.class);
-    if ((ace.Mask & WinNT.FILE_READ_DATA) > 0) {
-      perms.add(AclEntryPermission.READ_DATA);
-    }
-    if ((ace.Mask & WinNT.FILE_WRITE_DATA) > 0) {
-      perms.add(AclEntryPermission.WRITE_DATA);
-    }
-    if ((ace.Mask & WinNT.FILE_APPEND_DATA ) > 0) {
-      perms.add(AclEntryPermission.APPEND_DATA);
-    }
-    if ((ace.Mask & WinNT.FILE_READ_EA) > 0) {
-      perms.add(AclEntryPermission.READ_NAMED_ATTRS);
-    }
-    if ((ace.Mask & WinNT.FILE_WRITE_EA) > 0) {
-      perms.add(AclEntryPermission.WRITE_NAMED_ATTRS);
-    }
-    if ((ace.Mask & WinNT.FILE_EXECUTE) > 0) {
-      perms.add(AclEntryPermission.EXECUTE);
-    }
-    if ((ace.Mask & WinNT.FILE_DELETE_CHILD ) > 0) {
-      perms.add(AclEntryPermission.DELETE_CHILD);
-    }
-    if ((ace.Mask & WinNT.FILE_READ_ATTRIBUTES) > 0) {
-      perms.add(AclEntryPermission.READ_ATTRIBUTES);
-    }
-    if ((ace.Mask & WinNT.FILE_WRITE_ATTRIBUTES) > 0) {
-      perms.add(AclEntryPermission.WRITE_ATTRIBUTES);
-    }
-    if ((ace.Mask & WinNT.DELETE) > 0) {
-      perms.add(AclEntryPermission.DELETE);
-    }
-    if ((ace.Mask & WinNT.READ_CONTROL) > 0) {
-      perms.add(AclEntryPermission.READ_ACL);
-    }
-    if ((ace.Mask & WinNT.WRITE_DAC) > 0) {
-      perms.add(AclEntryPermission.WRITE_ACL);
-    }
-    if ((ace.Mask & WinNT.WRITE_OWNER) > 0) {
-      perms.add(AclEntryPermission.WRITE_OWNER);
-    }
-    if ((ace.Mask & WinNT.SYNCHRONIZE) > 0) {
-      perms.add(AclEntryPermission.SYNCHRONIZE);
-    }
-    
-    return AclEntry.newBuilder()
-        .setType(type)
-        .setPrincipal(userPrincipal)
-        .setFlags(flags)
-        .setPermissions(perms)
-        .build();
-  }
-  
-  private static final String[] SID_TYPE_NAMES = {
-    "Unknown", "User", "Group", "Domain", "Alias", "Well-known Group",
-    "Deleted", "Invalid", "Computer" };
-
-  private static String getSidTypeString(int sidType) {
-    if (sidType < 0 || sidType > SID_TYPE_NAMES.length) {
-      return SID_TYPE_NAMES[0];
-    } else {
-      return SID_TYPE_NAMES[sidType];
-    }
-  }
-
-  /**
-   * Generates a {@link UserPrincipal} or {@link GroupPrincipal} from a
-   * {@code SID}.
-   */
-  private static UserPrincipal newUserPrincipal(WinNT.PSID sid) {
-    Account account = Advapi32Util.getAccountBySid(sid);
-    if (account == null) {
-      LOG.log(Level.FINEST, "Skipping ACE with unresolvable SID: {0}.",
-              Advapi32Util.convertSidToStringSid(sid));
-      return null;
-    }
-    String name;
-    if (Strings.isNullOrEmpty(account.name)) {
-      name = account.sidString;
-    } else if (Strings.isNullOrEmpty(account.domain)) {
-      name = account.name;
-    } else {
-      name = account.domain + "\\" + account.name;
-    }
-    switch (account.accountType) {
-      case SID_NAME_USE.SidTypeUser:
-        return new User(account.sidString, account.accountType, name);        
-      case SID_NAME_USE.SidTypeGroup:
-      case SID_NAME_USE.SidTypeAlias:
-      case SID_NAME_USE.SidTypeWellKnownGroup:
-        return new Group(account.sidString, account.accountType, name);
-      default:
-        LOG.log(Level.FINEST,
-            "Skipping ACE with unsupported account type {0} ({1}).", 
-            new Object[] { name, getSidTypeString(account.accountType) });
-        return null;
-    }
-  }
-
-  private static class User implements UserPrincipal {
-    // String representation of SID.
-    private final String sidString;
-
-    // SID type - one of WinNT.SID_NAME_USE.
-    private final int sidType;
-    
-    // Account name (if available) or SID string.
-    private final String accountName;
-
-    User(String sidString, int sidType, String accountName) {
-      this.sidString = sidString;
-      this.sidType = sidType;
-      this.accountName = accountName;
-    }
-
-    public String sidString() {
-      return sidString;
-    }
-
-    @Override
-    public String getName() {
-      return accountName;
-    }
-
-    @Override
-    public String toString() {
-      return accountName + " (" + getSidTypeString(sidType) + ")";
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (obj == this) {
-        return true;
-      }
-      if (!(obj instanceof User)) {
-        return false;
-      }
-      User other = (User) obj;
-      return this.sidString.equals(other.sidString);
-    }
-
-    @Override
-    public int hashCode() {
-      return sidString.hashCode();
-    }
-  }
-
-  private static class Group extends User implements GroupPrincipal {
-    Group(String sidString, int sidType, String accountName) {
-      super(sidString, sidType, accountName);
-    }
-  }
-
-  private static class WindowsAclFileAttributeView
-      implements AclFileAttributeView {
-    private final List<AclEntry> acl;
-
-    WindowsAclFileAttributeView(List<AclEntry> acl) {
-      this.acl = acl;
-    }
-
-    @Override
-    public void setAcl(List<AclEntry> acl)
-        throws UnsupportedOperationException {
-      throw new UnsupportedOperationException("setAcl is not supported.");
-    }
-
-    @Override
-    public List<AclEntry> getAcl() throws IOException {
-      return acl;
-    }
-
-    @Override
-    public String name() {
-      return "acl";
-    }
-
-    @Override
-    public UserPrincipal getOwner() throws UnsupportedOperationException {
-      throw new UnsupportedOperationException("getOwner is not supported.");
-    }
-
-    @Override
-    public void setOwner(UserPrincipal owner)
-        throws UnsupportedOperationException {
-      throw new UnsupportedOperationException("setOwner is not supported.");
-    }
-  }
-
-  private static interface Shlwapi extends StdCallLibrary {
+  private interface Shlwapi extends StdCallLibrary {
     Shlwapi INSTANCE = (Shlwapi) Native.loadLibrary("Shlwapi",
         Shlwapi.class, W32APIOptions.UNICODE_OPTIONS);
 
@@ -544,7 +431,7 @@ public class WindowsAclFileAttributeViews {
     boolean PathIsUNC(String pszPath);
   }
 
-  private static interface Mpr extends StdCallLibrary {
+  private interface Mpr extends StdCallLibrary {
     Mpr INSTANCE = (Mpr) Native.loadLibrary("Mpr", Mpr.class,
         W32APIOptions.UNICODE_OPTIONS);
 
@@ -567,32 +454,32 @@ public class WindowsAclFileAttributeViews {
 
       @Override
       protected List<String> getFieldOrder() {
-        return ImmutableList.<String>of("lpUniversalName");
+        return Arrays.asList(new String[] { "lpUniversalName" });
       }
     }
   }
 
   /** Uses JNA to call native Windows {@code GetFileSecurity} function. */
-  private static WinNT.ACCESS_ACEStructure[] getFileSecurity(String pathname, int daclType)
-      throws IOException {
+  private WinNT.ACCESS_ACEStructure[] getFileSecurity(String pathname,
+      int daclType) throws IOException {
     WString wpath = new WString(pathname);
     IntByReference lengthNeeded = new IntByReference();
 
     if (ADVAPI32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
       throw new RuntimeException("GetFileSecurity was expected to fail with "
-                                 + "ERROR_INSUFFICIENT_BUFFER");
+          + "ERROR_INSUFFICIENT_BUFFER");
     }
 
     int rc = KERNEL32.GetLastError();
-    if (lengthNeeded.getValue() == 0 ||
-        rc != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
+    if (rc != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
       throw new IOException("Failed GetFileSecurity", new Win32Exception(rc));
     }
 
     Memory memory = new Memory(lengthNeeded.getValue());
-    if (!ADVAPI32.GetFileSecurity(wpath, daclType, memory, 0, lengthNeeded)) {
+    if (!ADVAPI32.GetFileSecurity(wpath, daclType, memory, (int) memory.size(),
+                                  lengthNeeded)) {
       throw new IOException("Failed GetFileSecurity",
-                            new Win32Exception(KERNEL32.GetLastError()));
+          new Win32Exception(KERNEL32.GetLastError()));
     }
 
     WinNT.SECURITY_DESCRIPTOR_RELATIVE securityDescriptor =

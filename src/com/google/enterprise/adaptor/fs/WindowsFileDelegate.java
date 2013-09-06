@@ -29,10 +29,10 @@ import com.sun.jna.win32.W32APIOptions;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.AclFileAttributeView;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -41,6 +41,9 @@ public class WindowsFileDelegate implements FileDelegate {
   private static final Logger log
       = Logger.getLogger(WindowsFileDelegate.class.getName());
 
+  private final WindowsAclFileAttributeViews aclViews
+      = new WindowsAclFileAttributeViews();
+
   private MonitorThread monitorThread;
   private final Object monitorThreadLock = new Object();
 
@@ -48,21 +51,13 @@ public class WindowsFileDelegate implements FileDelegate {
   }
 
   @Override
-  public AclFileAttributeView getAclView(Path doc)
-      throws IOException, UnsupportedOperationException {
-    return WindowsAclFileAttributeViews.getAclView(doc);
+  public AclFileAttributeViews getAclViews(Path doc) throws IOException {
+    return aclViews.getAclViews(doc);
   }
 
   @Override
-  public AclFileAttributeView getInheritedAclView(Path doc)
-      throws IOException, UnsupportedOperationException {
-    return WindowsAclFileAttributeViews.getInheritedAclView(doc);
-  }
-
-  @Override
-  public AclFileAttributeView getShareAclView(Path doc)
-      throws IOException, UnsupportedOperationException {
-    return WindowsAclFileAttributeViews.getShareAclView(doc);
+  public AclFileAttributeView getShareAclView(Path doc) throws IOException {
+    return aclViews.getShareAclView(doc);
   }
 
   @Override
@@ -282,11 +277,6 @@ public class WindowsFileDelegate implements FileDelegate {
     }
   }
 
-  @Override
-  public void destroy() {
-    stopMonitorPath();
-  }
-
   private interface Kernel32Ex extends Kernel32 {
     Kernel32Ex INSTANCE = (Kernel32Ex) Native.loadLibrary("Kernel32",
         Kernel32Ex.class, W32APIOptions.UNICODE_OPTIONS);
@@ -294,6 +284,11 @@ public class WindowsFileDelegate implements FileDelegate {
     public static final int WAIT_IO_COMPLETION = 0x000000C0;
 
     int WaitForSingleObjectEx(HANDLE hHandle, int dwMilliseconds,
-                              boolean bAlertable);
+        boolean bAlertable);
+  }
+
+  @Override
+  public void destroy() {
+    stopMonitorPath();
   }
 }
