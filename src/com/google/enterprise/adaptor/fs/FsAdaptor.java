@@ -245,11 +245,8 @@ public class FsAdaptor extends AbstractAdaptor {
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
-    resp.addMetadata("Last Access Time",  dateFormatter.get().format(
-        new Date(lastAccessTime.toMillis())));
     if (!docIsDirectory) {
       resp.setContentType(Files.probeContentType(doc));
-      resp.addMetadata("File Size", Long.toString(attrs.size()));
     }
 
     // TODO(mifern): Include extended attributes.
