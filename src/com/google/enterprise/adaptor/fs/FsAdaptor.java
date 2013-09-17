@@ -88,9 +88,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
 
-  /** The config parameter name for the max incremental batch size. */
-  private static final String CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES =
-      "filesystemadaptor.maxIncrementalLatencyMinutes";
+  /** The config parameter name for the max incremental batch latency. */
+  private static final String CONFIG_MAX_INCREMENTAL_LATENCY =
+      "adaptor.incrementalPollPeriodSecs";
 
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
@@ -141,7 +141,7 @@ public class FsAdaptor extends AbstractAdaptor {
         "BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
-    config.addKey(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES, "5");
+    config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
   }
 
   @Override
@@ -180,12 +180,12 @@ public class FsAdaptor extends AbstractAdaptor {
 
     int maxFeed = Integer.parseInt(
         context.getConfig().getValue("feed.maxUrls"));
-    int maxLatencyMinutes = Integer.parseInt(
-        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES));
+    long maxLatencyMillis = 1000L * Integer.parseInt(
+        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY));
 
     rootPathDocId = delegate.newDocId(rootPath);
     monitor = new FsMonitor(delegate, context.getDocIdPusher(), maxFeed,
-        maxLatencyMinutes);
+        maxLatencyMillis);
     delegate.startMonitorPath(rootPath, monitor.getQueue());
     monitor.start();
   }
@@ -382,19 +382,19 @@ public class FsAdaptor extends AbstractAdaptor {
     private final PushThread pushThread;
     private final BlockingQueue<Path> queue;
     private final int maxFeedSize;
-    private final int maxLatencyMinutes;
+    private final long maxLatencyMillis;
 
     public FsMonitor(FileDelegate delegate, DocIdPusher pusher,
-        int maxFeedSize, int maxLatencyMinutes) {
+        int maxFeedSize, long maxLatencyMillis) {
       Preconditions.checkNotNull(delegate, "the delegate may not be null");
       Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
       Preconditions.checkArgument(maxFeedSize > 0,
           "the maxFeedSize must be greater than zero");
-      Preconditions.checkArgument(maxLatencyMinutes > 0,
-          "the maxLatencyMinutes must be greater than zero");
+      Preconditions.checkArgument(maxLatencyMillis > 0,
+          "the maxLatencyMillis must be greater than zero");
       this.pusher = pusher;
       this.maxFeedSize = maxFeedSize;
-      this.maxLatencyMinutes = maxLatencyMinutes;
+      this.maxLatencyMillis = maxLatencyMillis;
       queue = new LinkedBlockingQueue<Path>(20 * maxFeedSize);
       pushThread = new PushThread();
     }
@@ -431,7 +431,7 @@ public class FsAdaptor extends AbstractAdaptor {
         while (true) {
           try {
             BlockingQueueBatcher.take(queue, docs, maxFeedSize,
-                maxLatencyMinutes, TimeUnit.MINUTES);
+                maxLatencyMillis, TimeUnit.MILLISECONDS);
             createRecords(records, docs);
             log.log(Level.FINER, "Sending crawl immediately records: {0}",
                 records);
