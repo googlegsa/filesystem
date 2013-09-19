@@ -22,6 +22,7 @@ import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
+import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Advapi32Util;
 import com.sun.jna.platform.win32.Advapi32Util.Account;
 import com.sun.jna.platform.win32.Kernel32;
@@ -29,6 +30,8 @@ import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.WinBase;
+import com.sun.jna.platform.win32.WinDef.DWORD;
+import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.ACCESS_ACEStructure;
@@ -55,6 +58,7 @@ import java.nio.file.attribute.UserPrincipal;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -135,6 +139,41 @@ public class WindowsFileDelegate implements FileDelegate {
   private final Object monitorThreadLock = new Object();
 
   public WindowsFileDelegate() {
+  }
+
+  @Override
+  public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
+    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
+    PointerByReference buf = new PointerByReference();
+    int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
+    if (rc != LMErr.NERR_Success) {
+      // Log this at INFO since we expect this when the adaptor is configured
+      // for non-DFS root paths. Adaptor.init will call
+      // getDfsUncActiveStorageUnc to check if the path is a DFS path.
+      log.log(Level.INFO, "Unable to get DFS details for {0}. Code: {1}",
+          new Object[] { doc, rc });
+      return null;
+    }
+
+    Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3(buf.getValue());
+    netapi32.NetApiBufferFree(buf.getValue());
+
+    // Find the active storage.
+    String storageUnc = null;
+    for (int i = 0; i < info.StorageInfos.length; i++) {
+      Netapi32Ex.DFS_STORAGE_INFO storeInfo = info.StorageInfos[i];
+      if (storeInfo.State.intValue() == Netapi32Ex.DFS_STORAGE_STATE_ONLINE) {
+        storageUnc = String.format("\\\\%s\\%s", storeInfo.ServerName,
+            storeInfo.ShareName);
+        break;
+      }
+    }
+    if (storageUnc == null) {
+      throw new IOException("The DFS path " + doc +
+          " does not have an active storage.");
+    }
+
+    return Paths.get(storageUnc);
   }
 
   @Override
@@ -401,6 +440,74 @@ public class WindowsFileDelegate implements FileDelegate {
             "shi502_path", "shi502_passwd", "shi502_reserved",
             "shi502_security_descriptor"
             });
+      }
+    }
+
+    public int NetDfsGetInfo(String DfsEntryPath, String ServerName,
+        String ShareName, int Level, PointerByReference Buffer);
+
+    public static final int DFS_STORAGE_STATE_ONLINE = 2;
+
+    public static class DFS_INFO_3 extends Structure {
+      public WString EntryPath;
+      public WString Comment;
+      public DWORD State;
+      public DWORD NumberOfStorages;
+      public Pointer Storage;
+      protected DFS_STORAGE_INFO[] StorageInfos;
+
+      public DFS_INFO_3(Pointer m) {
+        useMemory(m);
+        read();
+      }
+
+      @Override
+      public void read() {
+        super.read();
+
+        // TODO(mifren): There should be a better way of getting JNA to
+        // read the array of DFS_STORAGE_INFO.
+        StorageInfos = new DFS_STORAGE_INFO[NumberOfStorages.intValue()];
+        for (int i = 0; i < StorageInfos.length; i++) {
+          StorageInfos[i] = new DFS_STORAGE_INFO(Storage.share(i * 24));
+        }
+      }
+
+      @Override
+      protected List<String> getFieldOrder() {
+        return Arrays.asList("EntryPath", "Comment", "State",
+            "NumberOfStorages", "Storage");
+      }
+    }
+
+    public static class DFS_INFO_150 extends Structure {
+      public ULONG SdLengthReserved;
+      public Pointer pSecurityDescriptor;
+
+      public DFS_INFO_150(Pointer m) {
+        useMemory(m);
+        read();
+      }
+
+      @Override
+      protected List<String> getFieldOrder() {
+        return Arrays.asList("SdLengthReserved", "pSecurityDescriptor");
+      }
+    }
+
+    public static class DFS_STORAGE_INFO extends Structure {
+      public ULONG State;
+      public WString ServerName;
+      public WString ShareName;
+
+      public DFS_STORAGE_INFO(Pointer m) {
+        useMemory(m);
+        read();
+      }
+
+      @Override
+      protected List<String> getFieldOrder() {
+        return Arrays.asList("State", "ServerName", "ShareName");
       }
     }
   }
