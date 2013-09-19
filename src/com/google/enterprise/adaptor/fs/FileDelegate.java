@@ -23,6 +23,14 @@ import java.util.concurrent.BlockingQueue;
 
 interface FileDelegate {
   /**
+   * Returns the active storage UNC path of a DFS UNC path.
+   *
+   * @param doc The DFS UNC path to get the storage for.
+   * @returns the backing storage path, or null if doc is not a DFS path
+   */
+  Path getDfsUncActiveStorageUnc(Path doc) throws IOException;
+
+  /**
    * Returns an {@link AclFileAttributeView} that contains Acl for the
    * specified path.
    *

@@ -119,9 +119,9 @@ public class FsAdaptor extends AbstractAdaptor {
 
   private AdaptorContext context;
   private Path rootPath;
+  private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
-
   private FsMonitor monitor;
 
   public FsAdaptor() {
@@ -152,21 +152,37 @@ public class FsAdaptor extends AbstractAdaptor {
       throw new IOException("The configuration value " + CONFIG_SRC
           + " is empty. Please specify a valid root path.");
     }
-    rootPath = Paths.get(source);
-    if (!rootPath.equals(rootPath.getRoot())) {
-      // We currently only support a config path that is a root.
-      // Non-root paths will fail to produce Acls for all the folders up
-      // to the root from the configured path, so we limit configuration
-      // only to root paths.
-      throw new IllegalStateException(
-          "Only root paths are supported. " +
-          "Use a path such as C:\\ or X:\\ or \\\\host\\share.");
+    rootPath = Paths.get(source).toRealPath(LinkOption.NOFOLLOW_LINKS);
+    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
+
+    Path dfsActiveStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
+    isDfsUnc = (dfsActiveStorage != null);
+    log.log(Level.INFO, "Using a {0} path.", isDfsUnc ? "DFS" : "non-DFS");
+
+    if (isDfsUnc) {
+      // We assume that DFS link has an active storage path that is
+      // different from the actual DFS link path.
+      final boolean isDfsLink = !rootPath.equals(dfsActiveStorage);
+      if (!isDfsLink) {
+        throw new IOException("The DFS path " + rootPath +
+            " is not a supported DFS path. Only DFS links of the format " +
+            "\\\\host\\namespace\\link are supported.");
+      }
+    } else {
+      if (!rootPath.equals(rootPath.getRoot())) {
+        // We currently only support a config path that is a root.
+        // Non-root paths will fail to produce Acls for all the folders up
+        // to the root from the configured path, so we limit configuration
+        // only to root paths.
+        throw new IllegalStateException(
+            "Only root paths are supported. " +
+            "Use a path such as C:\\ or X:\\ or \\\\host\\share.");
+      }
     }
     if (!isSupportedPath(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist or it is not a file or directory.");
     }
-    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
@@ -284,7 +300,7 @@ public class FsAdaptor extends AbstractAdaptor {
             delegate.getShareAclView(doc), supportedWindowsAccounts,
             builtinPrefix);
         resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
-   
+
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
             builder.getInheritableByAllDesendentFoldersAcl(id, SHARE_ACL));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
