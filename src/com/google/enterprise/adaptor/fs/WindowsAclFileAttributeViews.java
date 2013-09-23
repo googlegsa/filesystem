@@ -18,6 +18,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
+import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
@@ -140,8 +141,10 @@ class WindowsAclFileAttributeViews {
    */
   public AclFileAttributeViews getAclViews(Path path) throws IOException {
     String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
-    WinNT.ACCESS_ACEStructure[] aces =
-        getFileSecurity(pathname, WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
+    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname, 
+        WinNT.DACL_SECURITY_INFORMATION |
+        WinNT.PROTECTED_DACL_SECURITY_INFORMATION |
+        WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
     ImmutableList.Builder<AclEntry> inherited = ImmutableList.builder();
     ImmutableList.Builder<AclEntry> direct = ImmutableList.builder();
 
@@ -327,7 +330,7 @@ class WindowsAclFileAttributeViews {
     // Map the flags.
     Set<AclEntryFlag> aclFlags = EnumSet.noneOf(AclEntryFlag.class);
     for (Map.Entry<Byte, AclEntryFlag> e : ACL_FLAGS_MAP.entrySet()) {
-      if ((ace.Mask & e.getKey()) == e.getKey()) {
+      if ((ace.AceFlags & e.getKey()) == e.getKey()) {
         aclFlags.add(e.getValue());
       }
     }
@@ -377,14 +380,6 @@ class WindowsAclFileAttributeViews {
     Group(String accountName, String accountType) {
       super(accountName, accountType);
     }
-  }
-
-  private interface Shlwapi extends StdCallLibrary {
-    Shlwapi INSTANCE = (Shlwapi) Native.loadLibrary("Shlwapi",
-        Shlwapi.class, W32APIOptions.UNICODE_OPTIONS);
-
-    boolean PathIsNetworkPath(String pszPath);
-    boolean PathIsUNC(String pszPath);
   }
 
   private interface Mpr extends StdCallLibrary {

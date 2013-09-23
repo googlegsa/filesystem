@@ -22,6 +22,7 @@ import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.ptr.PointerByReference;
+import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
 
 import java.util.Arrays;
@@ -30,6 +31,14 @@ import java.util.List;
 class WinApi {
   private WinApi() {
     // Prevent instantiation.
+  }
+
+  public interface Shlwapi extends StdCallLibrary {
+    Shlwapi INSTANCE = (Shlwapi) Native.loadLibrary("Shlwapi",
+        Shlwapi.class, W32APIOptions.UNICODE_OPTIONS);
+
+    boolean PathIsNetworkPath(String pszPath);
+    boolean PathIsUNC(String pszPath);
   }
 
   public interface Netapi32Ex extends Netapi32 {

@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.base.Preconditions;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
+import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;

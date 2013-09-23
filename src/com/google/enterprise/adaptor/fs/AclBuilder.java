@@ -97,8 +97,10 @@ public class AclBuilder {
         isInheritableByChildFilesOnlyEntry).build();
   }
 
-  public Acl getShareAcl() throws IOException {
-    return getAcl(null, null, isDirectEntry)
+  public Acl getShareAcl(DocId inheritId)
+      throws IOException {
+    // Windows NT share Acls are returned as inheritable by child files.
+    return getAcl(inheritId, null, isDirectEntry)
         .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
   }
 

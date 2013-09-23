@@ -80,14 +80,16 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SUPPORTED_ACCOUNTS =
       "filesystemadaptor.supportedAccounts";
 
-  private static final String SHARE_ACL = "shareAcl";
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
-  private static final String ALL_FILE_INHERIT_ACL = "allFiles";
+  private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
   private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
   private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
 
+  /** DocId for the DFS share ACL named resource. */
+  private static final DocId DFS_SHARE_ACL_DOCID = new DocId("dfsShareAcl");
+
   /** DocId for the share ACL named resource. */
-  private static final DocId SHARE_ACL_DOCID = new DocId(SHARE_ACL);
+  private static final DocId SHARE_ACL_DOCID = new DocId("shareAcl");
 
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
@@ -167,6 +169,10 @@ public class FsAdaptor extends AbstractAdaptor {
     rootPath = Paths.get(source).toRealPath(LinkOption.NOFOLLOW_LINKS);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
+    // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
+    // considered non-DFS even though \\host\ns\link is a DFS link path.
+    // This is OK for now since the check for root path below will cause an
+    // IllegalStateException.
     Path dfsActiveStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
     isDfsUnc = (dfsActiveStorage != null);
     log.log(Level.INFO, "Using a {0} path.", isDfsUnc ? "DFS" : "non-DFS");
@@ -235,14 +241,37 @@ public class FsAdaptor extends AbstractAdaptor {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
 
-    AclBuilder builder = new AclBuilder(rootPath,
-        delegate.getShareAclView(rootPath), supportedWindowsAccounts,
-        builtinPrefix, namespace);
     // The pusher does not support fragments in named resources.
     // Feed a DocId that is just the SHARE_ACL fragment to avoid
     // collisions with the root docid.
-    pusher.pushNamedResources(ImmutableMap.of(
-        SHARE_ACL_DOCID, builder.getShareAcl()));
+
+    Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
+    DocId inheritId = null;
+    AclBuilder builder = new AclBuilder(rootPath,
+        delegate.getShareAclView(rootPath), supportedWindowsAccounts,
+        builtinPrefix, namespace);
+
+    if (isDfsUnc) {
+      // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
+      // must be the Acl for the target storage UNC.
+      namedResources.put(DFS_SHARE_ACL_DOCID, builder.getShareAcl(null));
+
+      // Push the Acl for the active storage UNC path.
+      Path activeStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
+      if (activeStorage == null) {
+        throw new IOException("The DFS path " + rootPath +
+            " does not have an active storage.");
+      }
+
+      inheritId = DFS_SHARE_ACL_DOCID;
+      builder = new AclBuilder(activeStorage,
+          delegate.getShareAclView(activeStorage), supportedWindowsAccounts,
+          builtinPrefix, namespace);
+    }
+
+    namedResources.put(SHARE_ACL_DOCID, builder.getShareAcl(inheritId));
+    pusher.pushNamedResources(namedResources);
+
     log.exiting("FsAdaptor", "getDocIds");
   }
 
@@ -308,16 +337,14 @@ public class FsAdaptor extends AbstractAdaptor {
         aclViews.getInheritedAclView().getAcl().isEmpty();
     AclBuilder builder;
     Acl acl;
-    if (isRoot) {
+    if (isRoot || hasNoInheritedAcl) {
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
+      acl = builder.getAcl(SHARE_ACL_DOCID, docIsDirectory, null);
     } else {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      if (hasNoInheritedAcl) {
-        acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
-      } else if (docIsDirectory) {
+      if (docIsDirectory) {
         acl = builder.getAcl(parentDocId, docIsDirectory,
                              CHILD_FOLDER_INHERIT_ACL);
       } else {
