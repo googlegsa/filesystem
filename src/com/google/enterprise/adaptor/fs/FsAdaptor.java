@@ -26,6 +26,7 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.IOHelper;
+import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
 
@@ -92,6 +93,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_MAX_INCREMENTAL_LATENCY =
       "adaptor.incrementalPollPeriodSecs";
 
+  /** The config parameter name for the adaptor namespace. */
+  private static final String CONFIG_NAMESPACE = "adaptor.namespace";
+
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
 
@@ -116,6 +120,9 @@ public class FsAdaptor extends AbstractAdaptor {
    * account.
    */
   private String builtinPrefix;
+
+  /** The namespace applied to ACL Principals. */
+  private String namespace;
 
   private AdaptorContext context;
   private Path rootPath;
@@ -142,6 +149,7 @@ public class FsAdaptor extends AbstractAdaptor {
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
+    config.overrideKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
   }
 
   @Override
@@ -187,6 +195,9 @@ public class FsAdaptor extends AbstractAdaptor {
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
+
+    namespace = context.getConfig().getValue(CONFIG_NAMESPACE);
+    log.log(Level.CONFIG, "namespace: {0}", namespace);
 
     String accountsStr =
         context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
@@ -280,7 +291,7 @@ public class FsAdaptor extends AbstractAdaptor {
     }
 
     AclBuilder builder = new AclBuilder(doc, delegate.getAclView(doc),
-        supportedWindowsAccounts, builtinPrefix);
+        supportedWindowsAccounts, builtinPrefix, namespace);
 
     Acl acl;
     if (isRoot) {
@@ -299,7 +310,7 @@ public class FsAdaptor extends AbstractAdaptor {
       if (isRoot) {
         AclBuilder builderShare = new AclBuilder(doc,
             delegate.getShareAclView(doc), supportedWindowsAccounts,
-            builtinPrefix);
+            builtinPrefix, namespace);
         resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
 
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
