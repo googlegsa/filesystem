@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
@@ -84,6 +85,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String ALL_FILE_INHERIT_ACL = "allFiles";
   private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
   private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
+
+  /** DocId for the share ACL named resource. */
+  private static final DocId SHARE_ACL_DOCID = new DocId(SHARE_ACL);
 
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
@@ -230,6 +234,15 @@ public class FsAdaptor extends AbstractAdaptor {
       IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
+
+    AclBuilder builder = new AclBuilder(rootPath,
+        delegate.getShareAclView(rootPath), supportedWindowsAccounts,
+        builtinPrefix, namespace);
+    // The pusher does not support fragments in named resources.
+    // Feed a DocId that is just the SHARE_ACL fragment to avoid
+    // collisions with the root docid.
+    pusher.pushNamedResources(ImmutableMap.of(
+        SHARE_ACL_DOCID, builder.getShareAcl()));
     log.exiting("FsAdaptor", "getDocIds");
   }
 
@@ -308,19 +321,16 @@ public class FsAdaptor extends AbstractAdaptor {
     // Push the additional Acls for a folder.
     if (docIsDirectory) {
       if (isRoot) {
-        AclBuilder builderShare = new AclBuilder(doc,
-            delegate.getShareAclView(doc), supportedWindowsAccounts,
-            builtinPrefix, namespace);
-        resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
-
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFoldersAcl(id, SHARE_ACL));
+            builder.getInheritableByAllDesendentFoldersAcl(SHARE_ACL_DOCID,
+                                                           null));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFilesAcl(id, SHARE_ACL));
+            builder.getInheritableByAllDesendentFilesAcl(SHARE_ACL_DOCID,
+                                                         null));
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
-            builder.getInheritableByChildFoldersOnlyAcl(id, SHARE_ACL));
+            builder.getInheritableByChildFoldersOnlyAcl(SHARE_ACL_DOCID, null));
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
-            builder.getInheritableByChildFilesOnlyAcl(id, SHARE_ACL));
+            builder.getInheritableByChildFilesOnlyAcl(SHARE_ACL_DOCID, null));
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
             builder.getInheritableByAllDesendentFoldersAcl(parentDocId,
