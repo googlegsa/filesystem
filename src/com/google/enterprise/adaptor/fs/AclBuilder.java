@@ -46,18 +46,22 @@ public class AclBuilder {
   private AclFileAttributeView aclView;
   private Set<String> supportedWindowsAccounts;
   private String builtinPrefix;
+  private String namespace;
 
   public AclBuilder(Path doc, AclFileAttributeView aclView,
-      Set<String> supportedWindowsAccounts, String builtinPrefix) {
+      Set<String> supportedWindowsAccounts, String builtinPrefix,
+      String namespace) {
     Preconditions.checkNotNull(doc, "doc may not be null");
     Preconditions.checkNotNull(aclView, "aclView may not be null");
     Preconditions.checkNotNull(supportedWindowsAccounts,
         "supportedWindowsAccounts may not be null");
     Preconditions.checkNotNull(builtinPrefix, "builtinPrefix may not be null");
+    Preconditions.checkNotNull(namespace, "namespace may not be null");
     this.doc = doc;
     this.aclView = aclView;
     this.supportedWindowsAccounts = supportedWindowsAccounts;
     this.builtinPrefix = builtinPrefix.toUpperCase();
+    this.namespace = namespace;
   }
 
   public Acl getAcl(DocId inheritId, boolean isDirectory,
@@ -113,10 +117,10 @@ public class AclBuilder {
       Principal principal;
       if (entry.principal() instanceof
           java.nio.file.attribute.GroupPrincipal) {
-        principal = new GroupPrincipal(entry.principal().getName());
+        principal = new GroupPrincipal(entry.principal().getName(), namespace);
       } else if (entry.principal() instanceof
           java.nio.file.attribute.UserPrincipal) {
-        principal = new UserPrincipal(entry.principal().getName());
+        principal = new UserPrincipal(entry.principal().getName(), namespace);
       } else {
         log.log(Level.WARNING, "Unsupported Acl entry found: {0}", entry);
         continue;
