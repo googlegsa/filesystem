@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
@@ -28,7 +29,6 @@ import com.sun.jna.platform.win32.Advapi32Util;
 import com.sun.jna.platform.win32.Advapi32Util.Account;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
-import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
@@ -376,50 +376,6 @@ class WindowsAclFileAttributeViews {
   private class Group extends User implements GroupPrincipal {
     Group(String accountName, String accountType) {
       super(accountName, accountType);
-    }
-  }
-
-  private interface Netapi32Ex extends Netapi32 {
-    Netapi32Ex INSTANCE = (Netapi32Ex) Native.loadLibrary("Netapi32",
-        Netapi32Ex.class, W32APIOptions.UNICODE_OPTIONS);
-
-    public int NetShareGetInfo(String servername, String netname, int level,
-        PointerByReference bufptr);
-
-    /**
-     * Documentation on SHARE_INFO_502 can be found at:
-     * http://msdn.microsoft.com/en-us/library/windows/desktop/bb525410(v=vs.85).aspx
-     */
-    public static class SHARE_INFO_502 extends Structure {
-      public String shi502_netname;
-      public int shi502_type;
-      public String shi502_remark;
-      public int shi502_permissions;
-      public int shi502_max_uses;
-      public int shi502_current_uses;
-      public String shi502_path;
-      public String shi502_passwd;
-      public int shi502_reserved;
-      public Pointer shi502_security_descriptor;
-
-      public SHARE_INFO_502() {
-        super();
-      }
-
-      public SHARE_INFO_502(Pointer memory) {
-        useMemory(memory);
-        read();
-      }
-      
-      @Override
-      protected List<String> getFieldOrder() {
-        return Arrays.asList(new String[] {
-            "shi502_netname", "shi502_type", "shi502_remark",
-            "shi502_permissions", "shi502_max_uses", "shi502_current_uses",
-            "shi502_path", "shi502_passwd", "shi502_reserved",
-            "shi502_security_descriptor"
-            });
-      }
     }
   }
 

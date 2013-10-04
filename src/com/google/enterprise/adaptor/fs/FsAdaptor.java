@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
@@ -26,6 +27,7 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.IOHelper;
+import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
 
@@ -84,13 +86,19 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
   private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
 
+  /** DocId for the share ACL named resource. */
+  private static final DocId SHARE_ACL_DOCID = new DocId(SHARE_ACL);
+
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
 
-  /** The config parameter name for the max incremental batch size. */
-  private static final String CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES =
-      "filesystemadaptor.maxIncrementalLatencyMinutes";
+  /** The config parameter name for the max incremental batch latency. */
+  private static final String CONFIG_MAX_INCREMENTAL_LATENCY =
+      "adaptor.incrementalPollPeriodSecs";
+
+  /** The config parameter name for the adaptor namespace. */
+  private static final String CONFIG_NAMESPACE = "adaptor.namespace";
 
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
@@ -117,11 +125,14 @@ public class FsAdaptor extends AbstractAdaptor {
    */
   private String builtinPrefix;
 
+  /** The namespace applied to ACL Principals. */
+  private String namespace;
+
   private AdaptorContext context;
   private Path rootPath;
+  private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
-
   private FsMonitor monitor;
 
   public FsAdaptor() {
@@ -141,7 +152,8 @@ public class FsAdaptor extends AbstractAdaptor {
         "BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
-    config.addKey(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES, "5");
+    config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
+    config.overrideKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
   }
 
   @Override
@@ -152,24 +164,44 @@ public class FsAdaptor extends AbstractAdaptor {
       throw new IOException("The configuration value " + CONFIG_SRC
           + " is empty. Please specify a valid root path.");
     }
-    rootPath = Paths.get(source);
-    if (!rootPath.equals(rootPath.getRoot())) {
-      // We currently only support a config path that is a root.
-      // Non-root paths will fail to produce Acls for all the folders up
-      // to the root from the configured path, so we limit configuration
-      // only to root paths.
-      throw new IllegalStateException(
-          "Only root paths are supported. " +
-          "Use a path such as C:\\ or X:\\ or \\\\host\\share.");
+    rootPath = Paths.get(source).toRealPath(LinkOption.NOFOLLOW_LINKS);
+    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
+
+    Path dfsActiveStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
+    isDfsUnc = (dfsActiveStorage != null);
+    log.log(Level.INFO, "Using a {0} path.", isDfsUnc ? "DFS" : "non-DFS");
+
+    if (isDfsUnc) {
+      // We assume that DFS link has an active storage path that is
+      // different from the actual DFS link path.
+      final boolean isDfsLink = !rootPath.equals(dfsActiveStorage);
+      if (!isDfsLink) {
+        throw new IOException("The DFS path " + rootPath +
+            " is not a supported DFS path. Only DFS links of the format " +
+            "\\\\host\\namespace\\link are supported.");
+      }
+    } else {
+      if (!rootPath.equals(rootPath.getRoot())) {
+        // We currently only support a config path that is a root.
+        // Non-root paths will fail to produce Acls for all the folders up
+        // to the root from the configured path, so we limit configuration
+        // only to root paths.
+        throw new IllegalStateException(
+            "Only root paths are supported. Use a path such as C:\\ or " +
+            "X:\\ or \\\\host\\share. Additionally, you can specify a " +
+            "DFS link path of the form \\\\host\\ns\\link.");
+      }
     }
     if (!isSupportedPath(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist or it is not a file or directory.");
     }
-    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
+
+    namespace = context.getConfig().getValue(CONFIG_NAMESPACE);
+    log.log(Level.CONFIG, "namespace: {0}", namespace);
 
     String accountsStr =
         context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
@@ -180,12 +212,12 @@ public class FsAdaptor extends AbstractAdaptor {
 
     int maxFeed = Integer.parseInt(
         context.getConfig().getValue("feed.maxUrls"));
-    int maxLatencyMinutes = Integer.parseInt(
-        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY_MINUTES));
+    long maxLatencyMillis = 1000L * Integer.parseInt(
+        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY));
 
     rootPathDocId = delegate.newDocId(rootPath);
     monitor = new FsMonitor(delegate, context.getDocIdPusher(), maxFeed,
-        maxLatencyMinutes);
+        maxLatencyMillis);
     delegate.startMonitorPath(rootPath, monitor.getQueue());
     monitor.start();
   }
@@ -202,6 +234,15 @@ public class FsAdaptor extends AbstractAdaptor {
       IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
+
+    AclBuilder builder = new AclBuilder(rootPath,
+        delegate.getShareAclView(rootPath), supportedWindowsAccounts,
+        builtinPrefix, namespace);
+    // The pusher does not support fragments in named resources.
+    // Feed a DocId that is just the SHARE_ACL fragment to avoid
+    // collisions with the root docid.
+    pusher.pushNamedResources(ImmutableMap.of(
+        SHARE_ACL_DOCID, builder.getShareAcl()));
     log.exiting("FsAdaptor", "getDocIds");
   }
 
@@ -245,11 +286,8 @@ public class FsAdaptor extends AbstractAdaptor {
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
-    resp.addMetadata("Last Access Time",  dateFormatter.get().format(
-        new Date(lastAccessTime.toMillis())));
     if (!docIsDirectory) {
       resp.setContentType(Files.probeContentType(doc));
-      resp.addMetadata("File Size", Long.toString(attrs.size()));
     }
 
     // TODO(mifern): Include extended attributes.
@@ -272,11 +310,11 @@ public class FsAdaptor extends AbstractAdaptor {
     Acl acl;
     if (isRoot) {
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
-          supportedWindowsAccounts, builtinPrefix);
+          supportedWindowsAccounts, builtinPrefix, namespace);
       acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
     } else {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
-          supportedWindowsAccounts, builtinPrefix);
+          supportedWindowsAccounts, builtinPrefix, namespace);
       if (hasNoInheritedAcl) {
         acl = builder.getAcl(rootPathDocId, docIsDirectory, SHARE_ACL);
       } else if (docIsDirectory) {
@@ -293,25 +331,17 @@ public class FsAdaptor extends AbstractAdaptor {
 
     // Push the additional Acls for a folder.
     if (docIsDirectory) {
-      if (isRoot) {
-        AclBuilder builderShare = new AclBuilder(doc,
-            delegate.getShareAclView(doc), supportedWindowsAccounts,
-            builtinPrefix);
-        resp.putNamedResource(SHARE_ACL, builderShare.getShareAcl());
-      }
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFoldersAcl(rootPathDocId,
-                                                           SHARE_ACL));
+            builder.getInheritableByAllDesendentFoldersAcl(SHARE_ACL_DOCID,
+                                                           null));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFilesAcl(rootPathDocId,
-                                                         SHARE_ACL));
+            builder.getInheritableByAllDesendentFilesAcl(SHARE_ACL_DOCID,
+                                                         null));
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
-            builder.getInheritableByChildFoldersOnlyAcl(rootPathDocId,
-                                                        SHARE_ACL));
+            builder.getInheritableByChildFoldersOnlyAcl(SHARE_ACL_DOCID, null));
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
-            builder.getInheritableByChildFilesOnlyAcl(rootPathDocId,
-                                                      SHARE_ACL));
+            builder.getInheritableByChildFilesOnlyAcl(SHARE_ACL_DOCID, null));
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
             builder.getInheritableByAllDesendentFoldersAcl(parentDocId,
@@ -401,19 +431,19 @@ public class FsAdaptor extends AbstractAdaptor {
     private final PushThread pushThread;
     private final BlockingQueue<Path> queue;
     private final int maxFeedSize;
-    private final int maxLatencyMinutes;
+    private final long maxLatencyMillis;
 
     public FsMonitor(FileDelegate delegate, DocIdPusher pusher,
-        int maxFeedSize, int maxLatencyMinutes) {
+        int maxFeedSize, long maxLatencyMillis) {
       Preconditions.checkNotNull(delegate, "the delegate may not be null");
       Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
       Preconditions.checkArgument(maxFeedSize > 0,
           "the maxFeedSize must be greater than zero");
-      Preconditions.checkArgument(maxLatencyMinutes > 0,
-          "the maxLatencyMinutes must be greater than zero");
+      Preconditions.checkArgument(maxLatencyMillis > 0,
+          "the maxLatencyMillis must be greater than zero");
       this.pusher = pusher;
       this.maxFeedSize = maxFeedSize;
-      this.maxLatencyMinutes = maxLatencyMinutes;
+      this.maxLatencyMillis = maxLatencyMillis;
       queue = new LinkedBlockingQueue<Path>(20 * maxFeedSize);
       pushThread = new PushThread();
     }
@@ -450,7 +480,7 @@ public class FsAdaptor extends AbstractAdaptor {
         while (true) {
           try {
             BlockingQueueBatcher.take(queue, docs, maxFeedSize,
-                maxLatencyMinutes, TimeUnit.MINUTES);
+                maxLatencyMillis, TimeUnit.MILLISECONDS);
             createRecords(records, docs);
             log.log(Level.FINER, "Sending crawl immediately records: {0}",
                 records);

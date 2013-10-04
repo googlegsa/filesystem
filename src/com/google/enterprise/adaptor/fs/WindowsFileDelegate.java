@@ -16,15 +16,23 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
 import com.google.enterprise.adaptor.DocId;
+import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
 import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.Structure;
+import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.WinBase;
+import com.sun.jna.platform.win32.WinDef.DWORD;
+import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.FILE_NOTIFY_INFORMATION;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
+import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.W32APIOptions;
 
 import java.io.File;
@@ -33,6 +41,9 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -58,6 +69,41 @@ public class WindowsFileDelegate implements FileDelegate {
   @Override
   public AclFileAttributeView getShareAclView(Path doc) throws IOException {
     return aclViews.getShareAclView(doc);
+  }
+
+  @Override
+  public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
+    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
+    PointerByReference buf = new PointerByReference();
+    int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
+    if (rc != LMErr.NERR_Success) {
+      // Log this at INFO since we expect this when the adaptor is configured
+      // for non-DFS root paths. Adaptor.init will call
+      // getDfsUncActiveStorageUnc to check if the path is a DFS path.
+      log.log(Level.INFO, "Unable to get DFS details for {0}. Code: {1}",
+          new Object[] { doc, rc });
+      return null;
+    }
+
+    Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3(buf.getValue());
+    netapi32.NetApiBufferFree(buf.getValue());
+
+    // Find the active storage.
+    String storageUnc = null;
+    for (int i = 0; i < info.StorageInfos.length; i++) {
+      Netapi32Ex.DFS_STORAGE_INFO storeInfo = info.StorageInfos[i];
+      if (storeInfo.State.intValue() == Netapi32Ex.DFS_STORAGE_STATE_ONLINE) {
+        storageUnc = String.format("\\\\%s\\%s", storeInfo.ServerName,
+            storeInfo.ShareName);
+        break;
+      }
+    }
+    if (storageUnc == null) {
+      throw new IOException("The DFS path " + doc +
+          " does not have an active storage.");
+    }
+
+    return Paths.get(storageUnc);
   }
 
   @Override
