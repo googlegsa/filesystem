@@ -1,56 +1,66 @@
 <body>
-<center>File-System Adaptor Deployment.</center>
+<h3 id="fsadaptor">Deployment of File System Adaptor</h3>
 
-Starting point (aka .Requirements.):<br><ul>
-<li> Have a Google domain that you can administer
-<li> Have Java JRE 1.6u27 or higher on computer that runs adaptor
-<li> Get binary (Java jar file) 
+<p>A single instance of File System adaptor can have
+GSA index a single UNC share.  DFS is supported.
+
+<h4>Requirements</h4>
+<ul>
+  <li>GSA 7.2 or higher
+  <li>Java JRE 1.7 or higher installed on computer that runs adaptor
+  <li>File System Adaptor JAR executable
+  <li>Credentials for File System share to be indexed by GSA
+  <li>Requires running on Microsoft Windows
 </ul>
 
-<br>
+<h4>Configure GSA for Adaptor</h4>
+<ol>
+  <li>Add the IP address of the computer that hosts the adaptor to the <b>List
+    of Trusted IP Addresses</b> on the GSA.
+    <p>In the GSA's Admin Console, go to <b>Crawl and Index &gt; Feeds</b>,
+    and scroll down to <b>List of Trusted IP Addresses</b>. Add the IP address
+    for the adaptor to the list.
+  <li>Add the URLs provided by the adaptor to the <b>Follow and Crawl Only
+    URLs with the Following Patterns</b> on the GSA.
+    <p>In the Admin console, go to <b>Crawl And Index &gt; Crawl URLs</b>, and
+    scroll down to <b>Follow and Crawl Only URLs with the Following
+    Patterns</b>. Add an entry like <code>http://adaptor.example.com:5678/doc/
+    </code> where <code>adaptor.example.com</code> is the hostname of the
+    machine that hosts the adaptor. By default the adaptor runs on port 5678.
+</ol>
 
-<br>
-Step 3 -- Configure your adaptor by creating an adaptor-config.properties file.<br>
-<ul>
-    <li>Make a text file, that is named adaptor-config.properties, in the directory that has binary.
-    <li>Here is a model for its contents:
+<h4>Configure Adaptor</h4>
+<ol>
+  <li>Create a file named <code>adaptor-config.properties</code> in the
+  directory that contains the adaptor binary.
+  <p>
+  Here is an example configuration (bold items are example values to be
+  replaced):
 <pre>
-TODO : ADD FS SPECIFIC STEPS
-docs.consumerKey=Client ID
-docs.consumerSecret=Client secret
+gsa.hostname=<b>yourgsa.hostname.com</b>
+filesystemadaptor.src=<b>\\\\host\\share</b>
 </pre>
-</ul>
+  <p> Note: Backslashes are entered as double backslashes. In order
+      to represent a single '\' you need to enter '\\'.
+  <p> Note: DFS links can be given as 
+      filesystemadaptor.src: <b>\\\\host\\dfsnamespace\\link</b>
+  <br>
 
-
-<br>
-Step 4 -- Configure your GSA <br>
-<ul>
-    <li>In the GSA's Admin Console, go to Crawl and Index &gt; Feeds, and scroll down to List of Trusted IP Addresses. Add the IP address for the adaptor to the list.
-    <li>In the Admin console, go to Crawl And Index &gt; Crawl URLs, and scroll down to Follow and Crawl Only URLs with the Following Patterns. Add an entry like hostname:port/ . Default port is 5678. Hostname is the machine where the adaptor is running.
-</ul>
-
-<br>
-in command line: java -jar adaptor-db-xxxxxxxx.jar
-
-
-<hr>
-
-
-When running, to control logging, use the following logging.properties file:
-<pre>
-.level=FINER
-com.google.gdata.level=INFO
-com.google.enterprise.adaptor.level=FINER
-com.google.enterprise.adaptor.db.level=FINER
+  <li> Create file named <code>logging.properties</code> in the same directory
+  that contains adaptor binary:
+  <pre>
+.level=INFO
 handlers=java.util.logging.FileHandler,java.util.logging.ConsoleHandler
-
 java.util.logging.FileHandler.formatter=com.google.enterprise.adaptor.CustomFormatter
-java.util.logging.FileHandler.pattern=adaptor.%g.log
+java.util.logging.FileHandler.pattern=logs/adaptor.%g.log
 java.util.logging.FileHandler.limit=10485760
-java.util.logging.FileHandler.count=5
-
+java.util.logging.FileHandler.count=20
 java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomFormatter
-java.util.logging.ConsoleHandler.level=INFO
 </pre>
 
+  <li><p>Create a directory named logs in the same directory that contains logging.properties.
+
+  <li><p>Run the adaptor using:
+  <pre>java -Djava.util.logging.config.file=logging.properties -jar adaptor-fs-YYYYMMDD-withlib.jar</pre>
+</ol>
 </body>
