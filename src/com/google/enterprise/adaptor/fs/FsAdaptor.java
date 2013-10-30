@@ -360,10 +360,10 @@ public class FsAdaptor extends AbstractAdaptor {
     if (docIsDirectory) {
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFoldersAcl(SHARE_ACL_DOCID,
+            builder.getInheritableByAllDescendentFoldersAcl(SHARE_ACL_DOCID,
                                                            null));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFilesAcl(SHARE_ACL_DOCID,
+            builder.getInheritableByAllDescendentFilesAcl(SHARE_ACL_DOCID,
                                                          null));
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
             builder.getInheritableByChildFoldersOnlyAcl(SHARE_ACL_DOCID, null));
@@ -371,10 +371,10 @@ public class FsAdaptor extends AbstractAdaptor {
             builder.getInheritableByChildFilesOnlyAcl(SHARE_ACL_DOCID, null));
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFoldersAcl(parentDocId,
+            builder.getInheritableByAllDescendentFoldersAcl(parentDocId,
                 ALL_FOLDER_INHERIT_ACL));
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDesendentFilesAcl(parentDocId,
+            builder.getInheritableByAllDescendentFilesAcl(parentDocId,
                 ALL_FILE_INHERIT_ACL));
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
             builder.getInheritableByChildFoldersOnlyAcl(parentDocId,

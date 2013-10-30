@@ -73,16 +73,16 @@ public class AclBuilder {
     return b.build();
   }
 
-  public Acl getInheritableByAllDesendentFoldersAcl(DocId inheritId,
+  public Acl getInheritableByAllDescendentFoldersAcl(DocId inheritId,
       String fragmentName) throws IOException {
     return getAcl(inheritId, fragmentName,
-        isInheritableByAllDesendentFoldersEntry).build();
+        isInheritableByAllDescendentFoldersEntry).build();
   }
 
-  public Acl getInheritableByAllDesendentFilesAcl(DocId inheritId,
+  public Acl getInheritableByAllDescendentFilesAcl(DocId inheritId,
       String fragmentName) throws IOException {
     return getAcl(inheritId, fragmentName,
-        isInheritableByAllDesendentFilesEntry).build();
+        isInheritableByAllDescendentFilesEntry).build();
   }
 
   public Acl getInheritableByChildFoldersOnlyAcl(DocId inheritId,
@@ -243,10 +243,10 @@ public class AclBuilder {
 
   /**
    * Returns true if the associated set of {@link AclEntryFlag} is inherited
-   * by all desendent folders.
+   * by all descendent folders.
    */
   private static final Predicate<Set<AclEntryFlag>>
-      isInheritableByAllDesendentFoldersEntry =
+      isInheritableByAllDescendentFoldersEntry =
           new Predicate<Set<AclEntryFlag>>() {
             public boolean apply(Set<AclEntryFlag> flags) {
               return flags.contains(AclEntryFlag.DIRECTORY_INHERIT) &&
@@ -256,10 +256,10 @@ public class AclBuilder {
 
   /**
    * Returns true if the associated set of {@link AclEntryFlag} is inherited
-   * by all desendent files.
+   * by all descendent files.
    */
   private static final Predicate<Set<AclEntryFlag>>
-      isInheritableByAllDesendentFilesEntry =
+      isInheritableByAllDescendentFilesEntry =
           new Predicate<Set<AclEntryFlag>>() {
             public boolean apply(Set<AclEntryFlag> flags) {
               return flags.contains(AclEntryFlag.FILE_INHERIT) &&
