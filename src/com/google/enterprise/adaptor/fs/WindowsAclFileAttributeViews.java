@@ -298,11 +298,17 @@ class WindowsAclFileAttributeViews {
     }
     
     // Map the user.
-    Account account = Advapi32Util.getAccountBySid(ace.getSID());
-    if (account == null) {
-      log.log(Level.WARNING, "Skipping ACE with unresolvable SID: {0}.",
-          ace.getSidString());
-      return null;
+    Account account;
+    try {
+      account = Advapi32Util.getAccountBySid(ace.getSID());
+    } catch (Win32Exception e) {
+      if (e.getHR().intValue() == WinError.ERROR_NONE_MAPPED) {
+        log.log(Level.WARNING, "Skipping ACE with unresolvable SID: {0}.",
+            ace.getSidString());
+        return null;
+      } else {
+        throw e;
+      }
     }
     String accountName = (account.domain == null ?
         account.name : account.domain + "\\" + account.name);
