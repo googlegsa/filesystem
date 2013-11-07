@@ -19,10 +19,7 @@ import static org.junit.Assert.*;
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 
-import org.junit.Test;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 
 /** Test cases for {@link FsAdaptor}. */
 public class FsAdaptorTest {
@@ -31,6 +28,7 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetPathName() throws Exception {
+    TestHelper.assumeOsIsWindows();
     FsAdaptor adaptor = new FsAdaptor();
     assertEquals("share", adaptor.getPathName(Paths.get("\\\\host/share/")));
     assertEquals("folder2", 
