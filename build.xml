@@ -239,6 +239,7 @@ lib/plexi submodule or add the the command line argument
   <target name="test" depends="build" description="Run JUnit tests">
     <junit printsummary="yes" haltonfailure="yes" forkmode="once" fork="true"
       dir="${basedir}" maxmemory="512m">
+      <assertions><enable/></assertions>
       <sysproperty key="net.sourceforge.cobertura.datafile"
         file="${build-instrument.dir}/cobertura.ser"/>
       <classpath refid="adaptor.run.classpath"/>
