@@ -17,14 +17,16 @@ GSA index a single UNC share.  DFS is supported.
 <ol>
   <li>Add the IP address of the computer that hosts the adaptor to the <b>List
     of Trusted IP Addresses</b> on the GSA.
-    <p>In the GSA's Admin Console, go to <b>Crawl and Index &gt; Feeds</b>,
+    <p>In the GSA's Admin Console, go to <b>Content Sources &gt; Feeds</b>,
     and scroll down to <b>List of Trusted IP Addresses</b>. Add the IP address
     for the adaptor to the list.
-  <li>Add the URLs provided by the adaptor to the <b>Follow and Crawl Only
-    URLs with the Following Patterns</b> on the GSA.
-    <p>In the Admin console, go to <b>Crawl And Index &gt; Crawl URLs</b>, and
-    scroll down to <b>Follow and Crawl Only URLs with the Following
-    Patterns</b>. Add an entry like <code>http://adaptor.example.com:5678/doc/
+
+  <li>Add the URLs provided by the adaptor to the <b>Follow Patterns</b>
+    on the GSA.
+    <p>In the Admin console, go to <b>Content Sources &gt; Web Crawl 
+    &gt; Start and Block URLs</b>, and
+    scroll down to <b>Follow Patterns</b>.
+    Add an entry like <code>http://adaptor.example.com:5678/doc/
     </code> where <code>adaptor.example.com</code> is the hostname of the
     machine that hosts the adaptor. By default the adaptor runs on port 5678.
 </ol>
@@ -63,4 +65,55 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   <li><p>Run the adaptor using:
   <pre>java -Djava.util.logging.config.file=logging.properties -jar adaptor-fs-YYYYMMDD-withlib.jar</pre>
 </ol>
+
+<!--
+<h4>Running as service on Windows</h4>
+  <p>Example execution with jsvc:
+  <pre>jsvc -pidfile adaptor.pid -cp adaptor-fs-YYYYMMDD-withlib.jar com.google.enterprise.adaptor.Daemon com.google.enterprise.adaptor.fs.FsAdaptor</pre>
+-->
+
+<h4>Optional <code>adaptor-config.properties</code> fields</h4>
+<dl>
+  <dt>
+  <code>filesystemadaptor.supportedAccounts</code>
+  </dt>
+  <dd>
+  Accounts that are in the supportedAccounts will be
+  included in Acls regardless if they are builtin or
+  not.
+  By default the value is:
+  <pre>
+  BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,
+  BUILTIN\\Guest,NT AUTHORITY\\INTERACTIVE,
+  NT AUTHORITY\\Authenticated Users
+  </pre>
+  </dd>
+  <dt>
+  <code>filesystemadaptor.builtinGroupPrefix</code>
+  </dt>
+  <dd>
+  Builtin accounts are excluded from the Acls
+  that are pushed to the GSA. An account that starts with
+  this prefix is considered a builtin account and will be
+  excluded from the Acls.
+  By default the value is:
+  <pre>
+  BUILTIN\\
+  </pre>
+  </dd>
+  <dt>
+  <code>adaptor.incrementalPollPeriodSecs</code>
+  </dt>
+  <dd>
+  Time between incremental crawls. Default value is 300 seconds.
+  </dd>
+  <br>
+  <dt>
+  <code>adaptor.namespace</code>
+  </dt>
+  <dd>
+  Namespace used for ACLs sent to GSA.  Defaults to "Default".
+  </dd>
+</dl>
+
 </body>
