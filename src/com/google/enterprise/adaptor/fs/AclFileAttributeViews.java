@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.io.IOException;
@@ -29,6 +30,9 @@ public class AclFileAttributeViews {
 
   public AclFileAttributeViews(AclFileAttributeView directAclView,
                                AclFileAttributeView inheritedAclView) {
+    Preconditions.checkNotNull(directAclView, "directAclView may not be null");
+    Preconditions.checkNotNull(inheritedAclView,
+                               "inheritedAclView may not be null");
     this.directAclView = directAclView;
     this.inheritedAclView = inheritedAclView;
   }
