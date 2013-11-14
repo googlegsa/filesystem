@@ -151,7 +151,7 @@ public class FsAdaptor extends AbstractAdaptor {
   public void initConfig(Config config) {
     config.addKey(CONFIG_SRC, null);
     config.addKey(CONFIG_SUPPORTED_ACCOUNTS,
-        "BUILTIN\\Administrators,\\Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
+        "BUILTIN\\Administrators,Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
