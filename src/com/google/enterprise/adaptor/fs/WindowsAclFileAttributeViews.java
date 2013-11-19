@@ -87,6 +87,17 @@ class WindowsAclFileAttributeViews {
   private static final Set<Integer> USER_SID_TYPES =
       Collections.unmodifiableSet(Sets.newHashSet(SID_NAME_USE.SidTypeUser));
 
+  /** Map of NT GENERIC permissions to NT FILE permissions. */
+  private static final Map<Integer, Integer> GENERIC_PERMS_MAP = 
+      Collections.unmodifiableMap(new HashMap<Integer, Integer>() {
+          {
+            put(WinNT.GENERIC_READ, WinNT.FILE_GENERIC_READ);
+            put(WinNT.GENERIC_WRITE, WinNT.FILE_GENERIC_WRITE);
+            put(WinNT.GENERIC_EXECUTE, WinNT.FILE_GENERIC_EXECUTE);
+            put(WinNT.GENERIC_ALL, WinNT.FILE_ALL_ACCESS);
+          }
+      });
+
   /** The map of Acl permissions from NT to AclEntryPermission. */
   private static final Map<Integer, AclEntryPermission> ACL_PERMS_MAP =
       Collections.unmodifiableMap(new HashMap<Integer, AclEntryPermission>() {
@@ -325,10 +336,18 @@ class WindowsAclFileAttributeViews {
       return null;
     }
     
+    // Expand NT GENERIC_* permissions to their FILE_GENERIC_* equivalents.
+    int aceMask = ace.Mask;
+    for (Map.Entry<Integer, Integer> e : GENERIC_PERMS_MAP.entrySet()) {
+      if ((ace.Mask & e.getKey()) == e.getKey()) {
+        aceMask |= e.getValue();
+      }
+    }
+
     // Map the permissions.
     Set<AclEntryPermission> aclPerms = EnumSet.noneOf(AclEntryPermission.class);
     for (Map.Entry<Integer, AclEntryPermission> e : ACL_PERMS_MAP.entrySet()) {
-      if ((ace.Mask & e.getKey()) == e.getKey()) {
+      if ((aceMask & e.getKey()) == e.getKey()) {
         aclPerms.add(e.getValue());
       }
     }
