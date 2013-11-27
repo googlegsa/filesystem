@@ -14,6 +14,8 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import static java.nio.file.attribute.AclEntryPermission.*;
+
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
@@ -24,7 +26,9 @@ import java.nio.file.attribute.UserPrincipal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * This convenience class allows creation of an {@link AclFileAttributeView}
@@ -56,6 +60,27 @@ import java.util.List;
  * </pre></code>
  */
 class AclView extends SimpleAclFileAttributeView {
+
+  /** Compound permissions for easier specification. */
+  static enum GenericPermission {
+    GENERIC_READ(SYNCHRONIZE, READ_ACL, READ_DATA, READ_ATTRIBUTES,
+                 READ_NAMED_ATTRS),
+    GENERIC_WRITE(SYNCHRONIZE, READ_ACL, WRITE_DATA, APPEND_DATA,
+                  WRITE_ATTRIBUTES, WRITE_NAMED_ATTRS),
+    GENERIC_EXECUTE(SYNCHRONIZE, READ_ACL, READ_ATTRIBUTES, EXECUTE),
+    GENERIC_ALL(AclEntryPermission.values());
+
+    private final Set<AclEntryPermission> permissions;
+
+    GenericPermission(AclEntryPermission... permissions) {
+      this.permissions = Collections.unmodifiableSet(
+          EnumSet.copyOf(Arrays.asList(permissions)));
+    }
+
+    Set<AclEntryPermission> getPermissions() {
+      return permissions;
+    }
+  }
 
   AclView() {
     super(Collections.<AclEntry>emptyList());
@@ -109,6 +134,15 @@ class AclView extends SimpleAclFileAttributeView {
 
     AclEntryBuilder perms(AclEntryPermission... permissions) {
       builder.setPermissions(permissions);
+      return this;
+    }
+
+    AclEntryBuilder perms(GenericPermission... permissions) {
+      Set<AclEntryPermission> perms = EnumSet.noneOf(AclEntryPermission.class);
+      for (GenericPermission genericPerm : permissions) {
+        perms.addAll(genericPerm.getPermissions());
+      }
+      builder.setPermissions(perms);
       return this;
     }
 
