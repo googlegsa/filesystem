@@ -312,6 +312,7 @@ public class FsAdaptor extends AbstractAdaptor {
         BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
+    resp.setDisplayUrl(doc.toUri());
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
