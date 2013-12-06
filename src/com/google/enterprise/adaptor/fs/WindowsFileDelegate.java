@@ -49,7 +49,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class WindowsFileDelegate implements FileDelegate {
+class WindowsFileDelegate extends NioFileDelegate {
   private static final Logger log
       = Logger.getLogger(WindowsFileDelegate.class.getName());
 
@@ -58,9 +58,6 @@ public class WindowsFileDelegate implements FileDelegate {
 
   private MonitorThread monitorThread;
   private final Object monitorThreadLock = new Object();
-
-  public WindowsFileDelegate() {
-  }
 
   @Override
   public AclFileAttributeViews getAclViews(Path doc) throws IOException {
@@ -109,12 +106,10 @@ public class WindowsFileDelegate implements FileDelegate {
 
   @Override
   public DocId newDocId(Path doc) throws IOException {
-    File file = doc.toFile().getCanonicalFile();
-    String id = file.getAbsolutePath().replace('\\', '/');
-    if (file.isDirectory()) {
-      if (!id.endsWith("/")) {
-        id += "/";
-      }
+    Path realPath = doc.toRealPath(LinkOption.NOFOLLOW_LINKS);
+    String id = realPath.toString().replace('\\', '/');
+    if (isDirectory(realPath) && !id.endsWith("/")) {
+      id += "/";
     }
     if (id.startsWith("//")) {
       // String.replaceFirst uses regular expression string and replacement

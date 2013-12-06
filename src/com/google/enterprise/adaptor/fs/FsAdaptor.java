@@ -17,7 +17,6 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
@@ -31,21 +30,15 @@ import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Collection;
@@ -166,7 +159,7 @@ public class FsAdaptor extends AbstractAdaptor {
       throw new IOException("The configuration value " + CONFIG_SRC
           + " is empty. Please specify a valid root path.");
     }
-    rootPath = Paths.get(source).toRealPath(LinkOption.NOFOLLOW_LINKS);
+    rootPath = delegate.getPath(source);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
     // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
@@ -280,10 +273,8 @@ public class FsAdaptor extends AbstractAdaptor {
     log.entering("FsAdaptor", "getDocContent",
         new Object[] {req, resp});
     DocId id = req.getDocId();
-    String docPath = id.getUniqueId();
-    Path doc = Paths.get(docPath);
-    final boolean docIsDirectory = Files.isDirectory(doc,
-        LinkOption.NOFOLLOW_LINKS);
+    Path doc = delegate.getPath(id.getUniqueId());
+    final boolean docIsDirectory = delegate.isDirectory(doc);
 
     if (!id.equals(delegate.newDocId(doc))) {
       log.log(Level.WARNING,
@@ -308,8 +299,7 @@ public class FsAdaptor extends AbstractAdaptor {
     }
 
     // Populate the document metadata.
-    BasicFileAttributes attrs = Files.readAttributes(doc,
-        BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+    BasicFileAttributes attrs = delegate.readBasicAttributes(doc);
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
     resp.setDisplayUrl(doc.toUri());
@@ -317,7 +307,7 @@ public class FsAdaptor extends AbstractAdaptor {
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
     if (!docIsDirectory) {
-      resp.setContentType(Files.probeContentType(doc));
+      resp.setContentType(delegate.probeContentType(doc));
     }
 
     // TODO(mifern): Include extended attributes.
@@ -386,15 +376,18 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
 
-    // TODO(mifern): Flip these two conditionals to
-    // "if (docIsDirectory) { ... } else { ... }" to eliminate the use of
-    // Files.isRegularFile(doc).
-    // TODO(mifern): The conditional
-    // "if (Files.isRegularFile(file) || Files.isDirectory(file))" below
-    // should be changed to use isValidPath.
     // Populate the document content.
-    if (Files.isRegularFile(doc, LinkOption.NOFOLLOW_LINKS)) {
-      InputStream input = Files.newInputStream(doc);
+    if (docIsDirectory) {
+      HtmlResponseWriter writer = createHtmlResponseWriter(resp);
+      writer.start(id, getPathName(doc));
+      for (Path file : delegate.newDirectoryStream(doc)) {
+        if (isSupportedPath(file)) {
+          writer.addLink(delegate.newDocId(file), getPathName(file));
+        }
+      }
+      writer.finish();
+    } else {
+      InputStream input = delegate.newInputStream(doc);
       try {
         IOHelper.copyStream(input, resp.getOutputStream());
       } finally {
@@ -402,25 +395,15 @@ public class FsAdaptor extends AbstractAdaptor {
           input.close();
         } finally {
           try {
-            Files.setAttribute(doc, "lastAccessTime", lastAccessTime,
-                LinkOption.NOFOLLOW_LINKS);
+            delegate.setLastAccessTime(doc, lastAccessTime);
           } catch (IOException e) {
             // This failure can be expected. We can have full permissions
             // to read but not write/update permissions.
             log.log(Level.CONFIG,
-                "Unable to update last access time for {0}.", doc);
+                "Unable to restore last access time for {0}.", doc);
           }
         }
       }
-    } else if (docIsDirectory) {
-      HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-      writer.start(id, getPathName(doc));
-      for (Path file : Files.newDirectoryStream(doc)) {
-        if (isSupportedPath(file)) {
-          writer.addLink(delegate.newDocId(file), getPathName(file));
-        }
-      }
-      writer.finish();
     }
     log.exiting("FsAdaptor", "getDocContent");
   }
@@ -436,12 +419,11 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @VisibleForTesting
   String getPathName(Path file) {
-    return file.toFile().getName();
+    return file.getFileName().toString();
   }
 
-  private boolean isSupportedPath(Path p) {
-    return Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS) ||
-        Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS);
+  private boolean isSupportedPath(Path p) throws IOException {
+    return delegate.isRegularFile(p) || delegate.isDirectory(p);
   }
 
   private boolean isDescendantOfRoot(Path file) {
