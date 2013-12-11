@@ -116,6 +116,15 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </dd>
 </dl>
 
+<h3>Document Last Access Dates</h3>
+<p>The adaptor attempts to restore the last access date for documents after 
+it reads the document content during a crawl. In order for the last access 
+date to be restored back to the original value before the content was read, 
+the user account that the adaptor is running under needs to have write permission. 
+If the account has read-only permission and not write permission for documents, 
+then the last access date for documents will change as the adaptor reads 
+document content during a crawl.
+
 <h3>File System Adaptor Acl Overview</h3>
 
 <p>ACLs for documents and folders are read, preserved and pushed to the Google 
