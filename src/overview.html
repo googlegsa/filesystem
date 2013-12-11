@@ -116,4 +116,22 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </dd>
 </dl>
 
+<h3>File System Adaptor Acl Overview</h3>
+
+<p>ACLs for documents and folders are read, preserved and pushed to the Google 
+Search Appliance by the File System Adaptor for UNC and DFS UNC paths.
+</p>
+
+<p>The following images show the ACL inheritance used by the File System Adaptor. 
+The green and pink arrows signify inheritance. While the dotted arrows show an 
+optional inheritance depending on whether the item inherits permission from 
+its parent or if it breaks inheritance and defines its own set of permissions.
+</p>
+
+<h4>non-DFS Acl inheritance</h4>
+<img src="non_dfs_acls.jpg" />
+
+<h4>DFS Acl inheritance</h4>
+<img src="dfs_acls.jpg" />
+
 </body>
