@@ -299,7 +299,7 @@ class WindowsAclFileAttributeViews {
    * @return AclEntry representing the ace, or {@code null} if a valid
    *         AclEntry could not be created from the ace.
    */
-  private AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
+  public static AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
     // Map the type.
     AclEntryType aclType = ACL_TYPE_MAP.get(ace.AceType);
     if (aclType == null) {
@@ -307,13 +307,14 @@ class WindowsAclFileAttributeViews {
           ace.AceType);
       return null;
     }
-    
+
     // Map the user.
     Account account;
     try {
       account = Advapi32Util.getAccountBySid(ace.getSID());
     } catch (Win32Exception e) {
-      if (e.getHR().intValue() == WinError.ERROR_NONE_MAPPED) {
+      // Only the least significant 16-bits signifies the HR code.
+      if ((e.getHR().intValue() & 0xFFFF) == WinError.ERROR_NONE_MAPPED) {
         log.log(Level.WARNING, "Skipping ACE with unresolvable SID: {0}.",
             ace.getSidString());
         return null;
@@ -381,7 +382,7 @@ class WindowsAclFileAttributeViews {
     }
   }
 
-  private class User implements UserPrincipal {
+  private static class User implements UserPrincipal {
     private final String accountName;
     private final String accountType;
 
@@ -401,7 +402,7 @@ class WindowsAclFileAttributeViews {
     }
   }
 
-  private class Group extends User implements GroupPrincipal {
+  private static class Group extends User implements GroupPrincipal {
     Group(String accountName, String accountType) {
       super(accountName, accountType);
     }

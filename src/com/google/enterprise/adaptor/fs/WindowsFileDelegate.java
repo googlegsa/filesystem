@@ -15,10 +15,12 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
+import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
@@ -26,6 +28,7 @@ import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
+import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinBase;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.ULONG;
@@ -33,11 +36,13 @@ import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.FILE_NOTIFY_INFORMATION;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
+import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.W32APIOptions;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -67,6 +72,100 @@ class WindowsFileDelegate extends NioFileDelegate {
   @Override
   public AclFileAttributeView getShareAclView(Path doc) throws IOException {
     return aclViews.getShareAclView(doc);
+  }
+
+  @Override
+  public AclFileAttributeView getDfsShareAclView(Path doc) {
+    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
+    PointerByReference sd = new PointerByReference();
+    IntByReference sdSize = new IntByReference();
+    int rc = netapi32.NetDfsGetSecurity(doc.toString(),
+        WinNT.DACL_SECURITY_INFORMATION |
+            WinNT.PROTECTED_DACL_SECURITY_INFORMATION |
+            WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
+        sd, sdSize);
+    if (LMErr.NERR_Success != rc) {
+      throw new Win32Exception(rc);
+    }
+
+    SECURITY_DESCRIPTOR_RELATIVEEx sdr =
+        new SECURITY_DESCRIPTOR_RELATIVEEx(sd.getValue());
+    WinNT.ACL dacl = sdr.getDiscretionaryACL();
+    rc = netapi32.NetApiBufferFree(sd.getValue());
+    if (LMErr.NERR_Success != rc) {
+      throw new Win32Exception(rc);
+    }
+
+    ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
+    for (WinNT.ACCESS_ACEStructure ace : dacl.getACEStructures()) {
+      AclEntry entry = WindowsAclFileAttributeViews.newAclEntry(ace);
+      if (entry != null) {
+        builder.add(entry);
+      }
+    }
+
+    List<AclEntry> acl = builder.build();
+    log.log(Level.FINEST, "DFS share ACL for {0}: {1}",
+        new Object[] { doc, acl });
+    return new SimpleAclFileAttributeView(acl);
+  }
+
+  public static class ACLEx extends WinNT.ACL {
+    private WinNT.ACCESS_ACEStructure[] ACEs;
+
+    public ACLEx(Pointer p) {
+      // Don't call super(p), call instead useMemory(p). The reason is
+      // that super(p) will parse the security descriptor which is what
+      // we're trying to avoid.
+      useMemory(p);
+      read();
+      ACEs = new WinNT.ACCESS_ACEStructure[AceCount];
+      int offset = size();
+      for (int i = 0; i < AceCount; i++) {
+        Pointer share = p.share(offset);
+        byte aceType = share.getByte(0);
+        WinNT.ACCESS_ACEStructure ace;
+        switch (aceType) {
+          case WinNT.ACCESS_ALLOWED_ACE_TYPE:
+          case WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE:
+            ace = new WinNT.ACCESS_ALLOWED_ACE(share);
+            break;
+          case WinNT.ACCESS_DENIED_ACE_TYPE:
+          case WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE:
+            ace = new WinNT.ACCESS_DENIED_ACE(share);
+            break;
+          default:
+            throw new IllegalArgumentException("Unknwon ACE type " +
+                aceType);
+        }
+        ACEs[i] = ace;
+        offset += ace.AceSize;
+      }
+    }
+
+    public WinNT.ACCESS_ACEStructure[] getACEStructures() {
+      return ACEs;
+    }
+  }
+
+  public static class SECURITY_DESCRIPTOR_RELATIVEEx extends
+      WinNT.SECURITY_DESCRIPTOR_RELATIVE {
+    private WinNT.ACL DACL;
+
+    public SECURITY_DESCRIPTOR_RELATIVEEx(Pointer p) {
+      // Don't call super(p), call instead useMemory(p). The reason is
+      // that super(p) will parse the security descriptor which is what
+      // we're trying to avoid.
+      useMemory(p);
+      read();
+      if (Dacl != 0) {
+        DACL = new ACLEx(getPointer().share(Dacl));
+      }
+    }
+
+    public WinNT.ACL getDiscretionaryACL() {
+      return DACL;
+    }
   }
 
   @Override

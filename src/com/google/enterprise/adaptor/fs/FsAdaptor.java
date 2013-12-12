@@ -239,14 +239,15 @@ public class FsAdaptor extends AbstractAdaptor {
     // collisions with the root docid.
 
     Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
-    DocId inheritId = null;
-    AclBuilder builder = new AclBuilder(rootPath,
-        delegate.getShareAclView(rootPath), supportedWindowsAccounts,
-        builtinPrefix, namespace);
 
     if (isDfsUnc) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
+      // TODO(mifern): This assumes that rootPath is a DFS link since it calls
+      // getParent determine the DFS namespace UNC path.
+      AclBuilder builder = new AclBuilder(rootPath,
+          delegate.getDfsShareAclView(rootPath.getParent()),
+          supportedWindowsAccounts, builtinPrefix, namespace);
       namedResources.put(DFS_SHARE_ACL_DOCID, builder.getShareAcl(null));
 
       // Push the Acl for the active storage UNC path.
@@ -256,13 +257,19 @@ public class FsAdaptor extends AbstractAdaptor {
             " does not have an active storage.");
       }
 
-      inheritId = DFS_SHARE_ACL_DOCID;
       builder = new AclBuilder(activeStorage,
           delegate.getShareAclView(activeStorage), supportedWindowsAccounts,
           builtinPrefix, namespace);
+      namedResources.put(SHARE_ACL_DOCID,
+          builder.getShareAcl(DFS_SHARE_ACL_DOCID));
+    } else {
+      // For a non-DFS UNC we have only have a share Acl to push.
+      AclBuilder builder = new AclBuilder(rootPath,
+          delegate.getShareAclView(rootPath), supportedWindowsAccounts,
+          builtinPrefix, namespace);
+      namedResources.put(SHARE_ACL_DOCID, builder.getShareAcl(null));
     }
 
-    namedResources.put(SHARE_ACL_DOCID, builder.getShareAcl(inheritId));
     pusher.pushNamedResources(namedResources);
 
     log.exiting("FsAdaptor", "getDocIds");

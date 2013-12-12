@@ -21,6 +21,7 @@ import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.ULONG;
+import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
@@ -83,12 +84,16 @@ class WinApi {
             });
       }
     }
-  
+
+    public int NetDfsGetSecurity(String DfsEntryPath, int SecurityInformation,
+        PointerByReference ppSecurityDescriptor,
+        IntByReference lpcbSecurityDescriptor);
+
     public int NetDfsGetInfo(String DfsEntryPath, String ServerName,
         String ShareName, int Level, PointerByReference Buffer);
-  
+
     public static final int DFS_STORAGE_STATE_ONLINE = 2;
-  
+
     public static class DFS_INFO_3 extends Structure {
       public WString EntryPath;
       public WString Comment;

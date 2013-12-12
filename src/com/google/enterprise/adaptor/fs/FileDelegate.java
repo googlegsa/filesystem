@@ -119,6 +119,14 @@ interface FileDelegate {
   AclFileAttributeView getShareAclView(Path doc) throws IOException;
 
   /**
+   * Returns an {@link AclFileAttributeView} that contains share Acl for the
+   * specified DFS namespace.
+   *
+   * @param doc A DFS namespace to get the {@link AclFileAttributeView} for.
+   */
+  AclFileAttributeView getDfsShareAclView(Path doc) throws IOException;
+
+  /**
    * Creates a new {@link DocId}.
    *
    * @param doc The file/folder to get the {@link DocId} for.
