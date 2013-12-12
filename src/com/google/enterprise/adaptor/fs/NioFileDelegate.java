@@ -51,6 +51,11 @@ abstract class NioFileDelegate implements FileDelegate {
   }
 
   @Override
+  public boolean isHidden(Path doc) throws IOException {
+    return Files.isHidden(doc);
+  }
+
+  @Override
   public BasicFileAttributes readBasicAttributes(Path doc) throws IOException {
     return Files.readAttributes(doc, BasicFileAttributes.class);
   }

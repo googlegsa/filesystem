@@ -48,6 +48,12 @@ interface FileDelegate {
   boolean isRegularFile(Path doc) throws IOException;
 
   /**
+   * Returns {@code true} if the specified path represents
+   * a hidden file or directory, {@code false} otherwise.
+   */
+  boolean isHidden(Path doc) throws IOException;
+
+  /**
    * Returns the {@link BasicFileAttributes} for the file or directory.
    *
    * @param doc the file/folder to get the {@link BasicFileAttributes} for

@@ -283,17 +283,13 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
-    if (!isDescendantOfRoot(doc)) {
-      log.log(Level.WARNING,
-          "Skipping {0} since it is not a descendant of {1}.",
-          new Object[] { doc, rootPath });
+    if (!isVisibleDescendantOfRoot(doc)) {
       resp.respondNotFound();
       return;
     }
 
     if (!isSupportedPath(doc)) {
-      log.log(Level.WARNING, "The path {0} is not a supported file type.",
-          doc);
+      log.log(Level.WARNING, "The path {0} is not a supported file type.", doc);
       resp.respondNotFound();
       return;
     }
@@ -426,13 +422,29 @@ public class FsAdaptor extends AbstractAdaptor {
     return delegate.isRegularFile(p) || delegate.isDirectory(p);
   }
 
-  private boolean isDescendantOfRoot(Path file) {
-    while (file != null) {
+  /**
+   * Verifies that the file is a descendant of the root directory,
+   * and that it, nor none of its ancestors, is hidden.
+   */
+  private boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
+    for (Path file = doc; file != null; file = file.getParent()) {
+      if (delegate.isHidden(file)) {
+        if (doc.equals(file)) {
+          log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
+        } else {
+          log.log(Level.WARNING,
+              "Skipping {0} because it is hidden under {1}.",
+              new Object[] { doc, file });
+        }
+        return false;
+      }
       if (file.equals(rootPath)) {
         return true;
       }
-      file = file.getParent();
     }
+    log.log(Level.WARNING,
+        "Skipping {0} because it is not a descendant of {1}.",
+        new Object[] { doc, rootPath });
     return false;
   }
 
