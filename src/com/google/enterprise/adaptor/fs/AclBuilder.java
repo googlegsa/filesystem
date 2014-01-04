@@ -112,7 +112,7 @@ public class AclBuilder {
       if (!predicate.apply(entry.flags())) {
         continue;
       }
-      if (filterAclEntry(entry)) {
+      if (filterOutAclEntry(entry)) {
         continue;
       }
 
@@ -141,11 +141,11 @@ public class AclBuilder {
   }
 
   /**
-   * Returns true if the provided {@link AclEntry} should be included in an Acl.
+   * Returns true if provided {@link AclEntry} should be excluded from Acl.
    *
-   * @param entry The AclEntry to checked and added.
+   * @param entry The AclEntry to check.
    */
-  private boolean filterAclEntry(AclEntry entry) {
+  private boolean filterOutAclEntry(AclEntry entry) {
     String principalName = entry.principal().getName();
 
     if (!isSupportedWindowsAccount(principalName)) {
