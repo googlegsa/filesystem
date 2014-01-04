@@ -60,7 +60,15 @@ import java.util.logging.Logger;
 // TODO(mifern): Decide what we want to discover within \\host only shares.
 
 /**
- * Simple example adaptor that serves files from the local filesystem.
+ * Runs on Microsoft Windows and serves files from networked shares.
+ * <p>
+ * Features:<br>
+ * <ul>
+ * <li>Supports UNC path to single matchine's share
+ * <li>Supports UNC path to standalone DFS
+ * <li>Supports UNC path to domain DFS
+ * <li>Uses hierarchical ACL model
+ * </ul>
  */
 public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
