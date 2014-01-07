@@ -42,16 +42,15 @@ import java.util.List;
 
 class MockFile {
   static final String SEPARATOR = "/";
-  static final FileTime defaultFileTime = FileTime.fromMillis(10000);
-  static final AclFileAttributeView fullAccessAclView = 
+  static final FileTime DEFAULT_FILETIME = FileTime.fromMillis(10000);
+  static final AclFileAttributeView FULL_ACCESS_ACLVIEW =
       new AclView(group("Everyone").type(ALLOW)
           .perms(READ_DATA, READ_ATTRIBUTES, READ_NAMED_ATTRS, READ_ACL)
           .flags(FILE_INHERIT, DIRECTORY_INHERIT));
-  static final AclFileAttributeView emptyAclView = new AclView();
+  static final AclFileAttributeView EMPTY_ACLVIEW = new AclView();
 
   private MockFile parent;
   private String name;
-  private boolean exists = true;
   private boolean isHidden = false;
   private boolean isRegularFile;
   private boolean isDirectory;
@@ -61,9 +60,9 @@ class MockFile {
   private AclFileAttributeView shareAclView;
   private AclFileAttributeView aclView;
   private AclFileAttributeView inheritedAclView;
-  private FileTime creationTime = defaultFileTime;
-  private FileTime lastAccessTime = defaultFileTime;
-  private FileTime lastModifiedTime = defaultFileTime;
+  private FileTime creationTime = DEFAULT_FILETIME;
+  private FileTime lastModifiedTime = DEFAULT_FILETIME;
+  private FileTime lastAccessTime = DEFAULT_FILETIME;
   private String contentType;
   private byte[] fileContents;
 
@@ -100,6 +99,7 @@ class MockFile {
    * MockFile, and registers this file as the parent of all the children.
    */
   MockFile addChildren(MockFile... children) {
+    Preconditions.checkState(isDirectory, "not a directory %s", getPath());
     for (MockFile child : children) {
       child.parent = this;
       directoryContents.add(child);
@@ -112,6 +112,7 @@ class MockFile {
    */
   MockFile getChild(String name) throws FileNotFoundException {
     Preconditions.checkNotNull(name, "name cannot be null");
+    Preconditions.checkState(isDirectory, "not a directory %s", getPath());
     Iterator<MockFile> it = directoryContents.iterator();
     while (it.hasNext()) {
       MockFile f = it.next();
@@ -124,37 +125,15 @@ class MockFile {
   }
 
   /**
-   * Remove this file.
-   */
-  void delete() {
-    if (parent != null) {
-      // Unlink from parent.
-      Iterator<MockFile> it = parent.directoryContents.iterator();
-      while (it.hasNext()) {
-        if (it.next() == this) {
-          it.remove();
-          break;
-        }
-      }
-    }
-    if (isDirectory) {
-      // TODO: If this is insufficient, delete recursively.
-      // But after this, getChild() will fail, so we should be OK.
-      directoryContents.clear();
-    }
-    exists = isDirectory = isRegularFile = isHidden = false;
-    parent = null;
-    name = null;
-  }
-
-  /**
    * Return the path to this file or directory.
    */
   String getPath() {
     if (parent == null) {
       return name;
     } else {
-      return parent.getPath() + SEPARATOR + name;
+      String parentPath = parent.getPath();
+      return (parentPath.endsWith(SEPARATOR))
+             ? parentPath + name : parentPath + SEPARATOR + name;
     }
   }
 
@@ -193,15 +172,6 @@ class MockFile {
     return isRegularFile;
   }
 
-  MockFile setExists(boolean exists) {
-    this.exists = exists;
-    return this;
-  }
-
-  boolean exists() throws IOException {
-    return this.exists;
-  }
-
   MockFile setIsHidden(boolean isHidden) {
     this.isHidden = isHidden;
     return this;
@@ -217,7 +187,7 @@ class MockFile {
     return this;
   }
 
-  FileTime getCreateTime() throws IOException {
+  FileTime getCreationTime() throws IOException {
     return creationTime;
   }
 
@@ -259,7 +229,7 @@ class MockFile {
     this.dfsShareAclView = aclView;
     return this;
   }
-  
+
   AclFileAttributeView getDfsShareAclView() throws IOException {
     return dfsShareAclView;
   }
@@ -270,7 +240,7 @@ class MockFile {
   }
 
   AclFileAttributeView getShareAclView() throws IOException {
-    return (shareAclView == null) ? fullAccessAclView : shareAclView;
+    return (shareAclView == null) ? FULL_ACCESS_ACLVIEW : shareAclView;
   }
 
   MockFile setAclView(AclFileAttributeView aclView) {
@@ -280,7 +250,7 @@ class MockFile {
 
   AclFileAttributeView getAclView() throws IOException {
     if (aclView == null) {
-      return (parent == null) ? fullAccessAclView : emptyAclView;
+      return (parent == null) ? FULL_ACCESS_ACLVIEW : EMPTY_ACLVIEW;
     } else {
       return aclView;
     }
@@ -295,10 +265,10 @@ class MockFile {
     if (inheritedAclView == null) {
       if (parent == null) {
         // root has no inherited ACL
-        return emptyAclView;
+        return EMPTY_ACLVIEW;
       } else if (parent.parent == null) {
         // root's children inherit its ACL
-        return parent.getAclView();	
+        return parent.getAclView();
       } else {
         // all other children inherit from their parent
         return parent.getInheritedAclView();
@@ -314,7 +284,7 @@ class MockFile {
   }
 
   String getContentType() throws IOException {
-    return contentType;
+    return isRegularFile ? contentType : null;
   }
 
   MockFile setFileContents(String fileContents) {
@@ -339,7 +309,9 @@ class MockFile {
   }
 
   DirectoryStream<Path> newDirectoryStream() throws IOException {
-    Preconditions.checkState(isDirectory, "not a directory %s", getPath());
+    if (!isDirectory) {
+      throw new NotDirectoryException("not a directory " + getPath());
+    }
     return new MockDirectoryStream(directoryContents);
   }
 

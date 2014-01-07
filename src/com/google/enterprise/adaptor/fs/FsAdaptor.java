@@ -132,12 +132,14 @@ public class FsAdaptor extends AbstractAdaptor {
   /** The namespace applied to ACL Principals. */
   private String namespace;
 
+  /** The filesystem change monitor. */
+  private FsMonitor monitor;
+
   private AdaptorContext context;
   private Path rootPath;
   private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
-  private FsMonitor monitor;
 
   public FsAdaptor() {
     // At the moment, we only support Windows.
@@ -152,6 +154,26 @@ public class FsAdaptor extends AbstractAdaptor {
   @VisibleForTesting
   FsAdaptor(FileDelegate delegate) {
     this.delegate = delegate;
+  }
+
+  @VisibleForTesting
+  Set<String> getSupportedWindowsAccounts() {
+    return supportedWindowsAccounts;
+  }
+
+  @VisibleForTesting
+  String getBuiltinPrefix() {
+    return builtinPrefix;
+  }
+
+  @VisibleForTesting
+  String getNamespace() {
+    return namespace;
+  }
+
+  @VisibleForTesting
+  BlockingQueue<Path> getFsMonitorQueue() {
+    return monitor.getQueue();
   }
 
   @Override
@@ -238,8 +260,13 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void destroy() {
     delegate.destroy();
-    monitor.destroy();
-    monitor = null;
+    // TODO (bmj): The check for null monitor is strictly for the tests,
+    // some of which may not have fully initialized the adaptor.  Maybe
+    // look into handling this less obtrusively in the future.
+    if (monitor != null) {
+      monitor.destroy();
+      monitor = null;
+    }
   }
 
   @Override
@@ -414,10 +441,10 @@ public class FsAdaptor extends AbstractAdaptor {
     // Populate the document content.
     if (docIsDirectory) {
       HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-      writer.start(id, getPathName(doc));
+      writer.start(id, getFileName(doc));
       for (Path file : delegate.newDirectoryStream(doc)) {
         if (isSupportedPath(file)) {
-          writer.addLink(delegate.newDocId(file), getPathName(file));
+          writer.addLink(delegate.newDocId(file), getFileName(file));
         }
       }
       writer.finish();
@@ -450,14 +477,14 @@ public class FsAdaptor extends AbstractAdaptor {
     response.setContentType("text/html; charset=" + CHARSET.name());
     // TODO(ejona): Get locale from request.
     return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
-
         Locale.ENGLISH);
   }
 
   @VisibleForTesting
-  String getPathName(Path file) {
+  String getFileName(Path file) {
     // NOTE: file.getFileName() fails for UNC paths. Use file.toFile() instead.
-    return file.toFile().getName();
+    String name = file.toFile().getName();
+    return name.isEmpty() ? file.getRoot().toString() : name;
   }
 
   @VisibleForTesting
@@ -505,8 +532,8 @@ public class FsAdaptor extends AbstractAdaptor {
       Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
       Preconditions.checkArgument(maxFeedSize > 0,
           "the maxFeedSize must be greater than zero");
-      Preconditions.checkArgument(maxLatencyMillis > 0,
-          "the maxLatencyMillis must be greater than zero");
+      Preconditions.checkArgument(maxLatencyMillis >= 0,
+          "the maxLatencyMillis must be greater than or equal to zero");
       this.pusher = pusher;
       this.maxFeedSize = maxFeedSize;
       this.maxLatencyMillis = maxLatencyMillis;

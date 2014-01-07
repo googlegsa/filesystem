@@ -44,14 +44,27 @@ class MockFileDelegate implements FileDelegate {
    */
   MockFile getFile(Path doc) throws FileNotFoundException {
     Preconditions.checkNotNull(doc, "doc cannot be null");
-    Iterator<Path> iter = doc.iterator();
     MockFile file = root;
+    Iterator<Path> iter = doc.iterator();
+    if (doc.getRoot() != null) {
+      // Using startsWith because Path adds a trailing backslash to
+      // UNC roots.  The second check accounts for Windows Path
+      // implementation flipping slashes on Unix paths.
+      if (!(doc.getRoot().toString().startsWith(root.getPath()) ||
+          root.getPath().equals(doc.getRoot().toString().replace('\\', '/')))) {
+        throw new FileNotFoundException("not found: " + doc.toString());
+      }
+    } else if (iter.hasNext()) {
+      if (!(root.getPath().equals(iter.next().toString()))) {
+        throw new FileNotFoundException("not found: " + doc.toString());
+      }
+    }
     while (iter.hasNext()) {
       file = file.getChild(iter.next().toString());
     }
     return file;
   }
-    
+
   @Override
   public Path getPath(String pathname) throws IOException {
     Preconditions.checkNotNull(pathname, "pathname cannot be null");
@@ -60,17 +73,29 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public boolean isDirectory(Path doc) throws IOException {
-    return getFile(doc).isDirectory();
+    try {
+      return getFile(doc).isDirectory();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
   }
 
   @Override
   public boolean isRegularFile(Path doc) throws IOException {
-    return getFile(doc).isRegularFile();
+    try {
+      return getFile(doc).isRegularFile();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
   }
 
   @Override
   public boolean isHidden(Path doc) throws IOException {
-    return getFile(doc).isHidden();
+    try {
+      return getFile(doc).isHidden();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
   }
 
   @Override
@@ -100,9 +125,15 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public DocId newDocId(Path doc) throws IOException {
-    String id = doc.toString();
+    String id = doc.toString().replace('\\', '/');
     if (isDirectory(doc) && !id.endsWith("/")) {
       id += "/";
+    }
+    if (id.startsWith("//")) {
+      // String.replaceFirst uses regular expression string and replacement
+      // so they need to be escaped appropriately. The above String.replace
+      // does NOT use expressions so regex escaping is not needed.
+      id = id.replaceFirst("//", "\\\\\\\\");
     }
     return new DocId(id);
   }
