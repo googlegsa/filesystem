@@ -149,6 +149,11 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
+  @VisibleForTesting
+  FsAdaptor(FileDelegate delegate) {
+    this.delegate = delegate;
+  }
+
   @Override
   public void initConfig(Config config) {
     config.addKey(CONFIG_SRC, null);
@@ -445,6 +450,7 @@ public class FsAdaptor extends AbstractAdaptor {
     response.setContentType("text/html; charset=" + CHARSET.name());
     // TODO(ejona): Get locale from request.
     return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
+
         Locale.ENGLISH);
   }
 
@@ -454,7 +460,8 @@ public class FsAdaptor extends AbstractAdaptor {
     return file.toFile().getName();
   }
 
-  private boolean isSupportedPath(Path p) throws IOException {
+  @VisibleForTesting
+  boolean isSupportedPath(Path p) throws IOException {
     return delegate.isRegularFile(p) || delegate.isDirectory(p);
   }
 
@@ -462,7 +469,8 @@ public class FsAdaptor extends AbstractAdaptor {
    * Verifies that the file is a descendant of the root directory,
    * and that it, nor none of its ancestors, is hidden.
    */
-  private boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
+  @VisibleForTesting
+  boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
     for (Path file = doc; file != null; file = file.getParent()) {
       if (delegate.isHidden(file)) {
         if (doc.equals(file)) {
