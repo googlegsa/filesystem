@@ -430,7 +430,8 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @VisibleForTesting
   String getPathName(Path file) {
-    return file.getFileName().toString();
+    // NOTE: file.getFileName() fails for UNC paths. Use file.toFile() instead.
+    return file.toFile().getName();
   }
 
   private boolean isSupportedPath(Path p) throws IOException {
