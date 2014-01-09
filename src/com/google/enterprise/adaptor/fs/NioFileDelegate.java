@@ -16,6 +16,7 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.enterprise.adaptor.DocId;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.attribute.AclFileAttributeView;
@@ -37,7 +38,7 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public Path getPath(String pathname) throws IOException {
-    return Paths.get(pathname).toRealPath(LinkOption.NOFOLLOW_LINKS);
+    return Paths.get(pathname);
   }
 
   @Override
@@ -82,9 +83,9 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public DocId newDocId(Path doc) throws IOException {
-    Path realPath = doc.toRealPath(LinkOption.NOFOLLOW_LINKS);
-    String id = realPath.toString();
-    if (isDirectory(realPath) && !id.endsWith("/")) {
+    File file = doc.toFile().getCanonicalFile();
+    String id = file.getAbsolutePath();
+    if (file.isDirectory() && !id.endsWith("/")) {
       id += "/";
     }
     return new DocId(id);

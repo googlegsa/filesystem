@@ -205,9 +205,9 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public DocId newDocId(Path doc) throws IOException {
-    Path realPath = doc.toRealPath();
-    String id = realPath.toString().replace('\\', '/');
-    if (isDirectory(realPath) && !id.endsWith("/")) {
+    File file = doc.toFile().getCanonicalFile();
+    String id = file.getAbsolutePath().replace('\\', '/');
+    if (file.isDirectory() && !id.endsWith("/")) {
       id += "/";
     }
     if (id.startsWith("//")) {

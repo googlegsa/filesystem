@@ -28,7 +28,7 @@ import java.util.concurrent.BlockingQueue;
 interface FileDelegate {
   /**
    * Returns the real {@link Path} represented by the path string.
-   * This is equivalent to {@code Paths.get(pathname).toRealPath()}.
+   * This is equivalent to {@code Paths.get(pathname)}.
    *
    * @param pathname the path string
    * @return the real Path

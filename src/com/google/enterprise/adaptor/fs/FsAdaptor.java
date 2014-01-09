@@ -289,6 +289,13 @@ public class FsAdaptor extends AbstractAdaptor {
         new Object[] {req, resp});
     DocId id = req.getDocId();
     Path doc = delegate.getPath(id.getUniqueId());
+
+    if (!isSupportedPath(doc)) {
+      log.log(Level.WARNING, "The path {0} is not a supported file type.", doc);
+      resp.respondNotFound();
+      return;
+    }
+
     final boolean docIsDirectory = delegate.isDirectory(doc);
 
     if (!id.equals(delegate.newDocId(doc))) {
@@ -299,12 +306,6 @@ public class FsAdaptor extends AbstractAdaptor {
     }
 
     if (!isVisibleDescendantOfRoot(doc)) {
-      resp.respondNotFound();
-      return;
-    }
-
-    if (!isSupportedPath(doc)) {
-      log.log(Level.WARNING, "The path {0} is not a supported file type.", doc);
       resp.respondNotFound();
       return;
     }
