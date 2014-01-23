@@ -155,8 +155,8 @@ public class FsAdaptor extends AbstractAdaptor {
         "BUILTIN\\Administrators,Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
+    config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
-    config.overrideKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
   }
 
   @Override
