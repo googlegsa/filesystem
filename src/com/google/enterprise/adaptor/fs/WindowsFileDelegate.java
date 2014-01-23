@@ -390,6 +390,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         switch (info.Action) {
           case Kernel32.FILE_ACTION_MODIFIED:
             log.log(Level.FINEST, "Modified: {0}", changePath);
+            offerPath(changePath);
             break;
           case Kernel32.FILE_ACTION_ADDED:
           case Kernel32.FILE_ACTION_RENAMED_NEW_NAME:
