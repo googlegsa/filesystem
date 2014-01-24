@@ -424,6 +424,7 @@ public class FsAdaptor extends AbstractAdaptor {
       throws IOException {
     Writer writer = new OutputStreamWriter(response.getOutputStream(),
         CHARSET);
+    response.setContentType("text/html; charset=" + CHARSET.name());
     // TODO(ejona): Get locale from request.
     return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
         Locale.ENGLISH);
