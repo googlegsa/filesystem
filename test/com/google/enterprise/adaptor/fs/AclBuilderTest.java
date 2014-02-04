@@ -29,8 +29,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.Acl;
-import com.google.enterprise.adaptor.Acl.InheritanceType;
-import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.UserPrincipal;
@@ -54,7 +52,6 @@ public class AclBuilderTest {
   public ExpectedException thrown = ExpectedException.none();
   
   private final Path doc = Paths.get("foo", "bar");
-  private final DocId inheritId = new DocId("foo");
   private final Set<String> windowsAccounts = ImmutableSet.of(
       "BUILTIN\\Administrators", "Everyone", "BUILTIN\\Users",
       "BUILTIN\\Guest", "NT AUTHORITY\\INTERACTIVE",
@@ -73,6 +70,8 @@ public class AclBuilderTest {
           .flags(FILE_INHERIT, DIRECTORY_INHERIT),
       group("sales").type(DENY).perms(GENERIC_READ)
           .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+  // This is the expected ACL for the above aclView.
+  private final Acl expectedAcl = expectedBuilder().build();
 
   @Test
   public void testConstructorNullPath() throws Exception {
@@ -105,64 +104,32 @@ public class AclBuilderTest {
   }
 
   @Test
-  public void testGetAclForDirectory() throws Exception {
-    Acl acl = newBuilder(aclView).getAcl(inheritId, true, null);
-    Acl expected = expectedBuilder().build();
-    assertEquals(expected, acl);
-  }
-
-  @Test
-  public void testGetAclForFile() throws Exception {
-    Acl acl = newBuilder(aclView).getAcl(inheritId, false, null);
-    Acl expected = expectedBuilder()
-        .setInheritanceType(InheritanceType.LEAF_NODE)
-        .build();
-    assertEquals(expected, acl);
-  }
-
-  @Test
-  public void testGetShareAcl() throws Exception {
-    Acl acl = newBuilder(aclView).getShareAcl(inheritId);
-    Acl expected = expectedBuilder()
-        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT)
-        .build();
-    assertEquals(expected, acl);
+  public void testGetAcl() throws Exception {
+    assertEquals(expectedAcl, newBuilder(aclView).getAcl().build());
   }
 
   @Test
   public void testGetInheritableByAllDescendentFoldersAcl() throws Exception {
-    String fragment = "allFoldersAcl";
-    Acl acl = newBuilder(aclView).getInheritableByAllDescendentFoldersAcl(
-        inheritId, fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    assertEquals(expectedAcl,
+        newBuilder(aclView).getInheritableByAllDescendentFoldersAcl().build());
   }
   
   @Test
   public void testGetInheritableByAllDescendentFilesAcl() throws Exception {
-    String fragment = "allFilesAcl";
-    Acl acl = newBuilder(aclView).getInheritableByAllDescendentFilesAcl(
-        inheritId, fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    assertEquals(expectedAcl,
+        newBuilder(aclView).getInheritableByAllDescendentFilesAcl().build());
   }
   
   @Test
   public void testGetInheritableByChildFoldersOnlyAcl() throws Exception {
-    String fragment = "childFoldersAcl";
-    Acl acl = newBuilder(aclView).getInheritableByChildFoldersOnlyAcl(
-        inheritId, fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    assertEquals(expectedAcl,
+        newBuilder(aclView).getInheritableByChildFoldersOnlyAcl().build());
   }
   
   @Test
   public void testGetInheritableByChildFilesOnlyAcl() throws Exception {
-    String fragment = "childFilesAcl";
-    Acl acl = newBuilder(aclView).getInheritableByChildFilesOnlyAcl(
-        inheritId, fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    assertEquals(expectedAcl,
+        newBuilder(aclView).getInheritableByChildFilesOnlyAcl().build());
   }
 
   @Test
@@ -181,31 +148,19 @@ public class AclBuilderTest {
           .flags(FILE_INHERIT));
     AclBuilder aclBuilder = newBuilder(aclView);
 
-    String fragment = "allFilesAcl";
-    Acl acl = aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId,
-        fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
-
-    fragment = "childFilesAcl";
-    acl = aclBuilder.getInheritableByChildFilesOnlyAcl(inheritId, fragment);
-    expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    // The file inherit ACLs should have all the users and groups.
+    assertEquals(expectedAcl,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
+    assertEquals(expectedAcl,
+        aclBuilder.getInheritableByChildFilesOnlyAcl().build());
 
     // The folder inherit ACLs should not include "mary" or "sales".
-    fragment = "allFoldersAcl";
-    acl = aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId,
-        fragment);
-    expected = expectedBuilder(fragment)
+    Acl expected = expectedBuilder()
         .setPermitUsers(users("joe")).setDenyGroups(emptyGroups).build();
-    assertEquals(expected, acl);
-
-    fragment = "childFoldersAcl";
-    acl = aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId,
-        fragment);
-    expected = expectedBuilder(fragment)
-        .setPermitUsers(users("joe")).setDenyGroups(emptyGroups).build();
-    assertEquals(expected, acl);
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
   }
 
   @Test
@@ -224,31 +179,19 @@ public class AclBuilderTest {
           .flags(DIRECTORY_INHERIT));
     AclBuilder aclBuilder = newBuilder(aclView);
 
-    String fragment = "allFoldersAcl";
-    Acl acl = aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId,
-        fragment);
-    Acl expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
-
-    fragment = "childFoldersAcl";
-    acl = aclBuilder.getInheritableByChildFoldersOnlyAcl(inheritId, fragment);
-    expected = expectedBuilder(fragment).build();
-    assertEquals(expected, acl);
+    // The folder inherit ACLs should have all the users and groups.
+    assertEquals(expectedAcl,
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
+    assertEquals(expectedAcl,
+        aclBuilder.getInheritableByChildFoldersOnlyAcl().build());
 
     // The file inherit ACLs should not include "mary" or "sales".
-    fragment = "allFilesAcl";
-    acl = aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId,
-        fragment);
-    expected = expectedBuilder(fragment)
+    Acl expected = expectedBuilder()
         .setPermitUsers(users("joe")).setDenyGroups(emptyGroups).build();
-    assertEquals(expected, acl);
-
-    fragment = "childFilesAcl";
-    acl = aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId,
-        fragment);
-    expected = expectedBuilder(fragment)
-        .setPermitUsers(users("joe")).setDenyGroups(emptyGroups).build();
-    assertEquals(expected, acl);
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
   }
 
   @Test
@@ -262,13 +205,12 @@ public class AclBuilderTest {
           .flags(FILE_INHERIT, DIRECTORY_INHERIT));
     AclBuilder aclBuilder = newBuilder(aclView);
 
-    Acl acl =
-        aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId, null);
+    Acl acl = aclBuilder.getInheritableByAllDescendentFoldersAcl().build();
     Acl expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mary")).build();
     assertEquals(expected, acl);
 
-    acl = aclBuilder.getInheritableByChildFoldersOnlyAcl(inheritId, null);
+    acl = aclBuilder.getInheritableByChildFoldersOnlyAcl().build();
     expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mike", "mary")).build();
     assertEquals(expected, acl);
@@ -285,13 +227,12 @@ public class AclBuilderTest {
           .flags(FILE_INHERIT, DIRECTORY_INHERIT));
     AclBuilder aclBuilder = newBuilder(aclView);
 
-    Acl acl =
-        aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId, null);
+    Acl acl = aclBuilder.getInheritableByAllDescendentFilesAcl().build();
     Acl expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mary")).build();
     assertEquals(expected, acl);
 
-    acl = aclBuilder.getInheritableByChildFilesOnlyAcl(inheritId, null);
+    acl = aclBuilder.getInheritableByChildFilesOnlyAcl().build();
     expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mike", "mary")).build();
     assertEquals(expected, acl);
@@ -309,18 +250,17 @@ public class AclBuilderTest {
     AclBuilder aclBuilder = newBuilder(aclView);
 
     // This node's ACL should not include mike.
-    Acl acl = aclBuilder.getAcl(inheritId, true, null);
     Acl expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mary")).build();
-    assertEquals(expected, acl);
+    assertEquals(expected, aclBuilder.getAcl().build());
                          
     // However, all of its children should include mike.
     expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mike", "mary")).build();
-    acl = aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId, null);
-    assertEquals(expected, acl);
-    acl = aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId, null);
-    assertEquals(expected, acl);
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
   }
 
   @Test
@@ -335,12 +275,11 @@ public class AclBuilderTest {
     // This node's ACLs should not include mike.
     Acl expected = emptyExpectedBuilder()
         .setPermitUsers(users("joe")).build();
-    Acl acl = aclBuilder.getAcl(inheritId, true, null);
-    assertEquals(expected, acl);
-    acl = aclBuilder.getInheritableByAllDescendentFoldersAcl(inheritId, null);
-    assertEquals(expected, acl);
-    acl = aclBuilder.getInheritableByAllDescendentFilesAcl(inheritId, null);
-    assertEquals(expected, acl);
+    assertEquals(expected, aclBuilder.getAcl().build());
+    assertEquals(expected, 
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
   }
 
   @Test
@@ -365,8 +304,7 @@ public class AclBuilderTest {
     Acl expected = emptyExpectedBuilder()
         .setPermitUsers(users(Iterables.toArray(windowsAccounts, String.class)))
         .build();
-    Acl acl = aclBuilder.getAcl(inheritId, true, null);
-    assertEquals(expected, acl);    
+    assertEquals(expected, aclBuilder.getAcl().build());
   }
 
   /** Returns an AclBuilder for the AclFileAttributeView. */
@@ -381,16 +319,7 @@ public class AclBuilderTest {
    * then call build().
    */
   private Acl.Builder expectedBuilder() {
-    return expectedBuilder(null);
-  }
-
-  /**
-   * Returns an Acl.Builder representing the aclView field.
-   * The caller is expected to overwrite any of thes presets,
-   * then call build().
-   */
-  private Acl.Builder expectedBuilder(String fragment) {
-    return emptyExpectedBuilder(fragment)
+    return emptyExpectedBuilder()
         .setPermitUsers(users("joe", "mary")).setDenyUsers(users("mike"))
         .setPermitGroups(groups("EVERYONE")).setDenyGroups(groups("sales"));
   }
@@ -399,16 +328,7 @@ public class AclBuilderTest {
    * Returns an Acl.Builder with no users or groups.
    */
   private Acl.Builder emptyExpectedBuilder() {
-    return emptyExpectedBuilder(null);
-  }
-
-  /**
-   * Returns an Acl.Builder with no users or groups.
-   */
-  private Acl.Builder emptyExpectedBuilder(String fragment) {
-    return new Acl.Builder().setInheritFrom(inheritId, fragment)
-        .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
-        .setEverythingCaseInsensitive();
+    return new Acl.Builder().setEverythingCaseInsensitive();
   }
 
   /**
