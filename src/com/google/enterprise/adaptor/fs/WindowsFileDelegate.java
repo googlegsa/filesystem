@@ -51,6 +51,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -230,9 +231,16 @@ class WindowsFileDelegate extends NioFileDelegate {
           + ". The path is not a valid directory.");
     }
 
+    CountDownLatch startSignal = new CountDownLatch(1);
     synchronized (monitorThreadLock) {
-      monitorThread = new MonitorThread(watchPath, queue);
+      monitorThread = new MonitorThread(watchPath, queue, startSignal);
       monitorThread.start();
+    }
+    // Wait for the monitor thread to start watching filesystem.
+    try {
+      startSignal.await();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
   }
 
@@ -249,13 +257,18 @@ class WindowsFileDelegate extends NioFileDelegate {
   private static class MonitorThread extends Thread {
     private final Path watchPath;
     private final BlockingQueue<Path> queue;
+    private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
 
-    public MonitorThread(Path watchPath, BlockingQueue<Path> queue) {
+    public MonitorThread(Path watchPath, BlockingQueue<Path> queue,
+        CountDownLatch startSignal) {
       Preconditions.checkNotNull(watchPath, "the watchPath may not be null");
       Preconditions.checkNotNull(queue, "the queue may not be null");
+      Preconditions.checkNotNull(startSignal,
+                                 "the start signal may not be null");
       this.watchPath = watchPath;
       this.queue = queue;
+      this.startSignal = startSignal;
       stopEvent = Kernel32.INSTANCE.CreateEvent(null, false, false, null);
     }
 
@@ -283,6 +296,9 @@ class WindowsFileDelegate extends NioFileDelegate {
         runMonitorLoop();
       } catch (IOException e) {
         log.log(Level.WARNING, "Unable to monitor " + watchPath, e);
+      } finally {
+        // Wake up caller, in case monitor fails to start up.
+        startSignal.countDown();
       }
       log.exiting("WindowsFileDelegate", "MonitorThread.run", watchPath);
     }
@@ -359,6 +375,9 @@ class WindowsFileDelegate extends NioFileDelegate {
           throw new IOException("Unable to open " + watchPath
               + ". GetLastError: " + klib.GetLastError());
         }
+
+        // Signal any waiting threads that the monitor is now active.
+        startSignal.countDown();
 
         log.log(Level.FINER, "Waiting for notifications.");
         int waitResult = klib.WaitForSingleObjectEx(stopEvent,
