@@ -20,6 +20,7 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
+import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
@@ -256,7 +257,8 @@ public class FsAdaptor extends AbstractAdaptor {
       AclBuilder builder = new AclBuilder(rootPath,
           delegate.getDfsShareAclView(rootPath.getParent()),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      namedResources.put(DFS_SHARE_ACL_DOCID, builder.getShareAcl(null));
+      namedResources.put(DFS_SHARE_ACL_DOCID, builder.getAcl()
+          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
 
       // Push the Acl for the active storage UNC path.
       Path activeStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
@@ -266,16 +268,18 @@ public class FsAdaptor extends AbstractAdaptor {
       }
 
       builder = new AclBuilder(activeStorage,
-          delegate.getShareAclView(activeStorage), supportedWindowsAccounts,
-          builtinPrefix, namespace);
-      namedResources.put(SHARE_ACL_DOCID,
-          builder.getShareAcl(DFS_SHARE_ACL_DOCID));
+          delegate.getShareAclView(activeStorage),
+          supportedWindowsAccounts, builtinPrefix, namespace);
+      namedResources.put(SHARE_ACL_DOCID, builder.getAcl()
+          .setInheritFrom(DFS_SHARE_ACL_DOCID)
+          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
     } else {
       // For a non-DFS UNC we have only have a share Acl to push.
       AclBuilder builder = new AclBuilder(rootPath,
-          delegate.getShareAclView(rootPath), supportedWindowsAccounts,
-          builtinPrefix, namespace);
-      namedResources.put(SHARE_ACL_DOCID, builder.getShareAcl(null));
+          delegate.getShareAclView(rootPath),
+          supportedWindowsAccounts, builtinPrefix, namespace);
+      namedResources.put(SHARE_ACL_DOCID, builder.getAcl()
+          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
     }
 
     pusher.pushNamedResources(namedResources);
@@ -343,16 +347,20 @@ public class FsAdaptor extends AbstractAdaptor {
     if (isRoot || hasNoInheritedAcl) {
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      acl = builder.getAcl(SHARE_ACL_DOCID, docIsDirectory, null);
+      acl = builder.getAcl().setInheritFrom(SHARE_ACL_DOCID)
+          .setInheritanceType(docIsDirectory ? InheritanceType.CHILD_OVERRIDES
+                              : InheritanceType.LEAF_NODE).build();
     } else {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       if (docIsDirectory) {
-        acl = builder.getAcl(parentDocId, docIsDirectory,
-                             CHILD_FOLDER_INHERIT_ACL);
+        acl = builder.getAcl()
+            .setInheritFrom(parentDocId, CHILD_FOLDER_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
       } else {
-        acl = builder.getAcl(parentDocId, docIsDirectory,
-                             CHILD_FILE_INHERIT_ACL);
+        acl = builder.getAcl()
+            .setInheritFrom(parentDocId, CHILD_FILE_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.LEAF_NODE).build();
       }
     }
     log.log(Level.FINEST, "Setting Acl: doc: {0}, acl: {1}",
@@ -362,29 +370,39 @@ public class FsAdaptor extends AbstractAdaptor {
     // Push the additional Acls for a folder.
     if (docIsDirectory) {
       if (isRoot || hasNoInheritedAcl) {
-        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDescendentFoldersAcl(SHARE_ACL_DOCID,
-                                                           null));
+        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
+            builder.getInheritableByAllDescendentFoldersAcl()
+            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDescendentFilesAcl(SHARE_ACL_DOCID,
-                                                         null));
+            builder.getInheritableByAllDescendentFilesAcl()
+            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
-            builder.getInheritableByChildFoldersOnlyAcl(SHARE_ACL_DOCID, null));
+            builder.getInheritableByChildFoldersOnlyAcl()
+            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
-            builder.getInheritableByChildFilesOnlyAcl(SHARE_ACL_DOCID, null));
+            builder.getInheritableByChildFilesOnlyAcl()
+            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       } else {
-        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL,
-            builder.getInheritableByAllDescendentFoldersAcl(parentDocId,
-                ALL_FOLDER_INHERIT_ACL));
+        resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
+            builder.getInheritableByAllDescendentFoldersAcl()
+            .setInheritFrom(parentDocId, ALL_FOLDER_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
-            builder.getInheritableByAllDescendentFilesAcl(parentDocId,
-                ALL_FILE_INHERIT_ACL));
+            builder.getInheritableByAllDescendentFilesAcl()
+            .setInheritFrom(parentDocId, ALL_FILE_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
-            builder.getInheritableByChildFoldersOnlyAcl(parentDocId,
-                ALL_FOLDER_INHERIT_ACL));
+            builder.getInheritableByChildFoldersOnlyAcl()
+            .setInheritFrom(parentDocId, ALL_FOLDER_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
-            builder.getInheritableByChildFilesOnlyAcl(parentDocId,
-                ALL_FILE_INHERIT_ACL));
+            builder.getInheritableByChildFilesOnlyAcl()
+            .setInheritFrom(parentDocId, ALL_FILE_INHERIT_ACL)
+            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       }
     }
 

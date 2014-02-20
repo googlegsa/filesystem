@@ -17,8 +17,6 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.enterprise.adaptor.Acl;
-import com.google.enterprise.adaptor.Acl.InheritanceType;
-import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.UserPrincipal;
@@ -64,48 +62,30 @@ public class AclBuilder {
     this.namespace = namespace;
   }
 
-  public Acl getAcl(DocId inheritId, boolean isDirectory,
-      String fragmentName) throws IOException {
-    Acl.Builder b = getAcl(inheritId, fragmentName, isDirectEntry);
-    if (!isDirectory) {
-      b.setInheritanceType(InheritanceType.LEAF_NODE);
-    }
-    return b.build();
+  public Acl.Builder getAcl() throws IOException {
+    return getAcl(isDirectEntry);
   }
 
-  public Acl getInheritableByAllDescendentFoldersAcl(DocId inheritId,
-      String fragmentName) throws IOException {
-    return getAcl(inheritId, fragmentName,
-        isInheritableByAllDescendentFoldersEntry).build();
-  }
-
-  public Acl getInheritableByAllDescendentFilesAcl(DocId inheritId,
-      String fragmentName) throws IOException {
-    return getAcl(inheritId, fragmentName,
-        isInheritableByAllDescendentFilesEntry).build();
-  }
-
-  public Acl getInheritableByChildFoldersOnlyAcl(DocId inheritId,
-      String fragmentName) throws IOException {
-    return getAcl(inheritId, fragmentName,
-        isInheritableByChildFoldersOnlyEntry).build();
-  }
-
-  public Acl getInheritableByChildFilesOnlyAcl(DocId inheritId,
-      String fragmentName) throws IOException {
-    return getAcl(inheritId, fragmentName,
-        isInheritableByChildFilesOnlyEntry).build();
-  }
-
-  public Acl getShareAcl(DocId inheritId)
+  public Acl.Builder getInheritableByAllDescendentFoldersAcl()
       throws IOException {
-    // Windows NT share Acls are returned as inheritable by child files.
-    return getAcl(inheritId, null, isDirectEntry)
-        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
+    return getAcl(isInheritableByAllDescendentFoldersEntry);
   }
 
-  private Acl.Builder getAcl(DocId inheritId, String fragmentName,
-      Predicate<Set<AclEntryFlag>> predicate) throws IOException {
+  public Acl.Builder getInheritableByAllDescendentFilesAcl()
+      throws IOException {
+    return getAcl(isInheritableByAllDescendentFilesEntry);
+  }
+
+  public Acl.Builder getInheritableByChildFoldersOnlyAcl() throws IOException {
+    return getAcl(isInheritableByChildFoldersOnlyEntry);
+  }
+
+  public Acl.Builder getInheritableByChildFilesOnlyAcl() throws IOException {
+    return getAcl(isInheritableByChildFilesOnlyEntry);
+  }
+
+  private Acl.Builder getAcl(Predicate<Set<AclEntryFlag>> predicate)
+      throws IOException {
     Set<Principal> permits = new HashSet<Principal>();
     Set<Principal> denies = new HashSet<Principal>();
     for (AclEntry entry : aclView.getAcl()) {
@@ -136,8 +116,7 @@ public class AclBuilder {
     }
 
     return new Acl.Builder().setPermits(permits).setDenies(denies)
-        .setInheritFrom(inheritId, fragmentName).setEverythingCaseInsensitive()
-        .setInheritanceType(InheritanceType.CHILD_OVERRIDES);
+        .setEverythingCaseInsensitive();
   }
 
   /**
