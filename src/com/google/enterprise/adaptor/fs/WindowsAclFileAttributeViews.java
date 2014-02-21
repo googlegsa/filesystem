@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -67,11 +68,8 @@ import java.util.regex.Pattern;
  */
 class WindowsAclFileAttributeViews {
 
-  private static final Logger log = 
+  private static final Logger log =
       Logger.getLogger(WindowsAclFileAttributeViews.class.getName());
-
-  private static final Kernel32 KERNEL32 = Kernel32.INSTANCE;
-  private static final Advapi32 ADVAPI32 = Advapi32.INSTANCE; 
 
   /** This pattern parses a UNC path to get the host and share details. */
   private static final Pattern UNC_PATTERN =
@@ -88,7 +86,7 @@ class WindowsAclFileAttributeViews {
       Collections.unmodifiableSet(Sets.newHashSet(SID_NAME_USE.SidTypeUser));
 
   /** Map of NT GENERIC permissions to NT FILE permissions. */
-  private static final Map<Integer, Integer> GENERIC_PERMS_MAP = 
+  private static final Map<Integer, Integer> GENERIC_PERMS_MAP =
       Collections.unmodifiableMap(new HashMap<Integer, Integer>() {
           {
             put(WinNT.GENERIC_READ, WinNT.FILE_GENERIC_READ);
@@ -142,6 +140,28 @@ class WindowsAclFileAttributeViews {
           }
       });
 
+  private final Advapi32 advapi32;
+  private final Kernel32 kernel32;
+  private final Mpr mpr;
+  private final Netapi32Ex netapi32;
+  private final Shlwapi shlwapi;
+
+  /** Constructor used for production. */
+  public WindowsAclFileAttributeViews() {
+    this(Advapi32.INSTANCE, Kernel32.INSTANCE, Mpr.INSTANCE,
+         Netapi32Ex.INSTANCE,Shlwapi.INSTANCE);
+  }
+
+  /** Constructor used by the tests. */
+  @VisibleForTesting
+  WindowsAclFileAttributeViews(Advapi32 advapi32, Kernel32 kernel32,
+      Mpr mpr, Netapi32Ex netapi32, Shlwapi shlwapi) {
+    this.advapi32 = advapi32;
+    this.kernel32 = kernel32;
+    this.mpr = mpr;
+    this.netapi32 = netapi32;
+    this.shlwapi = shlwapi;
+  }
 
   /**
    * Returns a container for the direct and inherited ACLs for
@@ -152,7 +172,7 @@ class WindowsAclFileAttributeViews {
    */
   public AclFileAttributeViews getAclViews(Path path) throws IOException {
     String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
-    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname, 
+    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname,
         WinNT.DACL_SECURITY_INFORMATION |
         WinNT.PROTECTED_DACL_SECURITY_INFORMATION |
         WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
@@ -160,7 +180,7 @@ class WindowsAclFileAttributeViews {
     ImmutableList.Builder<AclEntry> direct = ImmutableList.builder();
 
     for (WinNT.ACCESS_ACEStructure ace : aces) {
-      AclEntry aclEntry = newAclEntry(ace);      
+      AclEntry aclEntry = newAclEntry(ace);
       if (aclEntry != null) {
         if ((ace.AceFlags & WinNT.INHERITED_ACE) == WinNT.INHERITED_ACE) {
           inherited.add(aclEntry);
@@ -192,23 +212,22 @@ class WindowsAclFileAttributeViews {
    */
   public AclFileAttributeView getShareAclView(Path path)
       throws IOException, UnsupportedOperationException {
-    if (Shlwapi.INSTANCE.PathIsUNC(path.toString())) {
+    if (shlwapi.PathIsUNC(path.toString())) {
       log.log(Level.FINEST, "Using a UNC path.");
       return getUncShareAclView(path.toString());
-    } else if (Shlwapi.INSTANCE.PathIsNetworkPath(path.toString())) {
+    } else if (shlwapi.PathIsNetworkPath(path.toString())) {
       log.log(Level.FINEST, "Using a mapped drive.");
-      // Call WNetGetUniversalNameW with the size needed for 
+      // Call WNetGetUniversalNameW with the size needed for
       // UNIVERSAL_NAME_INFO. If WNetGetUniversalNameW returns ERROR_MORE_DATA
       // that indicates that a larger buffer is needed. If this happens, make
       // a second call to WNetGetUniversalNameW with a buffer big enough.
-      Mpr mprlib = Mpr.INSTANCE;
       Memory buf = new Memory(1024);
       IntByReference bufSize = new IntByReference((int) buf.size());
-      int result = mprlib.WNetGetUniversalNameW(path.getRoot().toString(),
+      int result = mpr.WNetGetUniversalNameW(path.getRoot().toString(),
           Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       if (result == WinNT.ERROR_MORE_DATA) {
         buf = new Memory(bufSize.getValue());
-        result = Mpr.INSTANCE.WNetGetUniversalNameW(path.getRoot().toString(),
+        result = mpr.WNetGetUniversalNameW(path.getRoot().toString(),
             Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       }
       if (result != WinNT.NO_ERROR) {
@@ -239,12 +258,11 @@ class WindowsAclFileAttributeViews {
         new Object[] { host, share });
     return getShareAclView(host, share);
   }
-  
+
   private AclFileAttributeView getShareAclView(String host, String share)
       throws IOException {
-    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
     PointerByReference buf = new PointerByReference();
-    
+
     // Call NetShareGetInfo with a 502 to get the security descriptor of the
     // share. The security descriptor contains the Acl details for the share
     // that the adaptor needs.
@@ -336,7 +354,7 @@ class WindowsAclFileAttributeViews {
           new Object[] { accountName, accountType });
       return null;
     }
-    
+
     // Expand NT GENERIC_* permissions to their FILE_GENERIC_* equivalents.
     int aceMask = ace.Mask;
     for (Map.Entry<Integer, Integer> e : GENERIC_PERMS_MAP.entrySet()) {
@@ -352,7 +370,7 @@ class WindowsAclFileAttributeViews {
         aclPerms.add(e.getValue());
       }
     }
-    
+
     // Map the flags.
     Set<AclEntryFlag> aclFlags = EnumSet.noneOf(AclEntryFlag.class);
     for (Map.Entry<Byte, AclEntryFlag> e : ACL_FLAGS_MAP.entrySet()) {
@@ -408,7 +426,8 @@ class WindowsAclFileAttributeViews {
     }
   }
 
-  private interface Mpr extends StdCallLibrary {
+  @VisibleForTesting
+  interface Mpr extends StdCallLibrary {
     Mpr INSTANCE = (Mpr) Native.loadLibrary("Mpr", Mpr.class,
         W32APIOptions.UNICODE_OPTIONS);
 
@@ -442,21 +461,21 @@ class WindowsAclFileAttributeViews {
     WString wpath = new WString(pathname);
     IntByReference lengthNeeded = new IntByReference();
 
-    if (ADVAPI32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
+    if (advapi32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
       throw new RuntimeException("GetFileSecurity was expected to fail with "
           + "ERROR_INSUFFICIENT_BUFFER");
     }
 
-    int rc = KERNEL32.GetLastError();
+    int rc = kernel32.GetLastError();
     if (rc != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
       throw new IOException("Failed GetFileSecurity", new Win32Exception(rc));
     }
 
     Memory memory = new Memory(lengthNeeded.getValue());
-    if (!ADVAPI32.GetFileSecurity(wpath, daclType, memory, (int) memory.size(),
+    if (!advapi32.GetFileSecurity(wpath, daclType, memory, (int) memory.size(),
                                   lengthNeeded)) {
       throw new IOException("Failed GetFileSecurity",
-          new Win32Exception(KERNEL32.GetLastError()));
+          new Win32Exception(kernel32.GetLastError()));
     }
 
     WinNT.SECURITY_DESCRIPTOR_RELATIVE securityDescriptor =
