@@ -14,6 +14,8 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.enterprise.adaptor.AccumulatingDocIdPusher;
+
 import static org.junit.Assert.*;
 
 import org.junit.*;
@@ -30,6 +32,18 @@ public class FsAdaptorTest {
   public void testGetPathName() throws Exception {
     TestHelper.assumeOsIsWindows();
     FsAdaptor adaptor = new FsAdaptor();
+    assertEquals("share", adaptor.getPathName(Paths.get("\\\\host/share/")));
+    assertEquals("folder2", 
+        adaptor.getPathName(Paths.get("C:/folder1/folder2/")));
+  }
+
+  @Test
+  public void testIncrementalShareAcls() throws Exception {
+    FsAdaptor adaptor = new FsAdaptor();
+    AccumulatingDocIdPusher pusher = new AccumulatingDocIdPusher();
+    adaptor.getDocIds(pusher);
+
+    adaptor.getModifiedDocIds(pusher);
     assertEquals("share", adaptor.getPathName(Paths.get("\\\\host/share/")));
     assertEquals("folder2", 
         adaptor.getPathName(Paths.get("C:/folder1/folder2/")));

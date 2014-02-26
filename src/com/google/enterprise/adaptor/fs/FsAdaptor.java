@@ -27,6 +27,7 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.IOHelper;
+import com.google.enterprise.adaptor.PollingIncrementalLister;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
@@ -71,7 +72,8 @@ import java.util.logging.Logger;
  * <li>Uses hierarchical ACL model
  * </ul>
  */
-public class FsAdaptor extends AbstractAdaptor {
+public class FsAdaptor extends AbstractAdaptor implements
+    PollingIncrementalLister {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
 
@@ -138,6 +140,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private DocId rootPathDocId;
   private FileDelegate delegate;
   private FsMonitor monitor;
+  private ShareAcls lastPushedShareAcls = new ShareAcls(null, null);
 
   public FsAdaptor() {
     // At the moment, we only support Windows.
@@ -228,6 +231,8 @@ public class FsAdaptor extends AbstractAdaptor {
         maxLatencyMillis);
     delegate.startMonitorPath(rootPath, monitor.getQueue());
     monitor.start();
+
+    context.setPollingIncrementalLister(this);
   }
 
   @Override
@@ -237,17 +242,9 @@ public class FsAdaptor extends AbstractAdaptor {
     monitor = null;
   }
 
-  @Override
-  public void getDocIds(DocIdPusher pusher) throws InterruptedException,
-      IOException {
-    log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
-    pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
-
-    // The pusher does not support fragments in named resources.
-    // Feed a DocId that is just the SHARE_ACL fragment to avoid
-    // collisions with the root docid.
-
-    Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
+  private ShareAcls getShareAcls() throws IOException {
+    Acl shareAcl;
+    Acl dfsShareAcl;
 
     if (isDfsUnc) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
@@ -257,8 +254,8 @@ public class FsAdaptor extends AbstractAdaptor {
       AclBuilder builder = new AclBuilder(rootPath,
           delegate.getDfsShareAclView(rootPath.getParent()),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      namedResources.put(DFS_SHARE_ACL_DOCID, builder.getAcl()
-          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
+      dfsShareAcl = builder.getAcl().setInheritanceType(
+          InheritanceType.AND_BOTH_PERMIT).build();
 
       // Push the Acl for the active storage UNC path.
       Path activeStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
@@ -270,21 +267,58 @@ public class FsAdaptor extends AbstractAdaptor {
       builder = new AclBuilder(activeStorage,
           delegate.getShareAclView(activeStorage),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      namedResources.put(SHARE_ACL_DOCID, builder.getAcl()
+      shareAcl = builder.getAcl()
           .setInheritFrom(DFS_SHARE_ACL_DOCID)
-          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
+          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
     } else {
       // For a non-DFS UNC we have only have a share Acl to push.
       AclBuilder builder = new AclBuilder(rootPath,
           delegate.getShareAclView(rootPath),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      namedResources.put(SHARE_ACL_DOCID, builder.getAcl()
-          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build());
+      dfsShareAcl = null;
+      shareAcl = builder.getAcl().setInheritanceType(
+          InheritanceType.AND_BOTH_PERMIT).build();
     }
 
-    pusher.pushNamedResources(namedResources);
+    return new ShareAcls(shareAcl, dfsShareAcl);
+  }
 
-    log.exiting("FsAdaptor", "getDocIds");
+  @Override
+  public void getDocIds(DocIdPusher pusher) throws InterruptedException,
+      IOException {
+    log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
+    pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
+    pushShareAcls(pusher, true);
+    log.exiting("FsAdaptor", "getDocIds", pusher);
+  }
+
+  @Override
+  public void getModifiedDocIds(DocIdPusher pusher)
+      throws InterruptedException, IOException {
+    log.entering("FsAdaptor", "getModifiedDocIds");
+    pushShareAcls(pusher, false);
+    log.exiting("FsAdaptor", "getModifiedDocIds", pusher);
+  }
+
+  private void pushShareAcls(DocIdPusher pusher, boolean forcePush)
+      throws InterruptedException, IOException {
+    // The pusher does not support fragments in named resources.
+    // Feed a DocId that is just the SHARE_ACL fragment to avoid
+    // collisions with the root docid.
+    ShareAcls shareAcls = getShareAcls();
+    Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
+    if (forcePush || ((shareAcls.dfsShareAcl != null)
+        && !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
+      namedResources.put(DFS_SHARE_ACL_DOCID, shareAcls.dfsShareAcl);
+    }
+    if (forcePush || ((shareAcls.shareAcl != null)
+        && !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
+      namedResources.put(SHARE_ACL_DOCID, shareAcls.shareAcl);
+    }
+    if (namedResources.size() > 0) {
+      pusher.pushNamedResources(namedResources);
+      lastPushedShareAcls = shareAcls;
+    }
   }
 
   @Override
@@ -568,6 +602,19 @@ public class FsAdaptor extends AbstractAdaptor {
           }
         }
       }
+    }
+  }
+
+  private class ShareAcls {
+    private final Acl shareAcl;
+    private final Acl dfsShareAcl;
+
+    public ShareAcls(Acl shareAcl, Acl dfsShareAcl) {
+      Preconditions.checkNotNull(shareAcl, "the share Acl may not be null");
+      Preconditions.checkArgument(!isDfsUnc || (dfsShareAcl != null),
+          "the DFS share Acl may not be null");
+      this.shareAcl = shareAcl;
+      this.dfsShareAcl = dfsShareAcl;
     }
   }
 
