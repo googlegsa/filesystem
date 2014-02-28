@@ -72,11 +72,11 @@ public class WindowsFileDelegateTest {
   }
 
   private Path newTempDir(String name) throws IOException {
-    return temp.newFolder(name).toPath();
+    return temp.newFolder(name).toPath().toRealPath();
   }
 
   private Path newTempFile(String name) throws IOException {
-    return temp.newFile(name).toPath();
+    return temp.newFile(name).toPath().toRealPath();
   }
 
   private Path newTempFile(Path parent, String name) throws IOException {

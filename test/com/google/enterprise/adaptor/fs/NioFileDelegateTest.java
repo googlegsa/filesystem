@@ -45,15 +45,16 @@ public class NioFileDelegateTest {
   public TemporaryFolder temp = new TemporaryFolder();
 
   private Path newTempDir(String name) throws IOException {
-    return temp.newFolder(name).toPath();
+    return temp.newFolder(name).toPath().toRealPath();
   }
 
   private Path newTempFile(String name) throws IOException {
-    return temp.newFile(name).toPath();
+    return temp.newFile(name).toPath().toRealPath();
   }
 
   private Path newTempFile(Path parent, String name) throws IOException {
-    Preconditions.checkArgument(parent.startsWith(temp.getRoot().toPath()));
+    Preconditions.checkArgument(parent.startsWith(temp.getRoot().toPath()
+        .toRealPath()));
     return Files.createFile(parent.resolve(name));
   }
 
@@ -162,7 +163,7 @@ public class NioFileDelegateTest {
 
   @Test
   public void testNewDocId() throws Exception {
-    Path root = temp.getRoot().toPath();
+    Path root = temp.getRoot().toPath().toRealPath();
     Path dir = newTempDir("testDir");
     Path file = newTempFile(dir, "test");
 
