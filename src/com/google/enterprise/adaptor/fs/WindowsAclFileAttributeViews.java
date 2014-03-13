@@ -317,7 +317,7 @@ class WindowsAclFileAttributeViews {
    * @return AclEntry representing the ace, or {@code null} if a valid
    *         AclEntry could not be created from the ace.
    */
-  public static AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
+  public AclEntry newAclEntry(WinNT.ACCESS_ACEStructure ace) {
     // Map the type.
     AclEntryType aclType = ACL_TYPE_MAP.get(ace.AceType);
     if (aclType == null) {
@@ -329,7 +329,7 @@ class WindowsAclFileAttributeViews {
     // Map the user.
     Account account;
     try {
-      account = Advapi32Util.getAccountBySid(ace.getSID());
+      account = getAccountBySid(ace.getSID());
     } catch (Win32Exception e) {
       // Only the least significant 16-bits signifies the HR code.
       if ((e.getHR().intValue() & 0xFFFF) == WinError.ERROR_NONE_MAPPED) {
@@ -385,6 +385,11 @@ class WindowsAclFileAttributeViews {
         .setPermissions(aclPerms)
         .setFlags(aclFlags)
         .build();
+  }
+
+  @VisibleForTesting
+  Account getAccountBySid(WinNT.PSID sid) throws Win32Exception {
+    return Advapi32Util.getAccountBySid(sid);
   }
 
   // One-to-one corresponance to WinNT.SID_NAME_USE "enumeration".
