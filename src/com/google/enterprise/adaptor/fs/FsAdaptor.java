@@ -134,13 +134,15 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** The namespace applied to ACL Principals. */
   private String namespace;
 
+  /** The filesystem change monitor. */
+  private FsMonitor monitor;
+
   private AdaptorContext context;
   private Path rootPath;
   private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
-  private FsMonitor monitor;
-  private ShareAcls lastPushedShareAcls = new ShareAcls(null, null);
+  private ShareAcls lastPushedShareAcls = null;
 
   public FsAdaptor() {
     // At the moment, we only support Windows.
@@ -150,6 +152,31 @@ public class FsAdaptor extends AbstractAdaptor implements
       throw new IllegalStateException(
           "Windows is the only supported platform.");
     }
+  }
+
+  @VisibleForTesting
+  FsAdaptor(FileDelegate delegate) {
+    this.delegate = delegate;
+  }
+
+  @VisibleForTesting
+  Set<String> getSupportedWindowsAccounts() {
+    return supportedWindowsAccounts;
+  }
+
+  @VisibleForTesting
+  String getBuiltinPrefix() {
+    return builtinPrefix;
+  }
+
+  @VisibleForTesting
+  String getNamespace() {
+    return namespace;
+  }
+
+  @VisibleForTesting
+  BlockingQueue<Path> getFsMonitorQueue() {
+    return monitor.getQueue();
   }
 
   @Override
@@ -238,11 +265,16 @@ public class FsAdaptor extends AbstractAdaptor implements
   @Override
   public void destroy() {
     delegate.destroy();
-    monitor.destroy();
-    monitor = null;
+    // TODO (bmj): The check for null monitor is strictly for the tests,
+    // some of which may not have fully initialized the adaptor.  Maybe
+    // look into handling this less obtrusively in the future.
+    if (monitor != null) {
+      monitor.destroy();
+      monitor = null;
+    }
   }
 
-  private ShareAcls getShareAcls() throws IOException {
+  private ShareAcls readShareAcls() throws IOException {
     Acl shareAcl;
     Acl dfsShareAcl;
 
@@ -305,14 +337,14 @@ public class FsAdaptor extends AbstractAdaptor implements
     // The pusher does not support fragments in named resources.
     // Feed a DocId that is just the SHARE_ACL fragment to avoid
     // collisions with the root docid.
-    ShareAcls shareAcls = getShareAcls();
+    ShareAcls shareAcls = readShareAcls();
     Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
-    if (forcePush || ((shareAcls.dfsShareAcl != null)
-        && !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
+    if ((shareAcls.dfsShareAcl != null) && (forcePush ||
+        !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
       namedResources.put(DFS_SHARE_ACL_DOCID, shareAcls.dfsShareAcl);
     }
-    if (forcePush || ((shareAcls.shareAcl != null)
-        && !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
+    if ((shareAcls.shareAcl != null) && (forcePush ||
+        !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
       namedResources.put(SHARE_ACL_DOCID, shareAcls.shareAcl);
     }
     if (namedResources.size() > 0) {
@@ -443,10 +475,10 @@ public class FsAdaptor extends AbstractAdaptor implements
     // Populate the document content.
     if (docIsDirectory) {
       HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-      writer.start(id, getPathName(doc));
+      writer.start(id, getFileName(doc));
       for (Path file : delegate.newDirectoryStream(doc)) {
         if (isSupportedPath(file)) {
-          writer.addLink(delegate.newDocId(file), getPathName(file));
+          writer.addLink(delegate.newDocId(file), getFileName(file));
         }
       }
       writer.finish();
@@ -483,12 +515,14 @@ public class FsAdaptor extends AbstractAdaptor implements
   }
 
   @VisibleForTesting
-  String getPathName(Path file) {
+  String getFileName(Path file) {
     // NOTE: file.getFileName() fails for UNC paths. Use file.toFile() instead.
-    return file.toFile().getName();
+    String name = file.toFile().getName();
+    return name.isEmpty() ? file.getRoot().toString() : name;
   }
 
-  private boolean isSupportedPath(Path p) throws IOException {
+  @VisibleForTesting
+  boolean isSupportedPath(Path p) throws IOException {
     return delegate.isRegularFile(p) || delegate.isDirectory(p);
   }
 
@@ -496,7 +530,8 @@ public class FsAdaptor extends AbstractAdaptor implements
    * Verifies that the file is a descendant of the root directory,
    * and that it, nor none of its ancestors, is hidden.
    */
-  private boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
+  @VisibleForTesting
+  boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
     for (Path file = doc; file != null; file = file.getParent()) {
       if (delegate.isHidden(file)) {
         if (doc.equals(file)) {
@@ -531,8 +566,8 @@ public class FsAdaptor extends AbstractAdaptor implements
       Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
       Preconditions.checkArgument(maxFeedSize > 0,
           "the maxFeedSize must be greater than zero");
-      Preconditions.checkArgument(maxLatencyMillis > 0,
-          "the maxLatencyMillis must be greater than zero");
+      Preconditions.checkArgument(maxLatencyMillis >= 0,
+          "the maxLatencyMillis must be greater than or equal to zero");
       this.pusher = pusher;
       this.maxFeedSize = maxFeedSize;
       this.maxLatencyMillis = maxLatencyMillis;

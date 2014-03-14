@@ -15,6 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdEncoder;
 
@@ -213,10 +214,10 @@ class HtmlResponseWriter implements Closeable {
   }
 
   private String computeLabel(String label, DocId doc) {
-    if (label == null || "".equals(label)) {
+    if (Strings.isNullOrEmpty(label)) {
       // Use the last part of the URL if an item doesn't have a title. The last
       // part of the URL will generally be a filename in this case.
-      String[] parts = doc.getUniqueId().split("/");
+      String[] parts = doc.getUniqueId().split("/", 0);
       label = parts[parts.length - 1];
     }
     return label;

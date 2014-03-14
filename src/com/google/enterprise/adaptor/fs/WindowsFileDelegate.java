@@ -99,7 +99,7 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
     for (WinNT.ACCESS_ACEStructure ace : dacl.getACEStructures()) {
-      AclEntry entry = WindowsAclFileAttributeViews.newAclEntry(ace);
+      AclEntry entry = aclViews.newAclEntry(ace);
       if (entry != null) {
         builder.add(entry);
       }
