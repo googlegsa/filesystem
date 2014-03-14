@@ -271,6 +271,11 @@ public class WindowsAclFileAttributeViewsTest {
     public WinNT.PSID getSID() {
       return (sid != null) ? sid : super.getSID();
     }
+
+    @Override
+    public String getSidString() {
+      return (sid != null) ? sid.toString() : super.getSidString();
+    }
   }
 
   /** A SID implemention that wraps an Account, avoiding AD lookup. */
@@ -301,6 +306,16 @@ public class WindowsAclFileAttributeViewsTest {
         throw new Win32Exception(WinError.ERROR_NONE_MAPPED);
       }
       return account;
+    }
+
+    @Override
+    public String toString() {
+      if (account == null) {
+        return "null";
+      } else {
+        return (account.domain == null) ? account.name
+            : account.domain + "\\" + account.name;
+      }
     }
   }
 
