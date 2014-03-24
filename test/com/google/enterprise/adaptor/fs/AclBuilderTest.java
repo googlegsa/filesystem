@@ -283,6 +283,26 @@ public class AclBuilderTest {
   }
 
   @Test
+  public void testReadAttributesPermNotNeeded() throws Exception {
+    AclFileAttributeView aclView = new AclView(
+        user("joe").type(ALLOW).perms(GENERIC_READ)
+            .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        user("mike").type(ALLOW)
+            .perms(READ_DATA, READ_ACL, READ_NAMED_ATTRS)
+            .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    AclBuilder aclBuilder = newBuilder(aclView);
+
+    // This node's ACLs should include both joe and mike.
+    Acl expected = emptyExpectedBuilder()
+        .setPermitUsers(users("joe", "mike")).build();
+    assertEquals(expected, aclBuilder.getAcl().build());
+    assertEquals(expected, 
+        aclBuilder.getInheritableByAllDescendentFoldersAcl().build());
+    assertEquals(expected,
+        aclBuilder.getInheritableByAllDescendentFilesAcl().build());
+  }
+
+  @Test
   public void testWindowsBuiltinUsers() throws Exception {
     ArrayList<AclEntry> entries = Lists.newArrayList();
     // Add all the permitted builtin users.
