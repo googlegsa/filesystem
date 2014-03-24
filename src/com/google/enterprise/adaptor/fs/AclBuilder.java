@@ -157,7 +157,6 @@ public class AclBuilder {
   private boolean hasReadPermission(Set<AclEntryPermission> p) {
     return p.contains(AclEntryPermission.READ_DATA)
         && p.contains(AclEntryPermission.READ_ACL)
-        && p.contains(AclEntryPermission.READ_ATTRIBUTES)
         && p.contains(AclEntryPermission.READ_NAMED_ATTRS);
   }
 
