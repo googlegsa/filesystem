@@ -332,8 +332,12 @@ public class FsAdaptor extends AbstractAdaptor implements
     log.exiting("FsAdaptor", "getModifiedDocIds", pusher);
   }
 
-  private void pushShareAcls(DocIdPusher pusher, boolean forcePush)
-      throws InterruptedException, IOException {
+  private synchronized void pushShareAcls(DocIdPusher pusher,
+      boolean forcePush) throws InterruptedException, IOException {
+    // The share Acls may not have been pushed yet. So if lastPushedShareAcls
+    // is null, we want to force a push if there are any share Acls.
+    forcePush = forcePush || (lastPushedShareAcls == null);
+
     // The pusher does not support fragments in named resources.
     // Feed a DocId that is just the SHARE_ACL fragment to avoid
     // collisions with the root docid.
