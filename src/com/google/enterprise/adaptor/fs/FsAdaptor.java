@@ -510,9 +510,9 @@ public class FsAdaptor extends AbstractAdaptor implements
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
       throws IOException {
+    response.setContentType("text/html; charset=" + CHARSET.name());
     Writer writer = new OutputStreamWriter(response.getOutputStream(),
         CHARSET);
-    response.setContentType("text/html; charset=" + CHARSET.name());
     // TODO(ejona): Get locale from request.
     return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
         Locale.ENGLISH);
