@@ -14,25 +14,54 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import static com.google.enterprise.adaptor.fs.AclView.user;
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
+
 import static org.junit.Assert.*;
 import static org.junit.Assume.*;
 
+import static java.nio.file.attribute.AclEntryFlag.*;
+import static java.nio.file.attribute.AclEntryPermission.*;
+import static java.nio.file.attribute.AclEntryType.*;
+
+import com.google.common.base.Preconditions;
+
+import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
+import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
+
 import org.junit.*;
 import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 
+import com.sun.jna.Memory;
+import com.sun.jna.Pointer;
+import com.sun.jna.Structure;
+import com.sun.jna.WString;
+import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.Advapi32Util.Account;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
+import com.sun.jna.ptr.IntByReference;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
 import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.UserPrincipal;
+import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 /** Tests for {@link WindowsAclFileAttributeViews} */
@@ -41,12 +70,36 @@ public class WindowsAclFileAttributeViewsTest {
   private final WindowsAclFileAttributeViews wafav =
       new TestAclFileAttributeViews();
 
+  private Path tempRoot;
+
   @Rule
   public ExpectedException thrown = ExpectedException.none();
+
+  @Rule
+  public TemporaryFolder temp = new TemporaryFolder();
+
+  @Before
+  public void setUp() throws Exception {
+    tempRoot = temp.getRoot().getCanonicalFile().toPath();
+  }
+
+  private Path newTempDir(String name) throws IOException {
+    return temp.newFolder(name).toPath().toRealPath();
+  }
+
+  private Path newTempFile(String name) throws IOException {
+    return temp.newFile(name).toPath().toRealPath();
+  }
+
+  private Path newTempFile(Path parent, String name) throws IOException {
+    Preconditions.checkArgument(parent.startsWith(tempRoot));
+    return Files.createFile(parent.resolve(name));
+  }
 
   @Test
   public void testNewAclEntryUnsupportedAccessType() throws Exception {
     WinNT.ACCESS_ACEStructure ace = new AceBuilder()
+        .setSid(new AccountSid())
         .setType(WinNT.SYSTEM_AUDIT_ACE_TYPE).build();
     assertNull(wafav.newAclEntry(ace));
   }
@@ -55,7 +108,7 @@ public class WindowsAclFileAttributeViewsTest {
   public void testNewAclEntryUnresolvableSid() throws Exception {
     TestHelper.assumeOsIsWindows(); // For new Win32Exception().
     WinNT.ACCESS_ACEStructure ace = new AceBuilder()
-        .setSid(new AccountSid(null)).build();
+        .setSid(new AccountSid()).build();
     assertNull(wafav.newAclEntry(ace));
   }
 
@@ -227,60 +280,262 @@ public class WindowsAclFileAttributeViewsTest {
     assertEquals(expected, aclEntry.flags());
   }
 
+  @Test
+  public void testGetAclViewsEmptyAcl() throws Exception {
+    AclFileAttributeViews aclViews = getAclViews();
+    assertNotNull(aclViews);
+    assertTrue(aclViews.getDirectAclView().getAcl().isEmpty());
+    assertTrue(aclViews.getInheritedAclView().getAcl().isEmpty());
+  }
+
+  @Test
+  public void testGetAclViewsSingleDirectAce() throws Exception {
+    AclFileAttributeView expected = new AclView(
+        user("domain\\user").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    WinNT.ACCESS_ACEStructure ace = new AceBuilder()
+        .setSid(AccountSid.user("user", "domain"))
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build();
+    AclFileAttributeViews aclViews = getAclViews(ace);
+    assertNotNull(aclViews);
+    assertTrue(aclViews.getInheritedAclView().getAcl().isEmpty());
+    assertEquals(expected.getAcl(), aclViews.getDirectAclView().getAcl());
+  }
+
+  @Test
+  public void testGetAclViewsSingleInheritedAce() throws Exception {
+    AclFileAttributeView expected = new AclView(
+        user("domain\\user").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    WinNT.ACCESS_ACEStructure ace = new AceBuilder()
+        .setSid(AccountSid.user("user", "domain"))
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE,
+                  WinNT.INHERITED_ACE)
+        .build();
+    AclFileAttributeViews aclViews = getAclViews(ace);
+    assertNotNull(aclViews);
+    assertTrue(aclViews.getDirectAclView().getAcl().isEmpty());
+    assertEquals(expected.getAcl(), aclViews.getInheritedAclView().getAcl());
+  }
+
+  @Test
+  public void testGetAclViewsInheritedAndDirectAces() throws Exception {
+    AclFileAttributeView expectedInherited = new AclView(
+        group("Everyone").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        group("Administrators").type(ALLOW).perms(GENERIC_ALL)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    AclFileAttributeView expectedDirect = new AclView(
+        user("BEDROCK\\Fred").type(ALLOW).perms(GENERIC_EXECUTE)
+        .flags(FILE_INHERIT),
+        user("BEDROCK\\Barney").type(DENY).perms(GENERIC_WRITE)
+        .flags(DIRECTORY_INHERIT));
+    AclFileAttributeViews aclViews = getAclViews(new AceBuilder()
+        .setSid(AccountSid.user("Fred", "BEDROCK"))
+        .setPerms(WinNT.GENERIC_EXECUTE)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("Everyone", null))
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE,
+                  WinNT.INHERITED_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("Administrators", null))
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE,
+                  WinNT.INHERITED_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("Barney", "BEDROCK"))
+        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_WRITE)
+        .setFlags(WinNT.CONTAINER_INHERIT_ACE)
+        .build());
+
+    assertNotNull(aclViews);
+    assertEquals(expectedDirect.getAcl(), aclViews.getDirectAclView().getAcl());
+    assertEquals(expectedInherited.getAcl(),
+                 aclViews.getInheritedAclView().getAcl());
+  }
+
+  private AclFileAttributeViews getAclViews(WinNT.ACCESS_ACEStructure... aces)
+      throws Exception {
+    WinNT.ACL acl = new WinNT.ACL();
+    WinNT.SECURITY_DESCRIPTOR_RELATIVE securityDescriptor =
+        new WinNT.SECURITY_DESCRIPTOR_RELATIVE();
+    int totalSize = securityDescriptor.size() + acl.size();
+    for (WinNT.ACCESS_ACEStructure ace : aces) {
+      totalSize += ace.AceSize;
+    }
+
+    // Serialize the structures into a buffer.
+    final byte[] buffer = new byte[totalSize];
+    int offset = 0;
+    // The start of the ACL follows the securityDescriptor in memory.
+    securityDescriptor.Dacl = securityDescriptor.size();
+    securityDescriptor.write();
+    securityDescriptor.getPointer().read(0, buffer, offset,
+                                         securityDescriptor.size());
+    offset += securityDescriptor.size();
+    acl.AceCount = (short) aces.length;
+    acl.write();
+    acl.getPointer().read(0, buffer, offset, acl.size());
+    offset += acl.size();
+    for (WinNT.ACCESS_ACEStructure ace : aces) {
+      ace.write();
+      ace.getPointer().read(0, buffer, offset, ace.AceSize);
+      offset += ace.AceSize;
+    }
+
+    Kernel32 kernel32 = new UnsupportedKernel32() {
+        @Override
+        public int GetLastError() {
+          // For when GetFileSecurity returns false.
+          return W32Errors.ERROR_INSUFFICIENT_BUFFER;
+        }
+      };
+    Advapi32 advapi32 = new UnsupportedAdvapi32() {
+        @Override
+        public boolean GetFileSecurity(WString lpFileName,
+            int RequestedInformation, Pointer pointer, int nLength,
+            IntByReference lpnLengthNeeded) {
+          if (nLength < buffer.length) {
+            lpnLengthNeeded.setValue(buffer.length);
+            return false;
+          } else {
+            pointer.write(0, buffer, 0, nLength);
+            return true;
+          }
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(advapi32, kernel32, null, null, null);
+    return wafav.getAclViews(newTempFile("test"));
+  }
+
+  /**
+   * Test the first IOException that can be thrown out of getFileSecurity().
+   * In that method, the first call to advapi32.GetFileSecurity() is
+   * expected to return W32Errors.ERROR_INSUFFICIENT_BUFFER and the
+   * required buffer size.  This test returns a different error, which
+   * gets rethrown as an IOException.
+   */
+  @Test
+  public void testGetAclViewsException1() throws Exception {
+    TestHelper.assumeOsIsWindows(); // For new Win32Exception().
+    thrown.expect(IOException.class);
+    testGetAclViewsException(W32Errors.ERROR_MORE_DATA);
+  }
+
+  /**
+   * Test the second IOException that can be thrown out of getFileSecurity().
+   * In that method, the second call to advapi32.GetFileSecurity() is
+   * not expected to return any error.  This test returns an error on both
+   * calls - the expected error for the first call and that same error for the
+   * second call.
+   */
+  @Test
+  public void testGetAclViewsException2() throws Exception {
+    TestHelper.assumeOsIsWindows(); // For new Win32Exception().
+    thrown.expect(IOException.class);
+    testGetAclViewsException(W32Errors.ERROR_INSUFFICIENT_BUFFER);
+  }
+
+  private void testGetAclViewsException(final int errorCode) throws Exception {
+    Kernel32 kernel32 = new UnsupportedKernel32() {
+        @Override
+        public int GetLastError() {
+          return errorCode;
+        }
+      };
+    Advapi32 advapi32 = new UnsupportedAdvapi32() {
+        @Override
+        public boolean GetFileSecurity(WString lpFileName,
+            int RequestedInformation, Pointer pointer, int nLength,
+            IntByReference lpnLengthNeeded) {
+          lpnLengthNeeded.setValue(10);
+          return false;
+        }
+      };
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(advapi32, kernel32, null, null, null);
+    wafav.getAclViews(newTempFile("test"));
+  }
+
   static class AceBuilder {
-    private Ace ace = new Ace();
+    private byte type;
+    private byte flags;
+    private int perms;
+    private AccountSid sid;
 
     public AceBuilder setType(byte type) {
-      ace.AceType = type;
+      this.type = type;
       return this;
     }
 
     public AceBuilder setFlags(byte... flags) {
       for (byte flag : flags) {
-        ace.AceFlags |= flag;
+        this.flags |= flag;
       }
       return this;
     }
 
     public AceBuilder setPerms(int... perms) {
       for (int perm : perms) {
-        ace.Mask |= perm;
+        this.perms |= perm;
       }
       return this;
     }
 
-    public AceBuilder setSid(WinNT.PSID sid) {
-      ace.setSID(sid);
+    public AceBuilder setSid(AccountSid sid) {
+      this.sid = sid;
       return this;
     }
 
     public WinNT.ACCESS_ACEStructure build() {
+      // Because ACCESS_ACEStructure does not allow me to set the SID
+      // directly, I must create a serialized ACE containing a Pointer
+      // to my AccountSid, then create a new ACE from that memory.
+      WinNT.ACCESS_ACEStructure ace = new Ace();
+      ace.AceType = type;
+      ace.AceFlags = flags;
+      ace.Mask = perms;
+      ace.AceSize = (short)(ace.size() + Pointer.SIZE);
+      ace.write();
+      byte[] buffer = new byte[ace.AceSize];
+      ace.getPointer().read(0, buffer, 0, ace.size());
+      Memory memory = new Memory(buffer.length);
+      memory.write(0, buffer, 0, ace.size());
+      sid.write();
+      // See ACCESS_ACEStructure(Pointer p) constructor for mystery offsets.
+      memory.setPointer(4 + 4, sid.getPointer());
+      ace = new Ace(memory);
+      assertEquals(ace.getSID().sid, sid.getPointer());
       return ace;
     }
   }
 
   static class Ace extends WinNT.ACCESS_ACEStructure {
-    // psid is not publicly settable in ACCESS_ACEStructure.
-    private WinNT.PSID sid;
-
-    public void setSID(WinNT.PSID sid) {
-      this.sid = sid;
+    public Ace() {
     }
 
-    @Override
-    public WinNT.PSID getSID() {
-      return (sid != null) ? sid : super.getSID();
+    public Ace(Pointer p) {
+      super(p);
     }
 
     @Override
     public String getSidString() {
-      return (sid != null) ? sid.toString() : super.getSidString();
+      return new AccountSid(getSID().sid).toString();
     }
   }
 
-  /** A SID implemention that wraps an Account, avoiding AD lookup. */
-  static class AccountSid extends WinNT.PSID {
-    private final Account account;
+  public static class AccountSid extends Structure {
 
     public static AccountSid user(String name, String domain) {
       return new AccountSid(SID_NAME_USE.SidTypeUser, name, domain);
@@ -290,31 +545,47 @@ public class WindowsAclFileAttributeViewsTest {
       return new AccountSid(SID_NAME_USE.SidTypeGroup, name, domain);
     }
 
-    public AccountSid(Account account) {
-      this.account = account;
+    @Override
+    protected List getFieldOrder() {
+      return Arrays.asList(new String[] { "type", "name", "domain" });
+    }
+
+    public int type;
+    public String name;
+    public String domain;
+
+    public AccountSid() {
+    }
+
+    public AccountSid(Pointer p) {
+      super(p);
+      read();
     }
 
     public AccountSid(int type, String name, String domain) {
-      account = new Account();
-      account.accountType = type;
-      account.name = name;
-      account.domain = domain;
+      this.type = type;
+      this.name = name;
+      this.domain = domain;
     }
 
     public Account getAccount() throws Win32Exception {
-      if (account == null) {
+      if (name == null && domain == null) {
         throw new Win32Exception(WinError.ERROR_NONE_MAPPED);
+      } else {
+        Account account = new Account();
+        account.accountType = type;
+        account.name = name;
+        account.domain = domain;
+        return account;
       }
-      return account;
     }
 
     @Override
     public String toString() {
-      if (account == null) {
+      if (name == null && domain == null) {
         return "null";
       } else {
-        return (account.domain == null) ? account.name
-            : account.domain + "\\" + account.name;
+        return (domain == null) ? name : domain + "\\" + name;
       }
     }
   }
@@ -328,13 +599,14 @@ public class WindowsAclFileAttributeViewsTest {
       super(null, null, null, null, null);
     }
 
+    public TestAclFileAttributeViews(Advapi32 advapi32, Kernel32 kernel32,
+      Mpr mpr, Netapi32Ex netapi32, Shlwapi shlwapi) {
+      super(advapi32, kernel32, mpr, netapi32, shlwapi);
+    }
+
     @Override
     Account getAccountBySid(WinNT.PSID sid) throws Win32Exception {
-      if (sid instanceof AccountSid) {
-        return ((AccountSid) sid).getAccount();
-      } else {
-        return super.getAccountBySid(sid);
-      }
+      return new AccountSid(sid.sid).getAccount();
     }
   }
 }

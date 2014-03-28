@@ -173,21 +173,37 @@ class AclView extends SimpleAclFileAttributeView {
       return name;
     }
 
+    // This implementation of equals() is a bit unusual, because I may compare
+    // instances of two different implementations of the interface and I do not
+    // want to match GroupPrincipals (which extend UserPrincipals).
     @Override
     public boolean equals(Object obj) {
       if (obj == null) {
         return false;
       }
-      if (getClass() != obj.getClass()) {
+      if (!(obj instanceof UserPrincipal) || obj instanceof GroupPrincipal) {
         return false;
       }
-      return name.equals(obj.toString());
+      return getName().equals(((UserPrincipal) obj).getName());
     }
   }
 
   private static class Group extends User implements GroupPrincipal {
     Group(String name) {
       super(name);
+    }
+
+    // This implementation of equals() is a bit unusual, because I may compare
+    // instances of two different implementations of the interface.
+    @Override
+    public boolean equals(Object obj) {
+      if (obj == null) {
+        return false;
+      }
+      if (!(obj instanceof GroupPrincipal)) {
+        return false;
+      }
+      return getName().equals(((GroupPrincipal) obj).getName());
     }
   }
 }
