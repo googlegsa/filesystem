@@ -15,6 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.enterprise.adaptor.AdaptorContext;
+import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.AuthnAuthority;
 import com.google.enterprise.adaptor.AuthzAuthority;
 import com.google.enterprise.adaptor.Config;
@@ -105,6 +106,11 @@ class MockAdaptorContext implements AdaptorContext {
 
   @Override
   public void setAuthzAuthority(AuthzAuthority authzAuthority) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public AsyncDocIdPusher getAsyncDocIdPusher() {
     throw new UnsupportedOperationException();
   }
 }
