@@ -7,9 +7,8 @@ GSA index a single UNC share.  DFS is supported.
 <h4>Requirements</h4>
 <ul>
   <li>GSA 7.2 or higher
-  <li>Java JRE 1.7 or higher installed on computer that runs adaptor
+  <li>Java JRE 1.7 update 6 or higher installed on computer that runs adaptor
   <li>File System Adaptor JAR executable
-  <li>Credentials for File System share to be indexed by GSA
   <li>Requires running on Microsoft Windows
 </ul>
 
@@ -60,9 +59,10 @@ java.util.logging.FileHandler.count=20
 java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomFormatter
 </pre>
 
-  <li><p>Create a directory named logs in the same directory that contains logging.properties.
+  <li><p>Create a directory named <code>logs</code> inside same directory that contains 
+    the adaptor binary.
 
-  <li><p>Run the adaptor using:
+  <li><p>Run the adaptor using a command line like:
   <pre>java -Djava.util.logging.config.file=logging.properties -jar adaptor-fs-YYYYMMDD-withlib.jar</pre>
 </ol>
 
@@ -124,18 +124,12 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </dd>
 </dl>
 
-<h4>Visit further 
-<a href="http://documentation.plexi.googlecode.com/git-history/v4.0.0/javadoc/com/google/enterprise/adaptor/Config.html">
-configuration documentation page
-</a> to view supported set of optional parameters.
-</h4>
-
 <br>
 <br>
 
 <h3> Advanced Topics </h3>
 
-<h4>Document Last Access Dates</h4>
+<h4>Not changing 'last access' of the documents on the share</h4>
 <p>The adaptor attempts to restore the last access date for documents after 
 it reads the document content during a crawl. In order for the last access 
 date to be restored back to the original value before the content was read, 
