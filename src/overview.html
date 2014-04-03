@@ -66,11 +66,22 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   <pre>java -Djava.util.logging.config.file=logging.properties -jar adaptor-fs-YYYYMMDD-withlib.jar</pre>
 </ol>
 
-<!--
 <h4>Running as service on Windows</h4>
-  <p>Example execution with jsvc:
-  <pre>jsvc -pidfile adaptor.pid -cp adaptor-fs-YYYYMMDD-withlib.jar com.google.enterprise.adaptor.Daemon com.google.enterprise.adaptor.fs.FsAdaptor</pre>
--->
+  <p>Example service creation on Windows with prunsrv:
+  <pre>prunsrv install adaptor-fs --StartPath="%CD%" ^
+  --Classpath=adaptor-fs-YYYYMMDD-withlib.jar ^
+  --StartMode=jvm --StartClass=com.google.enterprise.adaptor.Daemon ^
+  --StartMethod=serviceStart --StartParams=com.google.enterprise.adaptor.fs.FsAdaptor ^
+  --StopMode=jvm --StopClass=com.google.enterprise.adaptor.Daemon ^
+  --StopMethod=serviceStop --StdOutput=stdout.log --StdError=stderr.log ^
+  ++JvmOptions=-Djava.util.logging.config.file=logging.properties</pre>
+
+  <p> Note: By default the File System adaptor service runs using the Windows Local System account.
+      This should be fine in most cases but this can cause issues if access to documents is
+      restricted through Acls.
+      In cases where the File System adaptor service is not able to crawl documents due
+      to Acl restrictions, you would need to specify a user for the File System adaptor
+      service through the Service Control Manager that has sufficient access to crawl the documents.
 
 <h4>Optional <code>adaptor-config.properties</code> fields</h4>
 <dl>
