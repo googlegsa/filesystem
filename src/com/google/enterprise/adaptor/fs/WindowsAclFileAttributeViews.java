@@ -432,7 +432,7 @@ class WindowsAclFileAttributeViews {
   }
 
   @VisibleForTesting
-  interface Mpr extends StdCallLibrary {
+  public static interface Mpr extends StdCallLibrary {
     Mpr INSTANCE = (Mpr) Native.loadLibrary("Mpr", Mpr.class,
         W32APIOptions.UNICODE_OPTIONS);
 

@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
+import com.google.enterprise.adaptor.fs.WindowsAclFileAttributeViews.Mpr;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;
@@ -41,17 +42,20 @@ import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.Advapi32Util.Account;
 import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.PointerByReference;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
@@ -365,6 +369,36 @@ public class WindowsAclFileAttributeViewsTest {
 
   private AclFileAttributeViews getAclViews(WinNT.ACCESS_ACEStructure... aces)
       throws Exception {
+    final byte[] dacl = buildDaclMemory(aces);
+    Kernel32 kernel32 = new UnsupportedKernel32() {
+        @Override
+        public int GetLastError() {
+          // For when GetFileSecurity returns false.
+          return W32Errors.ERROR_INSUFFICIENT_BUFFER;
+        }
+      };
+    Advapi32 advapi32 = new UnsupportedAdvapi32() {
+        @Override
+        public boolean GetFileSecurity(WString lpFileName,
+            int RequestedInformation, Pointer pointer, int nLength,
+            IntByReference lpnLengthNeeded) {
+          if (nLength < dacl.length) {
+            lpnLengthNeeded.setValue(dacl.length);
+            return false;
+          } else {
+            pointer.write(0, dacl, 0, nLength);
+            return true;
+          }
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(advapi32, kernel32, null, null, null);
+    return wafav.getAclViews(newTempFile("test"));
+  }
+
+  private byte[] buildDaclMemory(WinNT.ACCESS_ACEStructure... aces)
+      throws Exception {
     WinNT.ACL acl = new WinNT.ACL();
     WinNT.SECURITY_DESCRIPTOR_RELATIVE securityDescriptor =
         new WinNT.SECURITY_DESCRIPTOR_RELATIVE();
@@ -391,32 +425,7 @@ public class WindowsAclFileAttributeViewsTest {
       ace.getPointer().read(0, buffer, offset, ace.AceSize);
       offset += ace.AceSize;
     }
-
-    Kernel32 kernel32 = new UnsupportedKernel32() {
-        @Override
-        public int GetLastError() {
-          // For when GetFileSecurity returns false.
-          return W32Errors.ERROR_INSUFFICIENT_BUFFER;
-        }
-      };
-    Advapi32 advapi32 = new UnsupportedAdvapi32() {
-        @Override
-        public boolean GetFileSecurity(WString lpFileName,
-            int RequestedInformation, Pointer pointer, int nLength,
-            IntByReference lpnLengthNeeded) {
-          if (nLength < buffer.length) {
-            lpnLengthNeeded.setValue(buffer.length);
-            return false;
-          } else {
-            pointer.write(0, buffer, 0, nLength);
-            return true;
-          }
-        }
-      };
-
-    WindowsAclFileAttributeViews wafav =
-        new TestAclFileAttributeViews(advapi32, kernel32, null, null, null);
-    return wafav.getAclViews(newTempFile("test"));
+    return buffer;
   }
 
   /**
@@ -466,6 +475,237 @@ public class WindowsAclFileAttributeViewsTest {
     WindowsAclFileAttributeViews wafav =
         new TestAclFileAttributeViews(advapi32, kernel32, null, null, null);
     wafav.getAclViews(newTempFile("test"));
+  }
+
+  @Test
+  public void testGetShareAclViewLocalDrive() throws Exception {
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return false;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return false;
+        }
+      };
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, null, shlwapi);
+    AclFileAttributeView aclView = wafav.getShareAclView(newTempDir("test"));
+    assertNotNull(aclView);
+    assertTrue(aclView.getAcl().isEmpty());
+  }
+
+  @Test
+  public void testGetShareAclViewUncPath() throws Exception {
+    TestHelper.assumeOsIsWindows();
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return false;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return true;
+        }
+      };
+    Path share = Paths.get("\\\\server\\share");
+    testGetShareAclView(share, shlwapi, null);
+  }
+
+  @Test
+  public void testGetShareAclViewBadUncPath() throws Exception {
+    TestHelper.assumeOsIsWindows();
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return false;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return true;
+        }
+      };
+    thrown.expect(IOException.class);
+    testGetShareAclView(newTempDir("test"), shlwapi, null);
+  }
+
+
+  @Test
+  public void testGetShareAclViewNetworkPath() throws Exception {
+    TestHelper.assumeOsIsWindows();
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return true;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return false;
+        }
+      };
+    Mpr mpr = new Mpr() {
+        @Override
+        public int WNetGetUniversalNameW(String lpLocalPath, int dwInfoLevel,
+            Pointer lpBuffer, IntByReference lpBufferSize) {
+          Mpr.UNIVERSAL_NAME_INFO info = new Mpr.UNIVERSAL_NAME_INFO();
+          info.lpUniversalName = "\\\\server\\share";
+          info.write();
+          // Force a reallocation, even though we do not need it.
+          if (lpBufferSize.getValue() != info.size()) {
+            lpBufferSize.setValue(info.size());
+            return WinNT.ERROR_MORE_DATA;
+          }
+          byte[] buf = new byte[info.size()];
+          info.getPointer().read(0, buf, 0, buf.length);
+          lpBuffer.write(0, buf, 0, buf.length);
+          return WinNT.NO_ERROR;
+        }
+      };
+    testGetShareAclView(newTempDir("test"), shlwapi, mpr);
+  }
+
+  @Test
+  public void testGetShareAclViewNetworkPathFailure() throws Exception {
+    TestHelper.assumeOsIsWindows();
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return true;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return false;
+        }
+      };
+    Mpr mpr = new Mpr() {
+        @Override
+        public int WNetGetUniversalNameW(String lpLocalPath, int dwInfoLevel,
+            Pointer lpBuffer, IntByReference lpBufferSize) {
+          return WinNT.ERROR_INVALID_PARAMETER;
+        }
+      };
+    thrown.expect(IOException.class);
+    testGetShareAclView(newTempDir("test"), shlwapi, mpr);
+  }
+
+  private void testGetShareAclView(Path share, Shlwapi shlwapi, Mpr mpr)
+      throws Exception {
+    AclFileAttributeView expectedAcl = new AclView(
+        group("Everyone").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        group("Administrators").type(ALLOW).perms(GENERIC_ALL)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    byte[] dacl = buildDaclMemory(
+        new AceBuilder()
+        .setSid(AccountSid.group("Everyone", null))
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("Administrators", null))
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build());
+
+    Memory memory = new Memory(dacl.length);
+    memory.write(0, dacl, 0, dacl.length);
+    final Netapi32Ex.SHARE_INFO_502 info = new Netapi32Ex.SHARE_INFO_502();
+    info.shi502_security_descriptor = memory;
+    info.write();
+
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetShareGetInfo(String serverName, String netName, int level,
+            PointerByReference bufptr) {
+          bufptr.setValue(info.getPointer());
+          return WinError.ERROR_SUCCESS;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, mpr, netapi, shlwapi);
+
+    AclFileAttributeView aclView = wafav.getShareAclView(share);
+    assertNotNull(aclView);
+    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureAccessDenied()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_ACCESS_DENIED);
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureInvalidLevel()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_INVALID_LEVEL);
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureInvalidParameter()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_INVALID_PARAMETER);
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureInsufficientMemory()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_NOT_ENOUGH_MEMORY);
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureNetNameNotFound()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(LMErr.NERR_NetNameNotFound);
+  }
+
+  @Test
+  public void testGetShareAclViewNetSareGetInfoFailureOther()
+      throws Exception {
+    TestHelper.assumeOsIsWindows();
+    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_NOT_READY);
+  }
+
+  private void testGetShareAclViewNetSareGetInfoFailure(final int error)
+      throws Exception {
+    Shlwapi shlwapi = new Shlwapi() {
+        @Override
+        public boolean PathIsNetworkPath(String pszPath) {
+          return false;
+        }
+        @Override
+        public boolean PathIsUNC(String pszPath) {
+          return true;
+        }
+      };
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetShareGetInfo(String serverName, String netName, int level,
+            PointerByReference bufptr) {
+          return error;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, netapi, shlwapi);
+    Path share = Paths.get("\\\\server\\share");
+
+    thrown.expect(IOException.class);
+    AclFileAttributeView aclView = wafav.getShareAclView(share);
   }
 
   static class AceBuilder {
