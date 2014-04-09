@@ -53,7 +53,9 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public boolean isHidden(Path doc) throws IOException {
-    return Files.isHidden(doc);
+    // Using File.isHidden() because NIO Files.isHidden(Path) does not
+    // consider hidden directories to be hidden.
+    return doc.toFile().isHidden();
   }
 
   @Override
