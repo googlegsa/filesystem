@@ -230,9 +230,10 @@ public class FsAdaptor extends AbstractAdaptor implements
             "DFS link path of the form \\\\host\\ns\\link.");
       }
     }
-    if (!isSupportedPath(rootPath)) {
+    if (!delegate.isDirectory(rootPath)) {
       throw new IOException("The path " + rootPath + " is not a valid path. "
-          + "The path does not exist or it is not a file or directory.");
+          + "The path does not exist, or it is not a directory, or it is not "
+          + "shared.");
     }
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
