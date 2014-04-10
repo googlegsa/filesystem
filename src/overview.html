@@ -121,6 +121,26 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </pre>
   </dd>
   <dt>
+  <code>filesystemadaptor.crawlHiddenFiles</code>
+  </dt>
+  <dd>
+  This boolean configuration property allows or disallows indexing
+  of hidden files and folders. The definition of hidden files and
+  folders is platform dependent. On Windows file sytems a file or
+  folder is considered hidden if the DOS <code>hidden</code>
+  attribute is set.
+  <br>
+  By default, hidden files are not indexed and the contents of
+  hidden folders are not indexed. Setting
+  <code>filesystemadaptor.crawlHiddenFiles</code> to <code>true</code>
+  will allow hidden files and folders to be crawled by the Search
+  Appliance. By default the value is:
+  <pre>
+  false
+  </pre>
+  </dd>
+  <br>
+  <dt>
   <code>adaptor.incrementalPollPeriodSecs</code>
   </dt>
   <dd>

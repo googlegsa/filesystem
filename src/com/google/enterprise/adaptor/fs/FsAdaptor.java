@@ -84,6 +84,10 @@ public class FsAdaptor extends AbstractAdaptor implements
   private static final String CONFIG_SUPPORTED_ACCOUNTS =
       "filesystemadaptor.supportedAccounts";
 
+  /** The config parameter name for turning on/off hidden file indexing. */
+  private static final String CONFIG_CRAWL_HIDDEN_FILES =
+      "filesystemadaptor.crawlHiddenFiles";    
+
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
   private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
   private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
@@ -134,6 +138,9 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** The namespace applied to ACL Principals. */
   private String namespace;
 
+  /** If true, crawl hidden files and folders.  Default is false. */
+  private boolean crawlHiddenFiles;
+
   private AdaptorContext context;
   private Path rootPath;
   private boolean isDfsUnc;
@@ -179,6 +186,7 @@ public class FsAdaptor extends AbstractAdaptor implements
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
+    config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
   }
 
@@ -239,6 +247,16 @@ public class FsAdaptor extends AbstractAdaptor implements
         Splitter.on(',').trimResults().split(accountsStr)));
     log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
         supportedWindowsAccounts);
+
+    crawlHiddenFiles = Boolean.parseBoolean(
+        context.getConfig().getValue(CONFIG_CRAWL_HIDDEN_FILES));
+    log.log(Level.CONFIG, "crawlHiddenFiles: {0}",
+        crawlHiddenFiles);
+    if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
+      throw new IllegalStateException("The path " + rootPath + " is hidden. "
+          + "To crawl hidden content, you must set the configuration "
+          + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
+    }
 
     rootPathDocId = delegate.newDocId(rootPath);
     delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
@@ -513,7 +531,7 @@ public class FsAdaptor extends AbstractAdaptor implements
   @VisibleForTesting
   boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
     for (Path file = doc; file != null; file = file.getParent()) {
-      if (delegate.isHidden(file)) {
+      if (!crawlHiddenFiles && delegate.isHidden(file)) {
         if (doc.equals(file)) {
           log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
         } else {

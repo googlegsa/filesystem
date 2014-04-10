@@ -164,6 +164,20 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testAdaptorInitNoCrawlHiddenRoot() throws Exception {
+    root.setIsHidden(true);
+    thrown.expect(IllegalStateException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitCrawlHiddenRoot() throws Exception {
+    root.setIsHidden(true);
+    config.overrideKey("filesystemadaptor.crawlHiddenFiles", "true");
+    adaptor.init(context);
+  }
+
+  @Test
   public void testGetFolderName() throws Exception {
     assertEquals("share", adaptor.getFileName(Paths.get("\\\\host/share/")));
     assertEquals("folder2",
@@ -207,6 +221,26 @@ public class FsAdaptorTest {
     assertFalse(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir")));
     assertFalse(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir/baz")));
     assertFalse(adaptor.isVisibleDescendantOfRoot(null));
+  }
+
+  @Test
+  public void testIsVisibleDescendantOfRootCrawlHiddenTrue() throws Exception {
+    config.overrideKey("filesystemadaptor.crawlHiddenFiles", "true");
+    adaptor.init(context);
+    root.addChildren(new MockFile("foo"),
+        new MockFile("hidden.txt").setIsHidden(true),
+        new MockFile("dir1", true).addChildren(new MockFile("bar"),
+            new MockFile("hidden.pdf").setIsHidden(true)),
+        new MockFile("hidden.dir", true).setIsHidden(true).addChildren(
+            new MockFile("baz")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(rootPath));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("foo")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("dir1")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("dir1/bar")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("hidden.txt")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("dir1/hidden.pdf")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir")));
+    assertTrue(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir/baz")));
   }
 
   @Test
@@ -312,6 +346,27 @@ public class FsAdaptorTest {
     MockResponse response = new MockResponse();
     adaptor.getDocContent(new MockRequest(getDocId("hidden.dir")), response);
     assertTrue(response.notFound);
+  }
+
+  @Test
+  public void testGetDocContentHiddenFileCrawlHiddenTrue() throws Exception {
+    root.addChildren(new MockFile("hidden.txt").setIsHidden(true));
+    config.overrideKey("filesystemadaptor.crawlHiddenFiles", "true");
+    adaptor.init(context);
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(getDocId("hidden.txt")), response);
+    assertFalse(response.notFound);
+  }
+
+  @Test
+  public void testGetDocContentHiddenDirectoryCrawlHiddenTrue()
+      throws Exception {
+    root.addChildren(new MockFile("hidden.dir", true).setIsHidden(true));
+    config.overrideKey("filesystemadaptor.crawlHiddenFiles", "true");
+    adaptor.init(context);
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(getDocId("hidden.dir")), response);
+    assertFalse(response.notFound);
   }
 
   @Test
