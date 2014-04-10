@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
 import java.io.IOException;
@@ -23,7 +24,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
-import java.util.concurrent.BlockingQueue;
 
 interface FileDelegate {
   /**
@@ -134,7 +134,7 @@ interface FileDelegate {
    */
   DocId newDocId(Path doc) throws IOException;
 
-  void startMonitorPath(Path watchPath, BlockingQueue<Path> queue)
+  void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher)
       throws IOException;
 
   void stopMonitorPath();

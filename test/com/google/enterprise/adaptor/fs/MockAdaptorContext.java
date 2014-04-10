@@ -37,6 +37,8 @@ import com.sun.net.httpserver.HttpHandler;
 class MockAdaptorContext implements AdaptorContext {
   private final Config config = new Config();
   private final DocIdPusher docIdPusher = new AccumulatingDocIdPusher();
+  private final AsyncDocIdPusher asycDocIdPusher =
+      new AccumulatingAsyncDocIdPusher();
   private final DocIdEncoder docIdEncoder = new MockDocIdCodec();
 
   @Override
@@ -47,6 +49,11 @@ class MockAdaptorContext implements AdaptorContext {
   @Override
   public DocIdPusher getDocIdPusher() {
     return docIdPusher;
+  }
+
+  @Override
+  public AsyncDocIdPusher getAsyncDocIdPusher() {
+    return asycDocIdPusher;
   }
 
   @Override
@@ -106,11 +113,6 @@ class MockAdaptorContext implements AdaptorContext {
 
   @Override
   public void setAuthzAuthority(AuthzAuthority authzAuthority) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public AsyncDocIdPusher getAsyncDocIdPusher() {
     throw new UnsupportedOperationException();
   }
 }

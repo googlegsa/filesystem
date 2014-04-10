@@ -16,7 +16,9 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
+import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
@@ -50,7 +52,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -221,7 +222,7 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
-  public void startMonitorPath(Path watchPath, BlockingQueue<Path> queue)
+  public void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher)
       throws IOException {
     // Stop the current running monitor thread.
     stopMonitorPath();
@@ -233,7 +234,7 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     CountDownLatch startSignal = new CountDownLatch(1);
     synchronized (monitorThreadLock) {
-      monitorThread = new MonitorThread(watchPath, queue, startSignal);
+      monitorThread = new MonitorThread(watchPath, pusher, startSignal);
       monitorThread.start();
     }
     // Wait for the monitor thread to start watching filesystem.
@@ -254,20 +255,20 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
   }
 
-  private static class MonitorThread extends Thread {
+  private class MonitorThread extends Thread {
     private final Path watchPath;
-    private final BlockingQueue<Path> queue;
+    private final AsyncDocIdPusher pusher;
     private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
 
-    public MonitorThread(Path watchPath, BlockingQueue<Path> queue,
+    public MonitorThread(Path watchPath, AsyncDocIdPusher pusher,
         CountDownLatch startSignal) {
       Preconditions.checkNotNull(watchPath, "the watchPath may not be null");
-      Preconditions.checkNotNull(queue, "the queue may not be null");
+      Preconditions.checkNotNull(pusher, "the pusher may not be null");
       Preconditions.checkNotNull(startSignal,
                                  "the start signal may not be null");
       this.watchPath = watchPath;
-      this.queue = queue;
+      this.pusher = pusher;
       this.startSignal = startSignal;
       stopEvent = Kernel32.INSTANCE.CreateEvent(null, false, false, null);
     }
@@ -409,18 +410,18 @@ class WindowsFileDelegate extends NioFileDelegate {
         switch (info.Action) {
           case Kernel32.FILE_ACTION_MODIFIED:
             log.log(Level.FINEST, "Modified: {0}", changePath);
-            offerPath(changePath);
+            pushPath(changePath);
             break;
           case Kernel32.FILE_ACTION_ADDED:
           case Kernel32.FILE_ACTION_RENAMED_NEW_NAME:
             log.log(Level.FINEST, "Added: {0}", changePath);
-            offerPath(changePath.getParent());
+            pushPath(changePath.getParent());
             break;
           case Kernel32.FILE_ACTION_REMOVED:
           case Kernel32.FILE_ACTION_RENAMED_OLD_NAME:
             log.log(Level.FINEST, "Removed: {0}", changePath);
-            offerPath(changePath);
-            offerPath(changePath.getParent());
+            pushPath(changePath);
+            pushPath(changePath.getParent());
             break;
           default:
             // Nothing to do here.
@@ -430,10 +431,21 @@ class WindowsFileDelegate extends NioFileDelegate {
       } while (info != null);
     }
 
-    private void offerPath(Path path) {
-      if (!queue.offer(path)) {
-        log.log(Level.INFO, "Unable to add path {0} to push queue. " +
-            "Incremental update notification will be lost.", path);
+    private void pushPath(Path doc) {
+      // For deleted, moved or renamed files we want to push the old name
+      // so in this case, feed it if the path does not exists.
+      boolean deletedOrMoved = !Files.exists(doc);
+      try {
+        if (deletedOrMoved || isRegularFile(doc) || isDirectory(doc)) {
+          pusher.pushRecord(new DocIdPusher.Record.Builder(newDocId(doc))
+              .setCrawlImmediately(true).build());
+        } else {
+          log.log(Level.INFO,
+              "Skipping path {0}. It is not a supported file type.", doc);
+        }
+      } catch (IOException e) {
+        log.log(Level.WARNING, "Unable to push the path " + doc +
+            " to the GSA.", e);
       }
     }
   }

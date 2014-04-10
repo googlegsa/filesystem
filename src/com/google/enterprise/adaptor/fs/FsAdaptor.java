@@ -134,9 +134,6 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** The namespace applied to ACL Principals. */
   private String namespace;
 
-  /** The filesystem change monitor. */
-  private FsMonitor monitor;
-
   private AdaptorContext context;
   private Path rootPath;
   private boolean isDfsUnc;
@@ -172,11 +169,6 @@ public class FsAdaptor extends AbstractAdaptor implements
   @VisibleForTesting
   String getNamespace() {
     return namespace;
-  }
-
-  @VisibleForTesting
-  BlockingQueue<Path> getFsMonitorQueue() {
-    return monitor.getQueue();
   }
 
   @Override
@@ -248,30 +240,14 @@ public class FsAdaptor extends AbstractAdaptor implements
     log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
         supportedWindowsAccounts);
 
-    int maxFeed = Integer.parseInt(
-        context.getConfig().getValue("feed.maxUrls"));
-    long maxLatencyMillis = 1000L * Integer.parseInt(
-        context.getConfig().getValue(CONFIG_MAX_INCREMENTAL_LATENCY));
-
     rootPathDocId = delegate.newDocId(rootPath);
-    monitor = new FsMonitor(delegate, context.getDocIdPusher(), maxFeed,
-        maxLatencyMillis);
-    delegate.startMonitorPath(rootPath, monitor.getQueue());
-    monitor.start();
-
+    delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
     context.setPollingIncrementalLister(this);
   }
 
   @Override
   public void destroy() {
     delegate.destroy();
-    // TODO (bmj): The check for null monitor is strictly for the tests,
-    // some of which may not have fully initialized the adaptor.  Maybe
-    // look into handling this less obtrusively in the future.
-    if (monitor != null) {
-      monitor.destroy();
-      monitor = null;
-    }
   }
 
   private ShareAcls readShareAcls() throws IOException {
@@ -555,93 +531,6 @@ public class FsAdaptor extends AbstractAdaptor implements
         "Skipping {0} because it is not a descendant of {1}.",
         new Object[] { doc, rootPath });
     return false;
-  }
-
-  private class FsMonitor {
-    private final DocIdPusher pusher;
-    private final PushThread pushThread;
-    private final BlockingQueue<Path> queue;
-    private final int maxFeedSize;
-    private final long maxLatencyMillis;
-
-    public FsMonitor(FileDelegate delegate, DocIdPusher pusher,
-        int maxFeedSize, long maxLatencyMillis) {
-      Preconditions.checkNotNull(delegate, "the delegate may not be null");
-      Preconditions.checkNotNull(pusher, "the DocId pusher may not be null");
-      Preconditions.checkArgument(maxFeedSize > 0,
-          "the maxFeedSize must be greater than zero");
-      Preconditions.checkArgument(maxLatencyMillis >= 0,
-          "the maxLatencyMillis must be greater than or equal to zero");
-      this.pusher = pusher;
-      this.maxFeedSize = maxFeedSize;
-      this.maxLatencyMillis = maxLatencyMillis;
-      queue = new LinkedBlockingQueue<Path>(20 * maxFeedSize);
-      pushThread = new PushThread();
-    }
-
-    public BlockingQueue<Path> getQueue() {
-      return queue;
-    }
-
-    public void start() {
-      pushThread.start();
-    }
-
-    public synchronized void destroy() {
-      pushThread.terminate();
-      try {
-        pushThread.join();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-    }
-
-    private class PushThread extends Thread {
-      public PushThread() {
-      }
-
-      public void terminate() {
-        interrupt();
-      }
-
-      public void run() {
-        log.entering("FsMonitor", "PushThread.run");
-        Set<Path> docs = new HashSet<Path>();
-        Set<Record> records = new HashSet<Record>();
-        while (true) {
-          try {
-            BlockingQueueBatcher.take(queue, docs, maxFeedSize,
-                maxLatencyMillis, TimeUnit.MILLISECONDS);
-            createRecords(records, docs);
-            log.log(Level.FINER, "Sending crawl immediately records: {0}",
-                records);
-            pusher.pushRecords(records);
-            records.clear();
-            docs.clear();
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            break;
-          }
-        }
-        log.exiting("FsMonitor", "PushThread.run");
-      }
-
-      private void createRecords(Set<Record> records, Collection<Path> docs) {
-        for (Path doc : docs) {
-          try {
-            if (isSupportedPath(doc)) {
-              records.add(new DocIdPusher.Record.Builder(delegate.newDocId(doc))
-                  .setCrawlImmediately(true).build());
-            } else {
-              log.log(Level.INFO,
-                  "Skipping path {0}. It is not a supported file type.", doc);
-            }
-          } catch (IOException e) {
-            log.log(Level.WARNING, "Unable to create new DocId for " + doc, e);
-          }
-        }
-      }
-    }
   }
 
   private class ShareAcls {

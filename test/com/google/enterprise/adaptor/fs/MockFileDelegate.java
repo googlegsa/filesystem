@@ -15,6 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
+import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
 import java.io.FileNotFoundException;
@@ -161,7 +162,7 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public void startMonitorPath(Path watchPath, BlockingQueue<Path> queue)
+  public void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher)
     throws IOException {
     // TODO (bmj): implementation
   }

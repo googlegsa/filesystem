@@ -18,6 +18,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
+import com.google.enterprise.adaptor.AsyncDocIdPusher;
 
 import static org.junit.Assert.*;
 
@@ -199,7 +200,7 @@ public class NioFileDelegateTest {
     public void destroy() {}
 
     @Override
-    public void startMonitorPath(Path watchPath, BlockingQueue<Path> queue) {
+    public void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher) {
       throw new UnsupportedOperationException();
     }
       
