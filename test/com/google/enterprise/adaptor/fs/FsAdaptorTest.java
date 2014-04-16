@@ -34,6 +34,9 @@ import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.GroupPrincipal;
+import com.google.enterprise.adaptor.InvalidConfigurationException;
+import com.google.enterprise.adaptor.StartupException;
+import com.google.enterprise.adaptor.UnsupportedPlatformException;
 import com.google.enterprise.adaptor.UserPrincipal;
 
 import org.junit.*;
@@ -114,7 +117,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitNoSourcePath() throws Exception {
     config.overrideKey("filesystemadaptor.src", "");
-    thrown.expect(IOException.class);
+    thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
 
@@ -122,7 +125,7 @@ public class FsAdaptorTest {
   public void testAdaptorInitNonRootSourcePath() throws Exception {
     root.addChildren(new MockFile("subdir", true));
     config.overrideKey("filesystemadaptor.src", getPath("subdir").toString());
-    thrown.expect(IllegalStateException.class);
+    thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
 
@@ -136,7 +139,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitNonLinkDfsUncActiveStorageUnc() throws Exception {
     root.setDfsUncActiveStorageUnc(rootPath);
-    thrown.expect(IOException.class);
+    thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
 
@@ -169,7 +172,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitNoCrawlHiddenRoot() throws Exception {
     root.setIsHidden(true);
-    thrown.expect(IllegalStateException.class);
+    thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
 

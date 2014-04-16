@@ -26,11 +26,14 @@ import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
+import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.PollingIncrementalLister;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
+import com.google.enterprise.adaptor.StartupException;
+import com.google.enterprise.adaptor.UnsupportedPlatformException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -196,8 +199,8 @@ public class FsAdaptor extends AbstractAdaptor implements
     this.context = context;
     String source = context.getConfig().getValue(CONFIG_SRC);
     if (source.isEmpty()) {
-      throw new IOException("The configuration value " + CONFIG_SRC
-          + " is empty. Please specify a valid root path.");
+      throw new InvalidConfigurationException("The configuration value "
+          + CONFIG_SRC + " is empty. Please specify a valid root path.");
     }
     rootPath = delegate.getPath(source);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
@@ -205,7 +208,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
     // considered non-DFS even though \\host\ns\link is a DFS link path.
     // This is OK for now since the check for root path below will cause an
-    // IllegalStateException.
+    // InvalidConfigurationException.
     Path dfsActiveStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
     isDfsUnc = (dfsActiveStorage != null);
     log.log(Level.INFO, "Using a {0} path.", isDfsUnc ? "DFS" : "non-DFS");
@@ -215,7 +218,7 @@ public class FsAdaptor extends AbstractAdaptor implements
       // different from the actual DFS link path.
       final boolean isDfsLink = !rootPath.equals(dfsActiveStorage);
       if (!isDfsLink) {
-        throw new IOException("The DFS path " + rootPath +
+        throw new InvalidConfigurationException("The DFS path " + rootPath +
             " is not a supported DFS path. Only DFS links of the format " +
             "\\\\host\\namespace\\link are supported.");
       }
@@ -225,16 +228,16 @@ public class FsAdaptor extends AbstractAdaptor implements
         // Non-root paths will fail to produce Acls for all the folders up
         // to the root from the configured path, so we limit configuration
         // only to root paths.
-        throw new IllegalStateException(
+        throw new InvalidConfigurationException(
             "Only root paths are supported. Use a path such as C:\\ or " +
             "X:\\ or \\\\host\\share. Additionally, you can specify a " +
             "DFS link path of the form \\\\host\\ns\\link.");
       }
     }
     if (!delegate.isDirectory(rootPath)) {
-      throw new IOException("The path " + rootPath + " is not a valid path. "
+      throw new IOException("The path " + rootPath + " is not accessible. "
           + "The path does not exist, or it is not a directory, or it is not "
-          + "shared.");
+          + "shared, or its hosting file server is currently unavailable.");
     }
 
     // Verify that the adaptor has permission to read the contents of the root.
@@ -264,8 +267,8 @@ public class FsAdaptor extends AbstractAdaptor implements
     log.log(Level.CONFIG, "crawlHiddenFiles: {0}",
         crawlHiddenFiles);
     if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
-      throw new IllegalStateException("The path " + rootPath + " is hidden. "
-          + "To crawl hidden content, you must set the configuration "
+      throw new InvalidConfigurationException("The path " + rootPath + " is "
+          + "hidden. To crawl hidden content, you must set the configuration "
           + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
