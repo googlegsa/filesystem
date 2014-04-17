@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
@@ -60,11 +61,25 @@ class WindowsFileDelegate extends NioFileDelegate {
   private static final Logger log
       = Logger.getLogger(WindowsFileDelegate.class.getName());
 
-  private final WindowsAclFileAttributeViews aclViews
-      = new WindowsAclFileAttributeViews();
+  private final Kernel32Ex kernel32;
+  private final Netapi32Ex netapi32;
+  private final WindowsAclFileAttributeViews aclViews;
 
   private MonitorThread monitorThread;
   private final Object monitorThreadLock = new Object();
+
+  public WindowsFileDelegate() {
+    this(Kernel32Ex.INSTANCE, Netapi32Ex.INSTANCE,
+         new WindowsAclFileAttributeViews());
+  }
+
+  @VisibleForTesting
+  WindowsFileDelegate(Kernel32Ex kernel32, Netapi32Ex netapi32,
+      WindowsAclFileAttributeViews aclViews) {
+    this.kernel32 = kernel32;
+    this.netapi32 = netapi32;
+    this.aclViews = aclViews;
+  }
 
   @Override
   public AclFileAttributeViews getAclViews(Path doc) throws IOException {
@@ -78,7 +93,6 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public AclFileAttributeView getDfsShareAclView(Path doc) {
-    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
     PointerByReference sd = new PointerByReference();
     IntByReference sdSize = new IntByReference();
     int rc = netapi32.NetDfsGetSecurity(doc.toString(),
@@ -172,7 +186,6 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
-    Netapi32Ex netapi32 = Netapi32Ex.INSTANCE;
     PointerByReference buf = new PointerByReference();
     int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
     if (rc != LMErr.NERR_Success) {
@@ -274,8 +287,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     public void shutdown() {
-      Kernel32Ex klib = Kernel32Ex.INSTANCE;
-      klib.SetEvent(stopEvent);
+      kernel32.SetEvent(stopEvent);
       boolean interrupt = false;
       while (true) {
         try {
@@ -288,7 +300,7 @@ class WindowsFileDelegate extends NioFileDelegate {
       if (interrupt) {
         Thread.currentThread().interrupt();
       }
-      klib.CloseHandle(stopEvent);
+      kernel32.CloseHandle(stopEvent);
     }
 
     public void run() {
@@ -305,21 +317,20 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     private void runMonitorLoop() throws IOException {
-      Kernel32Ex klib = Kernel32Ex.INSTANCE;
       int mask = Kernel32.FILE_SHARE_READ | Kernel32.FILE_SHARE_WRITE |
           Kernel32.FILE_SHARE_DELETE;
-      HANDLE handle = klib.CreateFile(watchPath.toString(),
+      HANDLE handle = kernel32.CreateFile(watchPath.toString(),
           Kernel32.FILE_LIST_DIRECTORY, mask, null, Kernel32.OPEN_EXISTING,
           Kernel32.FILE_FLAG_BACKUP_SEMANTICS | Kernel32.FILE_FLAG_OVERLAPPED,
           null);
       if (Kernel32.INVALID_HANDLE_VALUE.equals(handle)) {
         throw new IOException("Unable to open " + watchPath
-            + ". GetLastError: " + klib.GetLastError());
+            + ". GetLastError: " + kernel32.GetLastError());
       }
       try {
         runMonitorLoop(handle);
       } finally {
-        klib.CloseHandle(handle);
+        kernel32.CloseHandle(handle);
       }
     }
 
@@ -330,7 +341,6 @@ class WindowsFileDelegate extends NioFileDelegate {
    * @throws IOException on error
    */
     private void runMonitorLoop(HANDLE handle) throws IOException {
-      Kernel32Ex klib = Kernel32Ex.INSTANCE;
       Kernel32.OVERLAPPED ol = new Kernel32.OVERLAPPED();
 
       final FILE_NOTIFY_INFORMATION info = new FILE_NOTIFY_INFORMATION(4096);
@@ -371,17 +381,17 @@ class WindowsFileDelegate extends NioFileDelegate {
           };
 
       while (true) {
-        if (!klib.ReadDirectoryChangesW(handle, info, info.size(),
+        if (!kernel32.ReadDirectoryChangesW(handle, info, info.size(),
             true, notifyFilter, null, ol, changesCallback)) {
           throw new IOException("Unable to open " + watchPath
-              + ". GetLastError: " + klib.GetLastError());
+              + ". GetLastError: " + kernel32.GetLastError());
         }
 
         // Signal any waiting threads that the monitor is now active.
         startSignal.countDown();
 
         log.log(Level.FINER, "Waiting for notifications.");
-        int waitResult = klib.WaitForSingleObjectEx(stopEvent,
+        int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
             Kernel32.INFINITE, true);
         log.log(Level.FINER, "Got notification. waitResult: {0}", waitResult);
 
@@ -397,7 +407,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         } else {
           throw new IOException(
               "Unexpected result from WaitForSingleObjectEx: " + waitResult +
-              ". GetLastError: " + klib.GetLastError());
+              ". GetLastError: " + kernel32.GetLastError());
         }
       }
     }

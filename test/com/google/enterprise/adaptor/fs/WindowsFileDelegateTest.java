@@ -26,7 +26,6 @@ import static org.junit.Assume.*;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
@@ -43,7 +42,7 @@ import java.util.Collections;
 import java.util.Set;
 
 /** Tests for {@link WindowsFileDelegate} */
-public class WindowsFileDelegateTest {
+public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
   @BeforeClass
   public static void checkIfRunningOnWindows() {
@@ -58,30 +57,14 @@ public class WindowsFileDelegateTest {
   @Rule
   public ExpectedException thrown = ExpectedException.none();
 
-  @Rule
-  public TemporaryFolder temp = new TemporaryFolder();
-
   @Before
   public void setUp() throws Exception {
-    tempRoot = temp.getRoot().getCanonicalFile().toPath();
+    tempRoot = getTempRoot();
   }
-    
+
   @After
   public void tearDown() {
     delegate.destroy();
-  }
-
-  private Path newTempDir(String name) throws IOException {
-    return temp.newFolder(name).toPath().toRealPath();
-  }
-
-  private Path newTempFile(String name) throws IOException {
-    return temp.newFile(name).toPath().toRealPath();
-  }
-
-  private Path newTempFile(Path parent, String name) throws IOException {
-    Preconditions.checkArgument(parent.startsWith(tempRoot));
-    return Files.createFile(parent.resolve(name));
   }
 
   @Test
