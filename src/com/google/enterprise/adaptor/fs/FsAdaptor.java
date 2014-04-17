@@ -258,6 +258,18 @@ public class FsAdaptor extends AbstractAdaptor implements
           + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
+    // Verify that the adaptor has permission to read the Acl and share Acl.
+    try {
+      readShareAcls();
+      delegate.getAclViews(rootPath);
+    } catch (IOException e) {
+      throw new IOException("Unable to read ACLs for " + rootPath +
+          ". This can happen if the Windows account used to crawl " +
+          "the path does not have sufficient permissions. A Windows " +
+          "account with sufficient permissions to read content, " +
+          "attributes and ACLs is required to crawl a path.", e);
+    }
+
     rootPathDocId = delegate.newDocId(rootPath);
     delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
     context.setPollingIncrementalLister(this);

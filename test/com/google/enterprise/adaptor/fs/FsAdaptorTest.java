@@ -127,6 +127,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitDfsUncActiveStorageUnc() throws Exception {
     root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
   }
 
@@ -936,6 +937,64 @@ public class FsAdaptorTest {
     namedResources = pusher.getNamedResources();
     assertEquals(1, namedResources.size());
     assertEquals(acl, namedResources.get(0).get(shareAclDocId));
+  }
+
+  @Test
+  public void testAdaptorInitUncDenyShareAclAccess() throws Exception {
+    root = new DenyShareAclAccessMockFile(ROOT, true);
+    delegate = new MockFileDelegate(root);
+    adaptor = new FsAdaptor(delegate);
+    thrown.expect(IOException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitUncDenyDfsShareAclAccess() throws Exception {
+    root = new DenyDfsShareAclAccessMockFile(ROOT, true);
+    delegate = new MockFileDelegate(root);
+    adaptor = new FsAdaptor(delegate);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitDfsDenyShareAclAccess() throws Exception {
+    root = new DenyShareAclAccessMockFile(ROOT, true);
+    root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    delegate = new MockFileDelegate(root);
+    adaptor = new FsAdaptor(delegate);
+    thrown.expect(IOException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitDfsDenyDfsShareAclAccess() throws Exception {
+    root = new DenyDfsShareAclAccessMockFile(ROOT, true);
+    root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+    delegate = new MockFileDelegate(root);
+    adaptor = new FsAdaptor(delegate);
+    thrown.expect(IOException.class);
+    adaptor.init(context);
+  }
+
+  private static class DenyShareAclAccessMockFile extends MockFile {
+    DenyShareAclAccessMockFile(String name, boolean isDirectory) {
+      super(name, isDirectory);
+    }
+    @Override
+    AclFileAttributeView getShareAclView() throws IOException {
+      throw new IOException("Access is denied.");
+    }
+  }
+
+  private static class DenyDfsShareAclAccessMockFile extends MockFile {
+    DenyDfsShareAclAccessMockFile(String name, boolean isDirectory) {
+      super(name, isDirectory);
+    }
+    @Override
+    AclFileAttributeView getDfsShareAclView() throws IOException {
+      throw new IOException("Access is denied.");
+    }
   }
 
   /** Returns an AclBuilder for the AclFileAttributeView. */
