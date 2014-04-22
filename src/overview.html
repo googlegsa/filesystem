@@ -45,6 +45,10 @@ filesystemadaptor.src=<b>\\\\host\\share</b>
       to represent a single '\' you need to enter '\\'.
   <p> Note: DFS links can be given as 
       filesystemadaptor.src: <b>\\\\host\\dfsnamespace\\link</b>
+  <p> Note: UNICODE, as well as non-ASCII, characters can be used in
+      filesystemadaptor.src. Including these characters will require
+      the <code>adaptor-config.properties</code> file to be saved
+      using UTF-8 encoding.
   <br>
 
   <li> Create file named <code>logging.properties</code> in the same directory
