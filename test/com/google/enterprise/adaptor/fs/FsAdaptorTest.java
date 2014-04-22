@@ -43,6 +43,8 @@ import java.io.File;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
@@ -937,6 +939,20 @@ public class FsAdaptorTest {
     namedResources = pusher.getNamedResources();
     assertEquals(1, namedResources.size());
     assertEquals(acl, namedResources.get(0).get(shareAclDocId));
+  }
+
+  @Test
+  public void testInitListRootContentsAccessDenied() throws Exception {
+    delegate = new MockFileDelegate(root) {
+      @Override
+      public DirectoryStream<Path> newDirectoryStream(Path doc)
+          throws IOException {
+        throw new AccessDeniedException(doc.toString());
+      }
+    };
+    adaptor = new FsAdaptor(delegate);
+    thrown.expect(IOException.class);
+    adaptor.init(context);
   }
 
   @Test

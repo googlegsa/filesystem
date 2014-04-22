@@ -37,6 +37,7 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Path;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -234,6 +235,15 @@ public class FsAdaptor extends AbstractAdaptor implements
       throw new IOException("The path " + rootPath + " is not a valid path. "
           + "The path does not exist, or it is not a directory, or it is not "
           + "shared.");
+    }
+
+    // Verify that the adaptor has permission to read the contents of the root.
+    try {
+      delegate.newDirectoryStream(rootPath);
+    } catch (AccessDeniedException e) {
+      throw new IOException("Unable to list the contents of " + rootPath +
+          ". This can happen if the Windows account used to crawl " +
+          "the path does not have sufficient permissions.", e);
     }
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
