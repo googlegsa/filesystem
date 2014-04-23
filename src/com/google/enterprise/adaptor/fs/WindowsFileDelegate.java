@@ -151,7 +151,7 @@ class WindowsFileDelegate extends NioFileDelegate {
             ace = new WinNT.ACCESS_DENIED_ACE(share);
             break;
           default:
-            throw new IllegalArgumentException("Unknwon ACE type " +
+            throw new IllegalArgumentException("Unsupported ACE type " +
                 aceType);
         }
         ACEs[i] = ace;

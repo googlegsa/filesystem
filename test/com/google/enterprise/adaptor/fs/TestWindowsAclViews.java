@@ -73,8 +73,8 @@ public class TestWindowsAclViews {
    * This byte buffer is suitable for reading back via 
    * <code>new WinNT.SECURITY_DESCRIPTOR_RELATIVE(Memory)</code>.
    */
-  protected final byte[] buildDaclMemory(WinNT.ACCESS_ACEStructure... aces)
-      throws Exception {
+  protected static final byte[] buildDaclMemory(
+      WinNT.ACCESS_ACEStructure... aces) throws Exception {
     WinNT.ACL acl = new WinNT.ACL();
     WinNT.SECURITY_DESCRIPTOR_RELATIVE securityDescriptor =
         new WinNT.SECURITY_DESCRIPTOR_RELATIVE();

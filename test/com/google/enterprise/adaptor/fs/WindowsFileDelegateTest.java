@@ -14,18 +14,39 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import static com.google.enterprise.adaptor.fs.AclView.user;
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
+
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
+
+import static java.nio.file.attribute.AclEntryFlag.*;
+import static java.nio.file.attribute.AclEntryPermission.*;
+import static java.nio.file.attribute.AclEntryType.*;
+
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.DocIdPusher;
-
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
+import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;
+
+import com.sun.jna.Memory;
+import com.sun.jna.Pointer;
+import com.sun.jna.WString;
+import com.sun.jna.platform.win32.LMErr;
+import com.sun.jna.platform.win32.Win32Exception;
+import com.sun.jna.platform.win32.WinError;
+import com.sun.jna.platform.win32.WinNT;
+import com.sun.jna.platform.win32.WinDef.DWORD;
+import com.sun.jna.platform.win32.WinDef.ULONG;
+import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.PointerByReference;
 
 import java.io.File;
 import java.io.IOException;
@@ -65,6 +86,217 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   @After
   public void tearDown() {
     delegate.destroy();
+  }
+
+  @Test
+  public void testGetDfsShareAclView() throws Exception {
+    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
+    AclFileAttributeView expectedAcl = new AclView(
+        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+
+    AclFileAttributeView aclView = getDfsShareAclView(
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessAllowedAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessDeniedAce", null))
+        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
+        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build());
+
+    assertNotNull(aclView);
+    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  }
+
+  @Test
+  public void testGetDfsShareAclViewUnsupportedAceType() throws Exception {
+    thrown.expect(IllegalArgumentException.class);
+    AclFileAttributeView aclView = getDfsShareAclView(
+        new AceBuilder()
+        .setSid(AccountSid.group("SystemAuditAce", null))
+        .setType(WinNT.SYSTEM_AUDIT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build());
+  }
+
+  private static AclFileAttributeView getDfsShareAclView(
+      WinNT.ACCESS_ACEStructure... aces) throws Exception {
+    byte[] dacl = buildDaclMemory(aces);
+    final Memory memory = new Memory(dacl.length);
+    memory.write(0, dacl, 0, dacl.length);
+
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetSecurity(String dfsPath, int securityInfo,
+            PointerByReference bufptr, IntByReference bufsz) {
+          bufptr.setValue(memory);
+          bufsz.setValue((int)(memory.size()));
+          return WinError.ERROR_SUCCESS;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, netapi, null);
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
+
+    return delegate.getDfsShareAclView(Paths.get("\\\\host\\share"));
+  }
+
+  @Test
+  public void testGetDfsShareAclViewError() throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetSecurity(String dfsPath, int securityInfo,
+            PointerByReference bufptr, IntByReference bufsz) {
+          return WinError.ERROR_ACCESS_DENIED;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, netapi, null);
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
+
+    thrown.expect(Win32Exception.class);
+    delegate.getDfsShareAclView(Paths.get("\\\\host\\share"));
+  }
+
+  @Test
+  public void testGetDfsUncActiveStorageUncError() throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String server, String share,
+            int level, PointerByReference bufptr) {
+          return WinError.ERROR_ACCESS_DENIED;
+        }
+      };
+    assertNull(getDfsUncActiveStorageUnc(netapi));
+  }
+
+  @Test
+  public void testGetDfsUncActiveStorageUncNoStorage() throws Exception {
+    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
+    info.NumberOfStorages = new DWORD(0);
+    info.Storage = new Memory(1);	// Cannot supply length of 0.
+    info.write();
+
+    thrown.expect(IOException.class);
+    getDfsUncActiveStorageUnc(info);
+  }
+
+  @Test
+  public void testGetDfsUncActiveStorageUncSingleActiveStorage()
+      throws Exception {
+    Netapi32Ex.DFS_STORAGE_INFO storeInfo = new Netapi32Ex.DFS_STORAGE_INFO();
+    storeInfo.State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
+    storeInfo.ServerName = new WString("server");
+    storeInfo.ShareName = new WString("share");
+    storeInfo.write();
+
+    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
+    info.NumberOfStorages = new DWORD(1);
+    info.Storage = storeInfo.getPointer();
+    info.write();
+
+    assertEquals(Paths.get("\\\\server\\share"),
+                 getDfsUncActiveStorageUnc(info));
+  }
+
+  @Test
+  public void testGetDfsUncActiveStorageUncNoActiveStorage() throws Exception {
+    Netapi32Ex.DFS_STORAGE_INFO storeInfo = new Netapi32Ex.DFS_STORAGE_INFO();
+    storeInfo.State = new ULONG(0);
+    storeInfo.ServerName = new WString("server");
+    storeInfo.ShareName = new WString("share");
+    storeInfo.write();
+
+    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
+    info.NumberOfStorages = new DWORD(1);
+    info.Storage = storeInfo.getPointer();
+    info.write();
+
+    thrown.expect(IOException.class);
+    getDfsUncActiveStorageUnc(info);
+  }
+
+  @Test
+  public void testGetDfsUncActiveStorageUncSomeActiveStorage()
+      throws Exception {
+    Netapi32Ex.DFS_STORAGE_INFO[] storeInfos = (Netapi32Ex.DFS_STORAGE_INFO[])
+        new Netapi32Ex.DFS_STORAGE_INFO().toArray(3);
+    storeInfos[0].State = new ULONG(0);
+    storeInfos[0].ServerName = new WString("inactive");
+    storeInfos[0].ShareName = new WString("inactive");
+    storeInfos[0].write();
+    // The first active storage should be returned.
+    storeInfos[1].State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
+    storeInfos[1].ServerName = new WString("server");
+    storeInfos[1].ShareName = new WString("share");
+    storeInfos[1].write();
+    storeInfos[2].State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
+    storeInfos[2].ServerName = new WString("active");
+    storeInfos[2].ShareName = new WString("active");
+    storeInfos[2].write();
+
+    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
+    info.NumberOfStorages = new DWORD(3);
+    info.Storage = storeInfos[0].getPointer();
+    info.write();
+
+    assertEquals(Paths.get("\\\\server\\share"),
+                 getDfsUncActiveStorageUnc(info));
+  }
+
+  private static Path getDfsUncActiveStorageUnc(
+      final Netapi32Ex.DFS_INFO_3 info) throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String server, String share,
+            int level, PointerByReference bufptr) {
+          bufptr.setValue(info.getPointer());
+          return LMErr.NERR_Success;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    return getDfsUncActiveStorageUnc(netapi);
+  }
+
+  private static Path getDfsUncActiveStorageUnc(Netapi32Ex netapi)
+      throws Exception {
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
+    Path dfsPath = Paths.get("\\\\host\\share");
+    return delegate.getDfsUncActiveStorageUnc(dfsPath);
   }
 
   @Test

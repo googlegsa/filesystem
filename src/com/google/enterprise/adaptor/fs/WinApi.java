@@ -102,6 +102,9 @@ class WinApi {
       public Pointer Storage;
       protected DFS_STORAGE_INFO[] StorageInfos;
   
+      public DFS_INFO_3() {
+      }
+
       public DFS_INFO_3(Pointer m) {
         useMemory(m);
         read();
@@ -146,6 +149,9 @@ class WinApi {
       public WString ServerName;
       public WString ShareName;
   
+      public DFS_STORAGE_INFO() {
+      }
+
       public DFS_STORAGE_INFO(Pointer m) {
         useMemory(m);
         read();
