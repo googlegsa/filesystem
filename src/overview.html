@@ -12,6 +12,26 @@ GSA index a single UNC share.  DFS is supported.
   <li>Requires running on Microsoft Windows
 </ul>
 
+<h4>Permissions needed by the Adaptor</h4>
+  <p>The Windows user account that the adaptor is running under must have sufficient permissions to
+  list the content of folders, read the content of documents, read attributes of files and folders
+  and read ACLs for both files and folders. You can accomplish this by using an 
+    account that is a member of one of the following groups:
+
+  <ul>
+    <li>Administrator</li>
+    <li>Power User</li>
+    <li>Print Operator</li>
+    <li>Server Operator</li>
+  </ul>
+
+  <p>It is not sufficient for the user to be a member of one of the groups at the Domain level.
+    For more information, read the following Microsoft document:
+    <a href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx</a></p>
+
+  <p>For the adaptor to restore the last access date for documents after reading its contents, the adaptor
+   needs write permission. Being a member of the above groups grants this permission.
+
 <h4>Configure GSA for Adaptor</h4>
 <ol>
   <li>Add the IP address of the computer that hosts the adaptor to the <b>List
