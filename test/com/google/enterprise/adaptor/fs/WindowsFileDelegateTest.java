@@ -37,6 +37,7 @@ import org.junit.*;
 import org.junit.rules.ExpectedException;
 
 import com.sun.jna.Memory;
+import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.WString;
 import com.sun.jna.platform.win32.LMErr;
@@ -202,11 +203,9 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
   @Test
   public void testGetDfsUncActiveStorageUncNoStorage() throws Exception {
-    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
-    info.NumberOfStorages = new DWORD(0);
-    info.Storage = new Memory(1);	// Cannot supply length of 0.
-    info.write();
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3();
 
+    assertEquals(0, info.NumberOfStorages.intValue());
     thrown.expect(IOException.class);
     getDfsUncActiveStorageUnc(info);
   }
@@ -214,34 +213,20 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   @Test
   public void testGetDfsUncActiveStorageUncSingleActiveStorage()
       throws Exception {
-    Netapi32Ex.DFS_STORAGE_INFO storeInfo = new Netapi32Ex.DFS_STORAGE_INFO();
-    storeInfo.State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
-    storeInfo.ServerName = new WString("server");
-    storeInfo.ShareName = new WString("share");
-    storeInfo.write();
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
+        new Storage(Netapi32Ex.DFS_STORAGE_STATE_ONLINE, "server", "share"));
 
-    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
-    info.NumberOfStorages = new DWORD(1);
-    info.Storage = storeInfo.getPointer();
-    info.write();
-
+    assertEquals(1, info.NumberOfStorages.intValue());
     assertEquals(Paths.get("\\\\server\\share"),
                  getDfsUncActiveStorageUnc(info));
   }
 
   @Test
   public void testGetDfsUncActiveStorageUncNoActiveStorage() throws Exception {
-    Netapi32Ex.DFS_STORAGE_INFO storeInfo = new Netapi32Ex.DFS_STORAGE_INFO();
-    storeInfo.State = new ULONG(0);
-    storeInfo.ServerName = new WString("server");
-    storeInfo.ShareName = new WString("share");
-    storeInfo.write();
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
+        new Storage(0, "server", "share"));
 
-    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
-    info.NumberOfStorages = new DWORD(1);
-    info.Storage = storeInfo.getPointer();
-    info.write();
-
+    assertEquals(1, info.NumberOfStorages.intValue());
     thrown.expect(IOException.class);
     getDfsUncActiveStorageUnc(info);
   }
@@ -249,27 +234,12 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   @Test
   public void testGetDfsUncActiveStorageUncSomeActiveStorage()
       throws Exception {
-    Netapi32Ex.DFS_STORAGE_INFO[] storeInfos = (Netapi32Ex.DFS_STORAGE_INFO[])
-        new Netapi32Ex.DFS_STORAGE_INFO().toArray(3);
-    storeInfos[0].State = new ULONG(0);
-    storeInfos[0].ServerName = new WString("inactive");
-    storeInfos[0].ShareName = new WString("inactive");
-    storeInfos[0].write();
-    // The first active storage should be returned.
-    storeInfos[1].State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
-    storeInfos[1].ServerName = new WString("server");
-    storeInfos[1].ShareName = new WString("share");
-    storeInfos[1].write();
-    storeInfos[2].State = new ULONG(Netapi32Ex.DFS_STORAGE_STATE_ONLINE);
-    storeInfos[2].ServerName = new WString("active");
-    storeInfos[2].ShareName = new WString("active");
-    storeInfos[2].write();
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
+        new Storage(0, "inactive", "inactive"),
+        new Storage(Netapi32Ex.DFS_STORAGE_STATE_ONLINE, "server", "share"),
+        new Storage(Netapi32Ex.DFS_STORAGE_STATE_ONLINE, "active", "active"));
 
-    final Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3();
-    info.NumberOfStorages = new DWORD(3);
-    info.Storage = storeInfos[0].getPointer();
-    info.write();
-
+    assertEquals(3, info.NumberOfStorages.intValue());
     assertEquals(Paths.get("\\\\server\\share"),
                  getDfsUncActiveStorageUnc(info));
   }
@@ -520,5 +490,49 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private DocIdPusher.Record newRecord(Path path) throws Exception {
     return new DocIdPusher.Record.Builder(delegate.newDocId(path))
         .setCrawlImmediately(true).build();
+  }
+
+  private static Netapi32Ex.DFS_INFO_3 newDfsInfo3(Storage... storages) {
+    final int sizeOfInfo = new Netapi32Ex.DFS_STORAGE_INFO().size();
+    final int numberOfStorages = storages.length;
+
+    // Cannot supply length of 0 so always allocate 1 more byte than needed.
+    Memory storagesMem = new Memory(1 + numberOfStorages * sizeOfInfo);
+    int offset = 0;
+    for (Storage storage : storages) {
+      storagesMem.setLong(offset, storage.state);
+      offset += Native.LONG_SIZE;
+      writeWString(storagesMem, offset, storage.serverName);
+      offset += Pointer.SIZE;
+      writeWString(storagesMem, offset, storage.shareName);
+      offset += Pointer.SIZE;
+    }
+
+    Memory ptr = new Memory(40);
+    writeWString(ptr, 0, new WString(""));
+    writeWString(ptr, Pointer.SIZE, new WString(""));
+    ptr.setLong(2 * Pointer.SIZE, 0);
+    ptr.setLong(2 * Pointer.SIZE + Native.LONG_SIZE, numberOfStorages);
+    ptr.setPointer(2 * Pointer.SIZE + 2 * Native.LONG_SIZE, storagesMem);
+    return new Netapi32Ex.DFS_INFO_3(ptr);
+  }
+
+  private static void writeWString(Memory m, int offset, WString str) {
+    int len = (str.length() + 1) * Native.WCHAR_SIZE;
+    Memory ptr = new Memory(len);
+    ptr.setString(0, str);
+    m.setPointer(offset, ptr);
+  }
+
+  static class Storage {
+    protected final int state;
+    protected final WString serverName;
+    protected final WString shareName;
+
+    public Storage(int state, String serverName, String shareName) {
+      this.state = state;
+      this.serverName = new WString(serverName);
+      this.shareName = new WString(shareName);
+    }
   }
 }

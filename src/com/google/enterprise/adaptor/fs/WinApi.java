@@ -116,9 +116,11 @@ class WinApi {
   
         // TODO(mifren): There should be a better way of getting JNA to
         // read the array of DFS_STORAGE_INFO.
+        final int sizeOfInfo = new DFS_STORAGE_INFO().size();
         StorageInfos = new DFS_STORAGE_INFO[NumberOfStorages.intValue()];
         for (int i = 0; i < StorageInfos.length; i++) {
-          StorageInfos[i] = new DFS_STORAGE_INFO(Storage.share(i * 24));
+          StorageInfos[i] =
+              new DFS_STORAGE_INFO(Storage.share(i * sizeOfInfo));
         }
       }
   
