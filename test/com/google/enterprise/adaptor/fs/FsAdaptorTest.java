@@ -52,6 +52,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.FileTime;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -994,6 +996,225 @@ public class FsAdaptorTest {
     adaptor = new FsAdaptor(delegate);
     thrown.expect(IOException.class);
     adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitLastAccessDays() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "365");
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastAccessDaysNonNumeric()
+      throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "ten");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastAccessDaysNegative() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "-365");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitLastAccessDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2000-01-31");
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastAccessDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "01/31/2000");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitFutureLastAccessDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2999-12-31");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastAccessDaysAndDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "365");
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2000-01-31");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitLastModifiedDays() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "365");
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastModifiedDaysNonNumeric()
+      throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "ten");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastModifiedDaysNegative()
+      throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "-365");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitLastModifiedDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "2000-01-31");
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastModifiedDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "01/31/2000");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitFutureLastModifiedDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2999-12-31");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidLastModifiedDaysAndDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "365");
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "2000-01-31");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAbsoluteLastAccessTimeFilterTooEarly() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2000-01-31");
+    testLastAccessTimeFilter("2000-01-30", true);
+  }
+
+  @Test
+  public void testAbsoluteLastAccessTimeFilterStartDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2000-01-31");
+    testLastAccessTimeFilter("2000-01-31", false);
+  }
+
+  @Test
+  public void testAbsoluteLastAccessTimeFilterMuchLater() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDate", "2000-01-31");
+    testLastAccessTimeFilter("2014-01-31", false);
+  }
+
+  @Test
+  public void testRelativeLastAccessTimeFilterTooEarly() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "1");
+    long yesterday = System.currentTimeMillis() - (25 * 60 * 60 * 1000L);
+    testLastAccessTimeFilter(yesterday, true);
+  }
+
+  @Test
+  public void testRelativeLastAccessTimeFilterStartTime() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "1");
+    long squeekedBy = System.currentTimeMillis() - (24 * 59 * 60 * 1000L);
+    testLastAccessTimeFilter(squeekedBy, false);
+  }
+
+  @Test
+  public void testRelativeLastAccessTimeFilterMuchLater() throws Exception {
+    config.overrideKey("filesystemadaptor.lastAccessedDays", "1");
+    long now = System.currentTimeMillis();
+    testLastAccessTimeFilter(now, false);
+  }
+
+  private void testLastAccessTimeFilter(String date, boolean excluded)
+      throws Exception {
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    dateFormat.setCalendar(Calendar.getInstance());
+    dateFormat.setLenient(true);
+    testLastAccessTimeFilter(dateFormat.parse(date).getTime(), excluded);
+  }
+
+  private void testLastAccessTimeFilter(long fileTime, boolean excluded)
+      throws Exception {
+    MockFile file = new MockFile("test.html");
+    file.setLastAccessTime(FileTime.fromMillis(fileTime));
+    testFileTimeFilter(file, excluded);
+  }
+
+  private void testFileTimeFilter(MockFile file, boolean excluded)
+      throws Exception {
+    file.setFileContents("<html><title>Hello World</title></html>");
+    file.setContentType("text/html");
+    root.addChildren(file);
+    adaptor.init(context);
+    MockRequest request = new MockRequest(getDocId(file.getPath()));
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(request, response);
+    assertEquals(excluded, response.notFound);
+  }
+
+  @Test
+  public void testAbsoluteLastModifiedTimeFilterTooEarly() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "2000-01-31");
+    testLastModifiedTimeFilter("2000-01-30", true);
+  }
+
+  @Test
+  public void testAbsoluteLastModifiedTimeFilterStartDate() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "2000-01-31");
+    testLastModifiedTimeFilter("2000-01-31", false);
+  }
+
+  @Test
+  public void testAbsoluteLastModifiedTimeFilterMuchLater() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDate", "2000-01-31");
+    testLastModifiedTimeFilter("2014-01-31", false);
+  }
+
+  @Test
+  public void testRelativeLastModifiedTimeFilterTooEarly() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "1");
+    long yesterday = System.currentTimeMillis() - (25 * 60 * 60 * 1000L);
+    testLastModifiedTimeFilter(yesterday, true);
+  }
+
+  @Test
+  public void testRelativeLastModifiedTimeFilterStartTime() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "1");
+    long squeekedBy = System.currentTimeMillis() - (24 * 59 * 60 * 1000L);
+    testLastModifiedTimeFilter(squeekedBy, false);
+  }
+
+  @Test
+  public void testRelativeLastModifiedTimeFilterMuchLater() throws Exception {
+    config.overrideKey("filesystemadaptor.lastModifiedDays", "1");
+    long now = System.currentTimeMillis();
+    testLastModifiedTimeFilter(now, false);
+  }
+
+  private void testLastModifiedTimeFilter(String date, boolean excluded)
+      throws Exception {
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    dateFormat.setCalendar(Calendar.getInstance());
+    dateFormat.setLenient(true);
+    testLastModifiedTimeFilter(dateFormat.parse(date).getTime(), excluded);
+  }
+
+  private void testLastModifiedTimeFilter(long fileTime, boolean excluded)
+      throws Exception {
+    MockFile file = new MockFile("test.html");
+    file.setLastModifiedTime(FileTime.fromMillis(fileTime));
+    testFileTimeFilter(file, excluded);
   }
 
   private static class DenyShareAclAccessMockFile extends MockFile {

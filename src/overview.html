@@ -155,7 +155,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   folders is platform dependent. On Windows file sytems a file or
   folder is considered hidden if the DOS <code>hidden</code>
   attribute is set.
-  <br>
+  <p/>
   By default, hidden files are not indexed and the contents of
   hidden folders are not indexed. Setting
   <code>filesystemadaptor.crawlHiddenFiles</code> to <code>true</code>
@@ -165,7 +165,84 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   false
   </pre>
   </dd>
+  <dt>
+  <code>filesystemadaptor.lastAccessedDate</code>
+  </dt>
+  <dd>
+  This configuration property can be used to disable crawling of files
+  whose time of last access is earlier than a specific date.  The cut-off
+  date is specified in <a href="http://www.w3.org/TR/NOTE-datetime">
+  ISO8601</a> date format, <code>YYYY-MM-DD</code>.
+  <p/>
+  Setting <code>filesystemadaptor.lastAccessedDate</code> to
+  <code>2010-01-01</code> would only crawl content that has been accessed
+  since the beginning of 2010.
+  <p/>
+  By default, filtering content based upon last accessed time is disabled.
   <br>
+  Only one of <code>filesystemadaptor.lastAccessedDate</code> or
+  <code>filesystemadaptor.lastAccessedDays</code> may be specified.
+  </dd>
+  <dt>
+  <code>filesystemadaptor.lastAccessedDays</code>
+  </dt>
+  <dd>
+  This configuration property can be used to disable crawling of files
+  that have not been accessed within the specified number of days. Unlike the
+  absolute cut-off date used by <code>filesystemadaptor.lastAccessedDate</code>,
+  this property can be used to expire previously indexed content if it
+  has not been accessed in a while.
+  <p/>
+  The expiration window is specified as a positive integer number of days.
+  <br>
+  Setting <code>filesystemadaptor.lastAccessedDays</code> to
+  <code>365</code> would only crawl content that has been accessed
+  in the last year.
+  <p/>
+  By default, filtering content based upon last accessed time is disabled.
+  <br>
+  Only one of <code>filesystemadaptor.lastAccessedDate</code> or
+  <code>filesystemadaptor.lastAccessedDays</code> may be specified.
+  </dd>
+  <dt>
+  <code>filesystemadaptor.lastModifiedDate</code>
+  </dt>
+  <dd>
+  This configuration property can be used to disable crawling of files
+  whose time of last access is earlier than a specific date.  The cut-off
+  date is specified in <a href="http://www.w3.org/TR/NOTE-datetime">
+  ISO8601</a> date format, <code>YYYY-MM-DD</code>.
+  <p/>
+  Setting <code>filesystemadaptor.lastModifiedDate</code> to
+  <code>2010-01-01</code> would only crawl content that has been modified
+  since the beginning of 2010.
+  <p/>
+  By default, filtering content based upon last modified time is disabled.
+  <br>
+  Only one of <code>filesystemadaptor.lastModifiedDate</code> or
+  <code>filesystemadaptor.lastModifiedDays</code> may be specified.
+  </dd>
+  <dt>
+  <code>filesystemadaptor.lastModifiedDays</code>
+  </dt>
+  <dd>
+  This configuration property can be used to disable crawling of files
+  that have not been modified within the specified number of days. Unlike the
+  absolute cut-off date used by <code>filesystemadaptor.lastModifiedDate</code>,
+  this property can be used to expire previously indexed content if it
+  has not been modified in a while.
+  <p/>
+  The expiration window is specified as a positive integer number of days.
+  <br>
+  Setting <code>filesystemadaptor.lastModifiedDays</code> to
+  <code>365</code> would only crawl content that has been modified
+  in the last year.
+  <p/>
+  By default, filtering content based upon last modified time is disabled.
+  <br>
+  Only one of <code>filesystemadaptor.lastModifiedDate</code> or
+  <code>filesystemadaptor.lastModifiedDays</code> may be specified.
+  </dd>
   <dt>
   <code>adaptor.incrementalPollPeriodSecs</code>
   </dt>

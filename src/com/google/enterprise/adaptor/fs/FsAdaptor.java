@@ -33,7 +33,6 @@ import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
 import com.google.enterprise.adaptor.StartupException;
-import com.google.enterprise.adaptor.UnsupportedPlatformException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -47,6 +46,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -54,7 +54,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.text.ParseException;
 import java.util.Set;
+import java.text.SimpleDateFormat;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -91,6 +93,22 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** The config parameter name for turning on/off hidden file indexing. */
   private static final String CONFIG_CRAWL_HIDDEN_FILES =
       "filesystemadaptor.crawlHiddenFiles";    
+
+  /** Relative config parameter name for earliest last accessed time allowed. */
+  private static final String CONFIG_LAST_ACCESSED_DAYS =
+      "filesystemadaptor.lastAccessedDays";
+ 
+  /** Absolute config parameter name for earliest last accessed time allowed. */
+  private static final String CONFIG_LAST_ACCESSED_DATE =
+      "filesystemadaptor.lastAccessedDate";
+
+  /** Relative config parameter name for earliest last modified time allowed. */
+  private static final String CONFIG_LAST_MODIFIED_DAYS =
+      "filesystemadaptor.lastModifiedDays";
+
+  /** Absolute config parameter name for earliest last modified time allowed. */
+  private static final String CONFIG_LAST_MODIFIED_DATE =
+      "filesystemadaptor.lastModifiedDate";
 
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
   private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
@@ -152,6 +170,10 @@ public class FsAdaptor extends AbstractAdaptor implements
   private FileDelegate delegate;
   private ShareAcls lastPushedShareAcls = null;
 
+  /** Filter that may exclude files whose last modified time is too old. */
+  private FileTimeFilter lastModifiedTimeFilter;
+  private FileTimeFilter lastAccessTimeFilter;
+
   public FsAdaptor() {
     // At the moment, we only support Windows.
     if (System.getProperty("os.name").startsWith("Windows")) {
@@ -191,6 +213,10 @@ public class FsAdaptor extends AbstractAdaptor implements
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
+    config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
+    config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
+    config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
+    config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
   }
 
@@ -272,6 +298,12 @@ public class FsAdaptor extends AbstractAdaptor implements
           + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
+    // Add filters that may exclude older content.
+    lastAccessTimeFilter = getFileTimeFilter(context.getConfig(),
+        CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
+    lastModifiedTimeFilter = getFileTimeFilter(context.getConfig(),
+        CONFIG_LAST_MODIFIED_DAYS, CONFIG_LAST_MODIFIED_DATE);
+
     // Verify that the adaptor has permission to read the Acl and share Acl.
     try {
       readShareAcls();
@@ -292,6 +324,44 @@ public class FsAdaptor extends AbstractAdaptor implements
   @Override
   public void destroy() {
     delegate.destroy();
+  }
+
+  private FileTimeFilter getFileTimeFilter(Config config, String configDaysKey,
+       String configDateKey) throws StartupException {
+    String configDays = config.getValue(configDaysKey);
+    String configDate = config.getValue(configDateKey);
+    if (!configDays.isEmpty() && !configDate.isEmpty()) {
+      throw new InvalidConfigurationException("Please specify only one of "
+          + configDaysKey + " or " + configDateKey + ".");
+    } else if (!configDays.isEmpty()) {
+      log.log(Level.CONFIG, configDaysKey + ": " + configDays);
+      try {
+        return new ExpiringFileTimeFilter(Integer.parseInt(configDays));
+      } catch (NumberFormatException e) {
+        throw new InvalidConfigurationException(configDaysKey
+            + " must be specified as a positive integer number of days.", e);
+      } catch (IllegalArgumentException e) {
+        throw new InvalidConfigurationException(configDaysKey
+            + " must be specified as a positive integer number of days.", e);
+      }
+    } else if (!configDate.isEmpty()) {
+      log.log(Level.CONFIG, configDateKey + ": " + configDate);
+      SimpleDateFormat ISO8601DateFormat = new SimpleDateFormat("yyyy-MM-dd");
+      ISO8601DateFormat.setCalendar(Calendar.getInstance());
+      ISO8601DateFormat.setLenient(true);
+      try {
+        return new AbsoluteFileTimeFilter(FileTime.fromMillis(
+            ISO8601DateFormat.parse(configDate).getTime()));
+      } catch (ParseException e) {
+        throw new InvalidConfigurationException(configDateKey
+            + " must be specified in the format \"YYYY-MM-DD\".", e);
+      } catch (IllegalArgumentException e) {
+        throw new InvalidConfigurationException(configDateKey
+            + " must be a date in the past.", e);
+      }
+    } else {
+      return new AlwaysAllowFileTimeFilter();
+    }
   }
 
   private ShareAcls readShareAcls() throws IOException {
@@ -407,6 +477,22 @@ public class FsAdaptor extends AbstractAdaptor implements
     // Populate the document metadata.
     BasicFileAttributes attrs = delegate.readBasicAttributes(doc);
     final FileTime lastAccessTime = attrs.lastAccessTime();
+
+    if (!docIsDirectory) {
+      if (lastAccessTimeFilter.excluded(lastAccessTime)) {
+        log.log(Level.WARNING, "Skipping {0} because it was last accessed {1}.",
+            new Object[] {doc, lastAccessTime.toString().substring(0, 10)});
+        resp.respondNotFound();
+        return;
+      }
+      if (lastModifiedTimeFilter.excluded(attrs.lastModifiedTime())) {
+        log.log(Level.WARNING, "Skipping {0} because it was last modified {1}.",
+            new Object[] {doc, 
+                attrs.lastModifiedTime().toString().substring(0, 10)});
+        resp.respondNotFound();
+        return;
+      }
+    }
 
     resp.setDisplayUrl(doc.toUri());
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
@@ -587,6 +673,52 @@ public class FsAdaptor extends AbstractAdaptor implements
           "the DFS share Acl may not be null");
       this.shareAcl = shareAcl;
       this.dfsShareAcl = dfsShareAcl;
+    }
+  }
+
+  private static interface FileTimeFilter {
+    public boolean excluded(FileTime fileTime);
+  }
+
+  private static class AlwaysAllowFileTimeFilter implements FileTimeFilter {
+    @Override
+    public boolean excluded(FileTime fileTime) {
+      return false;
+    }
+  }
+
+  private static class AbsoluteFileTimeFilter implements FileTimeFilter {
+    private final FileTime oldestAllowed;
+
+    public AbsoluteFileTimeFilter(FileTime oldestAllowed) {
+      Preconditions.checkArgument(oldestAllowed.compareTo(
+          FileTime.fromMillis(System.currentTimeMillis())) < 0,
+          oldestAllowed.toString().substring(0, 10)
+          + " is in the future.");
+      this.oldestAllowed = oldestAllowed;
+    }
+
+    @Override
+    public boolean excluded(FileTime fileTime) {
+      return fileTime.compareTo(oldestAllowed) < 0;
+    }
+  }
+
+  private static class ExpiringFileTimeFilter implements FileTimeFilter {
+    private static final long MILLIS_PER_DAY = 24 * 60 * 60 * 1000L;
+    private final long relativeMillis;
+
+    public ExpiringFileTimeFilter(int daysOld) {
+      Preconditions.checkArgument(daysOld > 0, "The number of days old for "
+          + "expired content must be greater than zero.");
+      this.relativeMillis = daysOld * MILLIS_PER_DAY;
+    }
+
+    @Override
+    public boolean excluded(FileTime fileTime) {
+      FileTime oldestAllowed =
+          FileTime.fromMillis(System.currentTimeMillis() - relativeMillis);
+      return fileTime.compareTo(oldestAllowed) < 0;
     }
   }
 
