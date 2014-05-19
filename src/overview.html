@@ -15,24 +15,37 @@ GSA index a single UNC share.  DFS is supported.
 </ul>
 
 <h4>Permissions needed by the Adaptor</h4>
-  <p>The Windows user account that the adaptor is running under must have sufficient permissions to
-  list the content of folders, read the content of documents, read attributes of files and folders
-  and read ACLs for both files and folders. You can accomplish this by using an 
-    account that is a member of one of the following groups:
+  <p>The Windows user account that the adaptor is running under must
+  have the following permissions: 
 
+  <ul>
+    <li>list the content of folders,</li> 
+    <li>read the content of documents,</li> 
+    <li>read attributes of files and folders,</li>
+  </ul>
+
+<h5>Special permissions needed to read the ACLs</h5>
+  Additionaly, the GSA must be able to:
+  <ul>
+    <li>read ACLs for both files and folders,
+    <li>reset last access dates to the original value prior to the GSA access.</li>
+  </ul>
+
+  To get this set of permission, the account must be member of one of
+  the following groups:
   <ul>
     <li>Administrator</li>
     <li>Power User</li>
     <li>Print Operator</li>
     <li>Server Operator</li>
   </ul>
+  <p>Please note that it is not sufficient for the user to be a member
+  of one of these groups at the Domain level: the user must be a member
+  of one of these group at the local level.</p>
 
-  <p>It is not sufficient for the user to be a member of one of the groups at the Domain level.
-    For more information, read the following Microsoft document:
-    <a href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx</a></p>
-
-  <p>For the adaptor to restore the last access date for documents after reading its contents, the adaptor
-   needs write permission. Being a member of the above groups grants this permission.
+  <p>More information in the Microsoft documentation, on the 
+  <a href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">
+  NetShareGetinfo function</a>.</p>
 
 <h4>Configure GSA for Adaptor</h4>
 <ol>
