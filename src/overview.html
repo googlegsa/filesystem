@@ -28,7 +28,11 @@ GSA index a single UNC share.  DFS is supported.
   Additionaly, the GSA must be able to:
   <ul>
     <li>read ACLs for both files and folders,</li>
-    <li>reset last access dates to the original value prior to the GSA access.</li>
+
+    <li>reset last access dates to the original value prior to the GSA
+    access (by design, the traversals of the fileshare by the adaptor
+    are not discernible via the last access date).</li>
+
   </ul>
 
   To get this set of permission, the account must be member of one of
