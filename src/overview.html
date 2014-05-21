@@ -15,37 +15,38 @@ GSA index a single UNC share.  DFS is supported.
 </ul>
 
 <h4>Permissions needed by the Adaptor</h4>
-  <p>The Windows user account that the adaptor is running under must
+  <p>The Windows user account that the adaptor is running under should
   have the following permissions: 
 
   <ul>
-    <li>list the content of folders,</li> 
-    <li>read the content of documents,</li> 
-    <li>read attributes of files and foldersr.</li>
+    <li>List the content of folders</li> 
+    <li>Read the content of documents</li> 
+    <li>Read attributes of files and folders</li>
   </ul>
 
 <h5>Special permissions needed to read the ACLs</h5>
-  Additionaly, the GSA must be able to:
+  Additionally, the Adaptor should:
   <ul>
     <li>read ACLs for both files and folders,</li>
 
-    <li>reset last access dates to the original value prior to the GSA
-    access (by design, the traversals of the fileshare by the adaptor
-    are not discernible via the last access date).</li>
+    <li>reset last access dates to the original value prior to the
+    Adaptor access (by design, the traversals of the fileshare by the
+    Adaptor are not discernible via the last access date).</li>
 
   </ul>
 
-  To get this set of permission, the account must be member of one of
-  the following groups:
+  For the Adaptor service to be granted the permissions, the account
+  must be member of one of the following groups:
   <ul>
-    <li>Administrator</li>
-    <li>Power User</li>
-    <li>Print Operator</li>
-    <li>Server Operator</li>
+    <li>Administrators</li>
+    <li>Power Users</li>
+    <li>Print Operators</li>
+    <li>Server Operators</li>
   </ul>
-  <p>Please note that it is not sufficient for the user to be a member
-  of one of these groups at the Domain level: the user must be a member
-  of one of these group at the local level.</p>
+
+  <p>Note: it is not sufficient for the user to be member of one of
+  these groups at the Domain level. The user must be member of one of
+  these group at the local level.</p>
 
   <p>More information in the Microsoft documentation, on the 
   <a href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">
