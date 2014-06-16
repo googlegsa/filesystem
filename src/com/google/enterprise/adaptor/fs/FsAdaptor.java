@@ -206,7 +206,7 @@ public class FsAdaptor extends AbstractAdaptor implements
 
   @Override
   public void initConfig(Config config) {
-    config.addKey(CONFIG_SRC, "");
+    config.addKey(CONFIG_SRC, null);
     config.addKey(CONFIG_SUPPORTED_ACCOUNTS,
         "BUILTIN\\Administrators,Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
