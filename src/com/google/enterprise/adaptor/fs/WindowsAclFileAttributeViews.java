@@ -288,10 +288,9 @@ class WindowsAclFileAttributeViews {
 
     Netapi32Ex.SHARE_INFO_502 info =
         new Netapi32Ex.SHARE_INFO_502(buf.getValue());
-    netapi32.NetApiBufferFree(buf.getValue());
-
     WinNT.SECURITY_DESCRIPTOR_RELATIVE sdr =
         new WinNT.SECURITY_DESCRIPTOR_RELATIVE(info.shi502_security_descriptor);
+    netapi32.NetApiBufferFree(buf.getValue());
     WinNT.ACL dacl = sdr.getDiscretionaryACL();
 
     ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
