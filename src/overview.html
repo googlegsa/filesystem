@@ -23,9 +23,7 @@ GSA index a single UNC share.  DFS is supported.
     <li>Read the content of documents</li> 
     <li>Read attributes of files and folders</li>
     <li>Read permissions (ACLs) for both files and folders</li>
-
-    <li>Reset last access dates to the original value prior to the
-    Adaptor access. See below: <em>Advanced Topics > Not changing 'last
+    <li>Write basic attributes permissions. See below: <em>Advanced Topics > Not changing 'last
     access' of the documents on the share</em></li>
   </ul>
 
@@ -40,7 +38,7 @@ GSA index a single UNC share.  DFS is supported.
 
   <p>Note: it is not sufficient for the user to be member of one of
   these groups at the domain level. The user must be a member of one of
-  these groups on the local machine that the Adaptor is running on. More
+  these groups on the local machine that exports the Windows Share. More
   information in the Microsoft documentation, on the <a
   href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">
   NetShareGetinfo function</a>.</p>
