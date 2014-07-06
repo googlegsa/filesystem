@@ -490,7 +490,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     }
 
     final boolean docIsDirectory = attrs.isDirectory();
-    final FileTime lastAccessTime = attrs.lastAccessTime();
+    final FileTime lastAccessTime = delegate.getLastAccessTime(doc);
 
     if (!docIsDirectory) {
       if (lastAccessTimeFilter.excluded(lastAccessTime)) {
@@ -614,13 +614,18 @@ public class FsAdaptor extends AbstractAdaptor implements
         try {
           input.close();
         } finally {
-          try {
-            delegate.setLastAccessTime(doc, lastAccessTime);
-          } catch (IOException e) {
-            // This failure can be expected. We can have full permissions
-            // to read but not write/update permissions.
-            log.log(Level.CONFIG,
-                "Unable to restore last access time for {0}.", doc);
+          // Do a follow up check to see if the last access time has changed.
+          // If the last access time has changed, attempt to reset it.
+          if (!lastAccessTime.equals(delegate.getLastAccessTime(doc))) {
+            log.log(Level.FINE, "Restoring last access time for {0}.", doc);
+            try {
+              delegate.setLastAccessTime(doc, lastAccessTime);
+            } catch (IOException e) {
+              // This failure can be expected. We can have full permissions
+              // to read but not write/update permissions.
+              log.log(Level.FINE,
+                  "Unable to restore last access time for {0}.", doc);
+            }
           }
         }
       }
