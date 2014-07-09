@@ -105,6 +105,11 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
+  public FileTime getLastAccessTime(Path doc) throws IOException {
+    return readBasicAttributes(doc).lastAccessTime();
+  }
+
+  @Override
   public void setLastAccessTime(Path doc, FileTime time) throws IOException {
     getFile(doc).setLastAccessTime(time);
   }

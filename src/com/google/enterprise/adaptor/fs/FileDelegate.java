@@ -61,6 +61,13 @@ interface FileDelegate {
   BasicFileAttributes readBasicAttributes(Path doc) throws IOException;
 
   /**
+   * Gets the lastAccess time for the file or directory.
+   *
+   * @param doc the file/folder to set the last accessed time on
+   */
+  FileTime getLastAccessTime(Path doc) throws IOException;
+
+  /**
    * Sets the lastAccess time for the file or directory.
    *
    * @param doc the file/folder to set the last accessed time on

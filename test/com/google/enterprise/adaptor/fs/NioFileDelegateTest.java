@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
@@ -41,6 +42,9 @@ import java.util.concurrent.BlockingQueue;
 /** Tests for {@link NioFileDelegate} */
 public class NioFileDelegateTest {
   private FileDelegate delegate = new TestNioFileDelegate();
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
 
   @Rule
   public TemporaryFolder temp = new TemporaryFolder();
@@ -128,6 +132,13 @@ public class NioFileDelegateTest {
     assertFalse(attrs.isSymbolicLink());
     assertFalse(attrs.isOther());
     assertEquals(content.length, attrs.size());
+  }
+
+  @Test
+  public void testReadBasicAttributesFileNotFound() throws Exception {
+    Path file = Paths.get(temp.getRoot().toString(), "notFound");
+    thrown.expect(NoSuchFileException.class);
+    BasicFileAttributes attrs = delegate.readBasicAttributes(file);
   }
 
   @Test

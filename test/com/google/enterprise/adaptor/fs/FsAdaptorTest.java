@@ -202,13 +202,13 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testIsSupportedPath() throws Exception {
+  public void testIsFileOrFolder() throws Exception {
     root.addChildren(new MockFile("foo"), new MockFile("bar", true),
                      new MockFile("link").setIsRegularFile(false));
-    assertTrue(adaptor.isSupportedPath(rootPath));
-    assertTrue(adaptor.isSupportedPath(getPath("foo")));
-    assertTrue(adaptor.isSupportedPath(getPath("bar")));
-    assertFalse(adaptor.isSupportedPath(getPath("link")));
+    assertTrue(adaptor.isFileOrFolder(rootPath));
+    assertTrue(adaptor.isFileOrFolder(getPath("foo")));
+    assertTrue(adaptor.isFileOrFolder(getPath("bar")));
+    assertFalse(adaptor.isFileOrFolder(getPath("link")));
   }
 
   @Test
@@ -321,13 +321,6 @@ public class FsAdaptorTest {
     assertTrue(response.notFound);
   }
 
-  /*
-   * This test was invalidated when the check for isSupportedPath()
-   * was moved above the check for bad DocIds in the beginning of
-   * FsAdaptor.getDocumentContent().  This test still passes, but
-   * the notFound response is coming from the earlier check for
-   * isSupportedPath(), not from the bad DocId.
-   */
   @Test
   public void testGetDocContentBadDocId() throws Exception {
     root.addChildren(new MockFile("badfile"));
@@ -335,6 +328,15 @@ public class FsAdaptorTest {
     MockResponse response = new MockResponse();
     // The requested DocId is missing the root component of the path.
     adaptor.getDocContent(new MockRequest(new DocId("badfile")), response);
+    assertTrue(response.notFound);
+  }
+
+  @Test
+  public void testGetDocContentFileNotFound() throws Exception {
+    adaptor.init(context);
+    MockResponse response = new MockResponse();
+    // The requested DocId is missing the root component of the path.
+    adaptor.getDocContent(new MockRequest(getDocId("non-existent")), response);
     assertTrue(response.notFound);
   }
 
