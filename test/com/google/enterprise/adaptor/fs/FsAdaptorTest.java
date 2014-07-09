@@ -313,6 +313,14 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testGetDocContentInvalidPath() throws Exception {
+    adaptor.init(context);
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(new DocId("")), response);
+    assertTrue(response.notFound);
+  }
+
+  @Test
   public void testGetDocContentUnsupportedPath() throws Exception {
     root.addChildren(new MockFile("unsupported").setIsRegularFile(false));
     adaptor.init(context);
