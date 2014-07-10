@@ -41,6 +41,7 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -271,7 +272,7 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     // Verify that the adaptor has permission to read the contents of the root.
     try {
-      delegate.newDirectoryStream(rootPath);
+      delegate.newDirectoryStream(rootPath).close();
     } catch (AccessDeniedException e) {
       throw new IOException("Unable to list the contents of " + rootPath +
           ". This can happen if the Windows account used to crawl " +
@@ -610,10 +611,15 @@ public class FsAdaptor extends AbstractAdaptor implements
     if (docIsDirectory) {
       HtmlResponseWriter writer = createHtmlResponseWriter(resp);
       writer.start(id, getFileName(doc));
-      for (Path file : delegate.newDirectoryStream(doc)) {
-        if (isFileOrFolder(file)) {
-          writer.addLink(delegate.newDocId(file), getFileName(file));
+      DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+      try {
+        for (Path file : files) {
+          if (isFileOrFolder(file)) {
+            writer.addLink(delegate.newDocId(file), getFileName(file));
+          }
         }
+      } finally {
+        files.close();
       }
       writer.finish();
     } else {

@@ -92,19 +92,21 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public FileTime getLastAccessTime(Path doc) throws IOException {
+    WinBase.FILETIME.ByReference accessTime =
+        new WinBase.FILETIME.ByReference();
     HANDLE handle = kernel32.CreateFile(doc.toString(), WinNT.GENERIC_READ,
         WinNT.FILE_SHARE_READ | WinNT.FILE_SHARE_WRITE,
         new WinBase.SECURITY_ATTRIBUTES(), WinNT.OPEN_EXISTING,
         WinNT.FILE_ATTRIBUTE_NORMAL, null);
-      if (Kernel32.INVALID_HANDLE_VALUE.equals(handle)) {
-        throw new IOException("Unable to open " + doc
-            + ". GetLastError: " + kernel32.GetLastError());
-      }
-
-    WinBase.FILETIME.ByReference accessTime =
-        new WinBase.FILETIME.ByReference();
-    kernel32.GetFileTime(handle, null, accessTime, null);
-    kernel32.CloseHandle(handle);
+    if (Kernel32.INVALID_HANDLE_VALUE.equals(handle)) {
+      throw new IOException("Unable to open " + doc
+           + ". GetLastError: " + kernel32.GetLastError());
+    }
+    try {  
+      kernel32.GetFileTime(handle, null, accessTime, null);
+    } finally {
+      kernel32.CloseHandle(handle);
+    }
     return FileTime.fromMillis(accessTime.toDate().getTime());
   }
 
