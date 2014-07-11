@@ -260,7 +260,14 @@ class WindowsFileDelegate extends NioFileDelegate {
       // does NOT use expressions so regex escaping is not needed.
       id = id.replaceFirst("//", "\\\\\\\\");
     }
-    return new DocId(id);
+    // Windows has a maximum pathname length of 260 characters. This limit
+    // can be worked around with some effort.  For details see:
+    // http://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
+    if (id.length() < WinNT.MAX_PATH) {
+      return new DocId(id);
+    } else {
+      throw new IllegalArgumentException("the path is too long");
+    }
   }
 
   @Override
@@ -471,16 +478,24 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     private void pushPath(Path doc) {
-      // For deleted, moved or renamed files we want to push the old name
-      // so in this case, feed it if the path does not exists.
-      boolean deletedOrMoved = !Files.exists(doc);
       try {
+        DocId docid;
+        try {
+          docid = newDocId(doc);
+        } catch (IllegalArgumentException e) {
+          log.log(Level.WARNING, "Skipping {0} because {1}.",
+                  new Object[] { doc, e.getMessage() });
+          return;
+        }
+        // For deleted, moved or renamed files we want to push the old name
+        // so in this case, feed it if the path does not exists.
+        boolean deletedOrMoved = !Files.exists(doc);
         if (deletedOrMoved || isRegularFile(doc) || isDirectory(doc)) {
-          pusher.pushRecord(new DocIdPusher.Record.Builder(newDocId(doc))
+          pusher.pushRecord(new DocIdPusher.Record.Builder(docid)
               .setCrawlImmediately(true).build());
         } else {
           log.log(Level.INFO,
-              "Skipping path {0}. It is not a supported file type.", doc);
+              "Skipping {0}. It is not a regular file or directory.", doc);
         }
       } catch (IOException e) {
         log.log(Level.WARNING, "Unable to push the path " + doc +

@@ -269,6 +269,23 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     return delegate.getDfsUncActiveStorageUnc(dfsPath);
   }
 
+  private String makeLongPath() {
+    String abc = "abcdefghijklmnopqrstuvwxyz";
+    StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < 10; i++) {
+      builder.append(abc);
+      builder.append(File.separator);
+    }
+    return builder.toString();
+  }
+
+  @Test
+  public void testNewDocIdLongPath() throws Exception {
+    Path path = Paths.get(tempRoot.toString(), makeLongPath());
+    thrown.expect(IllegalArgumentException.class);
+    delegate.newDocId(path);
+  }
+
   @Test
   public void testNewDocIdLocalFiles() throws Exception {
     Path dir = newTempDir("testDir");
