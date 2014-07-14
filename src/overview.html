@@ -23,8 +23,6 @@ GSA index a single UNC share.  DFS is supported.
     <li>Read the content of documents</li> 
     <li>Read attributes of files and folders</li>
     <li>Read permissions (ACLs) for both files and folders</li>
-    <li>Write basic attributes permissions. See below: <em>Advanced Topics > Not changing 'last
-    access' of the documents on the share</em></li>
   </ul>
 
   <p>Membership in one of these groups grants a Windows account the
@@ -285,13 +283,17 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
 <h3> Advanced Topics </h3>
 
 <h4>Not changing 'last access' of the documents on the share</h4>
-<p>The adaptor attempts to restore the last access date for documents after 
-it reads the document content during a crawl. In order for the last access 
-date to be restored back to the original value before the content was read, 
-the user account that the adaptor is running under needs to have write permission. 
-If the account has read-only permission and not write permission for documents, 
-then the last access date for documents will change as the adaptor reads 
-document content during a crawl.
+<p>The adaptor attempts to leave the last access date for documents 
+unchanged while reading the content during a crawl. In some instances, 
+this may not happen and the last access date gets updated. When this 
+happens the adaptor then attempts to restore the last access date for the 
+document back to the original value before the crawl started. In order 
+for the last access date to be restored back to the original value, 
+the user account that the adaptor is running under needs to have 
+write basic attributes permission. If the account has read-only 
+permission and last access date happens to change during a crawl, 
+then the adaptor will not be able to restore the last access date 
+back to the original value before the crawl started.
 
 <br>
 <br>
