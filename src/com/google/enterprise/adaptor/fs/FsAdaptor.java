@@ -516,7 +516,16 @@ public class FsAdaptor extends AbstractAdaptor implements
     }
 
     final boolean docIsDirectory = attrs.isDirectory();
-    final FileTime lastAccessTime = delegate.getLastAccessTime(doc);
+
+    // It is possible that BasicFileAttribtues.lastAccessTime uses a cached
+    // version of the last access time so it's really not ideal to use with
+    // files since the adaptor attempts to protect the last access time for
+    // files from changing. Additionally, delegate.getLastAccessTime has the
+    // limitation that it only works for files. So for folders use
+    // BasicFileAttribtues.lastAccessTime and for files use
+    // delegate.getLastAccessTime.
+    final FileTime lastAccessTime = docIsDirectory ?
+      attrs.lastAccessTime() : delegate.getLastAccessTime(doc);
 
     if (!docIsDirectory) {
       if (lastAccessTimeFilter.excluded(lastAccessTime)) {
