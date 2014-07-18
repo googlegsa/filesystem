@@ -179,12 +179,15 @@ public class FsAdaptor extends AbstractAdaptor implements
   private FileTimeFilter lastAccessTimeFilter;
 
   public FsAdaptor() {
-    // At the moment, we only support Windows.
-    if (System.getProperty("os.name").startsWith("Windows")) {
+    String osName = System.getProperty("os.name");
+    if (osName.startsWith("Windows")) {
       delegate = new WindowsFileDelegate();
+    } else if (osName.startsWith("Linux")) {
+      delegate = new LinuxFileDelegate();
     } else {
       throw new IllegalStateException(
-          "Windows is the only supported platform.");
+          "This is a non-supported platform. The Connector for File Systems"
+          + " only supports the Windows and Linux platforms.");
     }
   }
 
@@ -259,7 +262,11 @@ public class FsAdaptor extends AbstractAdaptor implements
             " is not a supported DFS path. Only DFS links of the format " +
             "\\\\host\\namespace\\link are supported.");
       }
-    } else {
+    // TODO: Skip the "is root" check on Linux for now. We need to determine
+    // an approach at verifying that the src path is the mount point of the
+    // UNC path and that the UNC path is a root UNC (i.e. of the form
+    // \\host\share).
+    } else if (System.getProperty("os.name").startsWith("Windows")) {
       if (!rootPath.equals(rootPath.getRoot())) {
         // We currently only support a config path that is a root.
         // Non-root paths will fail to produce Acls for all the folders up
