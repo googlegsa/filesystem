@@ -43,18 +43,14 @@ import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.W32APIOptions;
 
-import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -83,31 +79,6 @@ class WindowsFileDelegate extends NioFileDelegate {
     this.kernel32 = kernel32;
     this.netapi32 = netapi32;
     this.aclViews = aclViews;
-  }
-
-  @Override
-  public InputStream newInputStream(Path doc) throws IOException {
-    return new BufferedInputStream(new WinFileInputStream(doc));
-  }
-
-  @Override
-  public FileTime getLastAccessTime(Path doc) throws IOException {
-    WinBase.FILETIME.ByReference accessTime =
-        new WinBase.FILETIME.ByReference();
-    HANDLE handle = kernel32.CreateFile(doc.toString(), WinNT.GENERIC_READ,
-        WinNT.FILE_SHARE_READ | WinNT.FILE_SHARE_WRITE,
-        new WinBase.SECURITY_ATTRIBUTES(), WinNT.OPEN_EXISTING,
-        WinNT.FILE_ATTRIBUTE_NORMAL, null);
-    if (Kernel32.INVALID_HANDLE_VALUE.equals(handle)) {
-      throw new IOException("Unable to open " + doc
-           + ". GetLastError: " + kernel32.GetLastError());
-    }
-    try {  
-      kernel32.GetFileTime(handle, null, accessTime, null);
-    } finally {
-      kernel32.CloseHandle(handle);
-    }
-    return FileTime.fromMillis(accessTime.toDate().getTime());
   }
 
   @Override
@@ -517,56 +488,5 @@ class WindowsFileDelegate extends NioFileDelegate {
   @Override
   public void destroy() {
     stopMonitorPath();
-  }
-
-  private class WinFileInputStream extends InputStream {
-    private final HANDLE handle;
-
-    public WinFileInputStream(Path path) throws IOException {
-      handle = kernel32.CreateFile(path.toString(),
-          WinNT.GENERIC_READ | WinNT.GENERIC_WRITE,
-          WinNT.FILE_SHARE_READ | WinNT.FILE_SHARE_WRITE,
-          new WinBase.SECURITY_ATTRIBUTES(),
-          WinNT.OPEN_EXISTING, WinNT.FILE_ATTRIBUTE_NORMAL, null);
-      if (Kernel32.INVALID_HANDLE_VALUE.equals(handle)) {
-        throw new IOException("Unable to open " + path
-            + ". GetLastError: " + kernel32.GetLastError());
-      }
-
-      // Call SetFileTime with a value of 0xFFFFFFFF for lpLastAccessTime
-      // to keep Windows from updating the last access time
-      // when reading the file content.
-      WinBase.FILETIME ft = new WinBase.FILETIME();
-      ft.dwHighDateTime = 0xFFFFFFFF;
-      ft.dwLowDateTime = 0xFFFFFFFF;
-      kernel32.SetFileTime(handle, null, ft, null);
-    }
-
-    @Override
-    public int read() throws IOException {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public int read(byte[] inBuf, int start, int count) throws IOException {
-      IntByReference lpNumberOfBytesRead = new IntByReference(0);
-      boolean result = kernel32.ReadFile(handle,
-          ByteBuffer.wrap(inBuf, start, count), count,
-          lpNumberOfBytesRead, null);
-      if (!result) {
-        throw new IOException("Unable to read file data. "
-            + "GetLastError: " + kernel32.GetLastError());
-      }
-      if (lpNumberOfBytesRead.getValue() != 0) {
-        return lpNumberOfBytesRead.getValue();
-      } else {
-        return -1;
-      }
-    }
-
-    @Override
-    public void close() throws IOException {
-      kernel32.CloseHandle(handle);
-    }
   }
 }

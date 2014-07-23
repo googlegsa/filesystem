@@ -64,12 +64,6 @@ abstract class NioFileDelegate implements FileDelegate {
   }
 
   @Override
-  public FileTime getLastAccessTime(Path doc) throws IOException {
-    return (FileTime)Files.getAttribute(doc, "lastAccessTime",
-        LinkOption.NOFOLLOW_LINKS);
-  }
-
-  @Override
   public void setLastAccessTime(Path doc, FileTime time) throws IOException {
     Files.setAttribute(doc, "lastAccessTime", time, LinkOption.NOFOLLOW_LINKS);
   }
