@@ -518,7 +518,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     int offset = 0;
     for (Storage storage : storages) {
       storagesMem.setLong(offset, storage.state);
-      offset += Native.LONG_SIZE;
+      offset += Pointer.SIZE;
       writeWString(storagesMem, offset, storage.serverName);
       offset += Pointer.SIZE;
       writeWString(storagesMem, offset, storage.shareName);
