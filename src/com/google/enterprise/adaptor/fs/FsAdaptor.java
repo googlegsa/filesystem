@@ -25,9 +25,8 @@ import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
-import com.google.enterprise.adaptor.DocIdPusher.Record;
-import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.IOHelper;
+import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.PollingIncrementalLister;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
@@ -45,32 +44,24 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.text.ParseException;
 import java.util.Set;
-import java.text.SimpleDateFormat;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 // TODO(mifern): Support\Verify that we can handle \\host\C$ shares.
 // TODO(mifern): Support\Verify that we can handle \\host only shares.
 // TODO(mifern): Decide what we want to discover within \\host only shares.
-
 /**
  * Runs on Microsoft Windows and serves files from networked shares.
  * <p>
@@ -142,8 +133,7 @@ public class FsAdaptor extends AbstractAdaptor implements
   private static final ThreadLocal<SimpleDateFormat> dateFormatter =
       new ThreadLocal<SimpleDateFormat>() {
           @Override
-          protected SimpleDateFormat initialValue()
-          {
+          protected SimpleDateFormat initialValue() {
               return new SimpleDateFormat("yyyy-MM-dd");
           }
       };
@@ -238,8 +228,8 @@ public class FsAdaptor extends AbstractAdaptor implements
     try {
       rootPathDocId = delegate.newDocId(rootPath);
     } catch (IllegalArgumentException e) {
-        throw new InvalidConfigurationException("The path " + rootPath +
-             " is not valid path - " + e.getMessage() + ".");
+        throw new InvalidConfigurationException("The path " + rootPath
+             + " is not valid path - " + e.getMessage() + ".");
     }
 
     // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
@@ -255,9 +245,9 @@ public class FsAdaptor extends AbstractAdaptor implements
       // different from the actual DFS link path.
       final boolean isDfsLink = !rootPath.equals(dfsActiveStorage);
       if (!isDfsLink) {
-        throw new InvalidConfigurationException("The DFS path " + rootPath +
-            " is not a supported DFS path. Only DFS links of the format " +
-            "\\\\host\\namespace\\link are supported.");
+        throw new InvalidConfigurationException("The DFS path " + rootPath
+            + " is not a supported DFS path. Only DFS links of the format "
+            + "\\\\host\\namespace\\link are supported.");
       }
     } else {
       if (!rootPath.equals(rootPath.getRoot())) {
@@ -266,9 +256,9 @@ public class FsAdaptor extends AbstractAdaptor implements
         // to the root from the configured path, so we limit configuration
         // only to root paths.
         throw new InvalidConfigurationException(
-            "Only root paths are supported. Use a path such as C:\\ or " +
-            "X:\\ or \\\\host\\share. Additionally, you can specify a " +
-            "DFS link path of the form \\\\host\\ns\\link.");
+            "Only root paths are supported. Use a path such as C:\\ or "
+            + "X:\\ or \\\\host\\share. Additionally, you can specify a "
+            + "DFS link path of the form \\\\host\\ns\\link.");
       }
     }
     if (!delegate.isDirectory(rootPath)) {
@@ -281,9 +271,9 @@ public class FsAdaptor extends AbstractAdaptor implements
     try {
       delegate.newDirectoryStream(rootPath).close();
     } catch (AccessDeniedException e) {
-      throw new IOException("Unable to list the contents of " + rootPath +
-          ". This can happen if the Windows account used to crawl " +
-          "the path does not have sufficient permissions.", e);
+      throw new IOException("Unable to list the contents of " + rootPath
+          + ". This can happen if the Windows account used to crawl "
+          + "the path does not have sufficient permissions.", e);
     }
 
     builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
@@ -320,11 +310,11 @@ public class FsAdaptor extends AbstractAdaptor implements
       readShareAcls();
       delegate.getAclViews(rootPath);
     } catch (IOException e) {
-      throw new IOException("Unable to read ACLs for " + rootPath +
-          ". This can happen if the Windows account used to crawl " +
-          "the path does not have sufficient permissions. A Windows " +
-          "account with sufficient permissions to read content, " +
-          "attributes and ACLs is required to crawl a path.", e);
+      throw new IOException("Unable to read ACLs for " + rootPath
+          + ". This can happen if the Windows account used to crawl "
+          + "the path does not have sufficient permissions. A Windows "
+          + "account with sufficient permissions to read content, "
+          + "attributes and ACLs is required to crawl a path.", e);
     }
 
     delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
@@ -356,12 +346,12 @@ public class FsAdaptor extends AbstractAdaptor implements
       }
     } else if (!configDate.isEmpty()) {
       log.log(Level.CONFIG, configDateKey + ": " + configDate);
-      SimpleDateFormat ISO8601DateFormat = new SimpleDateFormat("yyyy-MM-dd");
-      ISO8601DateFormat.setCalendar(Calendar.getInstance());
-      ISO8601DateFormat.setLenient(true);
+      SimpleDateFormat iso8601DateFormat = new SimpleDateFormat("yyyy-MM-dd");
+      iso8601DateFormat.setCalendar(Calendar.getInstance());
+      iso8601DateFormat.setLenient(true);
       try {
         return new AbsoluteFileTimeFilter(FileTime.fromMillis(
-            ISO8601DateFormat.parse(configDate).getTime()));
+            iso8601DateFormat.parse(configDate).getTime()));
       } catch (ParseException e) {
         throw new InvalidConfigurationException(configDateKey
             + " must be specified in the format \"YYYY-MM-DD\".", e);
@@ -392,8 +382,8 @@ public class FsAdaptor extends AbstractAdaptor implements
       // Push the Acl for the active storage UNC path.
       Path activeStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
       if (activeStorage == null) {
-        throw new IOException("The DFS path " + rootPath +
-            " does not have an active storage.");
+        throw new IOException("The DFS path " + rootPath
+            + " does not have an active storage.");
       }
 
       builder = new AclBuilder(activeStorage,
@@ -443,12 +433,12 @@ public class FsAdaptor extends AbstractAdaptor implements
     // collisions with the root docid.
     ShareAcls shareAcls = readShareAcls();
     Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
-    if ((shareAcls.dfsShareAcl != null) && (forcePush ||
-        !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
+    if ((shareAcls.dfsShareAcl != null) && (forcePush
+        || !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
       namedResources.put(DFS_SHARE_ACL_DOCID, shareAcls.dfsShareAcl);
     }
-    if ((shareAcls.shareAcl != null) && (forcePush ||
-        !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
+    if ((shareAcls.shareAcl != null) && (forcePush
+        || !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
       namedResources.put(SHARE_ACL_DOCID, shareAcls.shareAcl);
     }
     if (namedResources.size() > 0) {

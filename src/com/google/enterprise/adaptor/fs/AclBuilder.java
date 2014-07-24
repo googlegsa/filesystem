@@ -97,11 +97,11 @@ public class AclBuilder {
       }
 
       Principal principal;
-      if (entry.principal() instanceof
-          java.nio.file.attribute.GroupPrincipal) {
+      if (entry.principal()
+          instanceof java.nio.file.attribute.GroupPrincipal) {
         principal = new GroupPrincipal(entry.principal().getName(), namespace);
-      } else if (entry.principal() instanceof
-          java.nio.file.attribute.UserPrincipal) {
+      } else if (entry.principal() 
+          instanceof java.nio.file.attribute.UserPrincipal) {
         principal = new UserPrincipal(entry.principal().getName(), namespace);
       } else {
         log.log(Level.WARNING, "Unsupported Acl entry found: {0}", entry);
@@ -227,8 +227,8 @@ public class AclBuilder {
       isInheritableByAllDescendentFoldersEntry =
           new Predicate<Set<AclEntryFlag>>() {
             public boolean apply(Set<AclEntryFlag> flags) {
-              return flags.contains(AclEntryFlag.DIRECTORY_INHERIT) &&
-                  !flags.contains(AclEntryFlag.NO_PROPAGATE_INHERIT);
+              return flags.contains(AclEntryFlag.DIRECTORY_INHERIT)
+                  && !flags.contains(AclEntryFlag.NO_PROPAGATE_INHERIT);
             }
           };
 
@@ -240,8 +240,8 @@ public class AclBuilder {
       isInheritableByAllDescendentFilesEntry =
           new Predicate<Set<AclEntryFlag>>() {
             public boolean apply(Set<AclEntryFlag> flags) {
-              return flags.contains(AclEntryFlag.FILE_INHERIT) &&
-                  !flags.contains(AclEntryFlag.NO_PROPAGATE_INHERIT);
+              return flags.contains(AclEntryFlag.FILE_INHERIT)
+                  && !flags.contains(AclEntryFlag.NO_PROPAGATE_INHERIT);
             }
           };
 }

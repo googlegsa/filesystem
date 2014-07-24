@@ -16,7 +16,6 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.collect.ImmutableList;
 
-import java.io.IOException;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.UserPrincipal;

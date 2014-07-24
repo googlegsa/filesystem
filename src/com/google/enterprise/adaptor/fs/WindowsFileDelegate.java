@@ -21,21 +21,14 @@ import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
-import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
-import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
-import com.sun.jna.Structure;
-import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinBase;
-import com.sun.jna.platform.win32.WinDef.DWORD;
-import com.sun.jna.platform.win32.WinDef.ULONG;
-import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.FILE_NOTIFY_INFORMATION;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
@@ -45,13 +38,12 @@ import com.sun.jna.win32.W32APIOptions;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.attribute.AclEntry;
-import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
@@ -96,9 +88,9 @@ class WindowsFileDelegate extends NioFileDelegate {
     PointerByReference sd = new PointerByReference();
     IntByReference sdSize = new IntByReference();
     int rc = netapi32.NetDfsGetSecurity(doc.toString(),
-        WinNT.DACL_SECURITY_INFORMATION |
-            WinNT.PROTECTED_DACL_SECURITY_INFORMATION |
-            WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
+        WinNT.DACL_SECURITY_INFORMATION
+            | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
+            | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
         sd, sdSize);
     if (LMErr.NERR_Success != rc) {
       throw new Win32Exception(rc);
@@ -151,8 +143,8 @@ class WindowsFileDelegate extends NioFileDelegate {
             ace = new WinNT.ACCESS_DENIED_ACE(share);
             break;
           default:
-            throw new IllegalArgumentException("Unsupported ACE type " +
-                aceType);
+            throw new IllegalArgumentException("Unsupported ACE type "
+                + aceType);
         }
         ACEs[i] = ace;
         offset += ace.AceSize;
@@ -211,8 +203,8 @@ class WindowsFileDelegate extends NioFileDelegate {
       }
     }
     if (storageUnc == null) {
-      throw new IOException("The DFS path " + doc +
-          " does not have an active storage.");
+      throw new IOException("The DFS path " + doc
+          + " does not have an active storage.");
     }
 
     return Paths.get(storageUnc);
@@ -324,8 +316,8 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     private void runMonitorLoop() throws IOException {
-      int mask = Kernel32.FILE_SHARE_READ | Kernel32.FILE_SHARE_WRITE |
-          Kernel32.FILE_SHARE_DELETE;
+      int mask = Kernel32.FILE_SHARE_READ | Kernel32.FILE_SHARE_WRITE
+          | Kernel32.FILE_SHARE_DELETE;
       HANDLE handle = kernel32.CreateFile(watchPath.toString(),
           Kernel32.FILE_LIST_DIRECTORY, mask, null, Kernel32.OPEN_EXISTING,
           Kernel32.FILE_FLAG_BACKUP_SEMANTICS | Kernel32.FILE_FLAG_OVERLAPPED,
@@ -351,12 +343,12 @@ class WindowsFileDelegate extends NioFileDelegate {
       Kernel32.OVERLAPPED ol = new Kernel32.OVERLAPPED();
 
       final FILE_NOTIFY_INFORMATION info = new FILE_NOTIFY_INFORMATION(4096);
-      int notifyFilter = Kernel32.FILE_NOTIFY_CHANGE_SECURITY |
-          Kernel32.FILE_NOTIFY_CHANGE_CREATION |
-          Kernel32.FILE_NOTIFY_CHANGE_LAST_WRITE |
-          Kernel32.FILE_NOTIFY_CHANGE_ATTRIBUTES |
-          Kernel32.FILE_NOTIFY_CHANGE_DIR_NAME |
-          Kernel32.FILE_NOTIFY_CHANGE_FILE_NAME;
+      int notifyFilter = Kernel32.FILE_NOTIFY_CHANGE_SECURITY
+          | Kernel32.FILE_NOTIFY_CHANGE_CREATION
+          | Kernel32.FILE_NOTIFY_CHANGE_LAST_WRITE
+          | Kernel32.FILE_NOTIFY_CHANGE_ATTRIBUTES
+          | Kernel32.FILE_NOTIFY_CHANGE_DIR_NAME
+          | Kernel32.FILE_NOTIFY_CHANGE_FILE_NAME;
 
       Kernel32.OVERLAPPED_COMPLETION_ROUTINE changesCallback =
           new Kernel32.OVERLAPPED_COMPLETION_ROUTINE() {
@@ -376,8 +368,8 @@ class WindowsFileDelegate extends NioFileDelegate {
                 // a notification buffer overflows which can cause some 
                 // notifications to be lost.
                 log.log(Level.INFO,
-                    "There was a buffer overflow during file monitoring. " +
-                    "Some file update notifications may have been lost.");
+                    "There was a buffer overflow during file monitoring. "
+                    + "Some file update notifications may have been lost.");
               } else {
                 log.log(Level.WARNING,
                     "Unable to read data notification data. errorCode: {0}",
@@ -404,8 +396,8 @@ class WindowsFileDelegate extends NioFileDelegate {
 
         if (waitResult == Kernel32Ex.WAIT_IO_COMPLETION) {
           log.log(Level.FINEST,
-              "WaitForSingleObjectEx returned WAIT_IO_COMPLETION. " +
-              "A notification was sent to the monitor callback.");
+              "WaitForSingleObjectEx returned WAIT_IO_COMPLETION. "
+              + "A notification was sent to the monitor callback.");
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
           log.log(Level.FINE,
@@ -413,8 +405,8 @@ class WindowsFileDelegate extends NioFileDelegate {
           return;
         } else {
           throw new IOException(
-              "Unexpected result from WaitForSingleObjectEx: " + waitResult +
-              ". GetLastError: " + kernel32.GetLastError());
+              "Unexpected result from WaitForSingleObjectEx: " + waitResult
+              + ". GetLastError: " + kernel32.GetLastError());
         }
       }
     }
@@ -469,8 +461,8 @@ class WindowsFileDelegate extends NioFileDelegate {
               "Skipping {0}. It is not a regular file or directory.", doc);
         }
       } catch (IOException e) {
-        log.log(Level.WARNING, "Unable to push the path " + doc +
-            " to the GSA.", e);
+        log.log(Level.WARNING, "Unable to push the path " + doc
+            + " to the GSA.", e);
       }
     }
   }

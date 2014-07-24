@@ -15,7 +15,6 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
@@ -149,7 +148,7 @@ class WindowsAclFileAttributeViews {
   /** Constructor used for production. */
   public WindowsAclFileAttributeViews() {
     this(Advapi32.INSTANCE, Kernel32.INSTANCE, Mpr.INSTANCE,
-         Netapi32Ex.INSTANCE,Shlwapi.INSTANCE);
+         Netapi32Ex.INSTANCE, Shlwapi.INSTANCE);
   }
 
   /** Constructor used by the tests. */
@@ -173,9 +172,9 @@ class WindowsAclFileAttributeViews {
   public AclFileAttributeViews getAclViews(Path path) throws IOException {
     String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
     WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname,
-        WinNT.DACL_SECURITY_INFORMATION |
-        WinNT.PROTECTED_DACL_SECURITY_INFORMATION |
-        WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
+        WinNT.DACL_SECURITY_INFORMATION 
+        | WinNT.PROTECTED_DACL_SECURITY_INFORMATION 
+        | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
     ImmutableList.Builder<AclEntry> inherited = ImmutableList.builder();
     ImmutableList.Builder<AclEntry> direct = ImmutableList.builder();
 
@@ -231,8 +230,8 @@ class WindowsAclFileAttributeViews {
             Mpr.UNIVERSAL_NAME_INFO_LEVEL, buf, bufSize);
       }
       if (result != WinNT.NO_ERROR) {
-        throw new IOException("Unable to get UNC path for the mapped path " +
-            path + ". Result: " + result);
+        throw new IOException("Unable to get UNC path for the mapped path "
+            + path + ". Result: " + result);
       }
 
       Mpr.UNIVERSAL_NAME_INFO info = new Mpr.UNIVERSAL_NAME_INFO(buf);
@@ -281,8 +280,8 @@ class WindowsAclFileAttributeViews {
       } else if (result == LMErr.NERR_NetNameNotFound) {
         throw new IOException("The share name does not exist.");
       } else {
-        throw new IOException("Unable to the read share Acl. Error: " +
-            result);
+        throw new IOException("Unable to the read share Acl. Error: "
+            + result);
       }
     }
 
@@ -339,8 +338,8 @@ class WindowsAclFileAttributeViews {
         throw e;
       }
     }
-    String accountName = (account.domain == null ?
-        account.name : account.domain + "\\" + account.name);
+    String accountName = (account.domain == null)
+        ? account.name : account.domain + "\\" + account.name;
     UserPrincipal aclPrincipal;
     String accountType = getSidTypeString(account.accountType);
     if (USER_SID_TYPES.contains(account.accountType)) {
