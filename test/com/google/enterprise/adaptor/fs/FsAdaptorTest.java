@@ -300,6 +300,49 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testGetDocIdsSkipShareAcl() throws Exception {
+    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
+    adaptor.init(context);
+    adaptor.getDocIds(pusher);
+
+    // We should just push the root docid.
+    List<Record> records = pusher.getRecords();
+    assertEquals(1, records.size());
+    assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
+
+    // We should have pushed an empty, child-overrides ACL for the share.
+    List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
+    Acl expected = new Acl.Builder().setEverythingCaseInsensitive()
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    assertEquals(1, namedResources.size());
+    assertEquals(1, namedResources.get(0).size());
+    assertEquals(expected, namedResources.get(0).get(shareAclDocId));
+  }
+
+  @Test
+  public void testGetDocIdsDfsSkipShareAcls() throws Exception {
+    Path uncPath = Paths.get("\\\\dfshost\\share");
+    root.setDfsUncActiveStorageUnc(uncPath);
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
+    adaptor.init(context);
+    adaptor.getDocIds(pusher);
+
+    // We should just push the root docid.
+    List<Record> records = pusher.getRecords();
+    assertEquals(1, records.size());
+    assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
+
+    // We should have pushed an empty, child-overrides ACL for the share.
+    List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
+    Acl expected = new Acl.Builder().setEverythingCaseInsensitive()
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    assertEquals(1, namedResources.size());
+    assertEquals(1, namedResources.get(0).size());
+    assertEquals(expected, namedResources.get(0).get(shareAclDocId));
+  }
+
+  @Test
   public void testGetDocIdsBrokenDfs() throws Exception {
     Path uncPath = Paths.get("\\\\dfshost\\share");
     root.setDfsUncActiveStorageUnc(uncPath);

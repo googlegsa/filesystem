@@ -116,6 +116,10 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** DocId for the share ACL named resource. */
   private static final DocId SHARE_ACL_DOCID = new DocId("shareAcl");
 
+  /** The config option that forces us to ignore the share ACL. */
+  private static final String CONFIG_SKIP_SHARE_ACL = 
+      "filesystemadaptor.skipShareAccessControl";
+
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
@@ -162,6 +166,7 @@ public class FsAdaptor extends AbstractAdaptor implements
   private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
+  private boolean skipShareAcl;
   private ShareAcls lastPushedShareAcls = null;
 
   /** Filter that may exclude files whose last modified time is too old. */
@@ -206,6 +211,7 @@ public class FsAdaptor extends AbstractAdaptor implements
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
+    config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
     config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
@@ -299,6 +305,11 @@ public class FsAdaptor extends AbstractAdaptor implements
           + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
+    // The Administrator may bypass Share access control.
+    skipShareAcl = Boolean.parseBoolean(
+        context.getConfig().getValue(CONFIG_SKIP_SHARE_ACL));
+    log.log(Level.CONFIG, "skipShareAcl: {0}", skipShareAcl);
+
     // Add filters that may exclude older content.
     lastAccessTimeFilter = getFileTimeFilter(context.getConfig(),
         CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
@@ -368,7 +379,12 @@ public class FsAdaptor extends AbstractAdaptor implements
     Acl shareAcl;
     Acl dfsShareAcl;
 
-    if (isDfsUnc) {
+    if (skipShareAcl) {
+      // Ignore the Share ACL, but create a benign placeholder.
+      dfsShareAcl = null;
+      shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
+          .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    } else if (isDfsUnc) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
       // TODO(mifern): This assumes that rootPath is a DFS link since it calls
@@ -716,8 +732,8 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     public ShareAcls(Acl shareAcl, Acl dfsShareAcl) {
       Preconditions.checkNotNull(shareAcl, "the share Acl may not be null");
-      Preconditions.checkArgument(!isDfsUnc || (dfsShareAcl != null),
-          "the DFS share Acl may not be null");
+      Preconditions.checkArgument(skipShareAcl || !isDfsUnc 
+          || (dfsShareAcl != null), "the DFS share Acl may not be null");
       this.shareAcl = shareAcl;
       this.dfsShareAcl = dfsShareAcl;
     }

@@ -23,8 +23,10 @@ GSA index a single UNC share.  DFS is supported.
     <li>Read the content of documents</li> 
     <li>Read attributes of files and folders</li>
     <li>Read permissions (ACLs) for both files and folders</li>
-    <li>Write basic attributes permissions. See below: <em>Advanced Topics > Not changing 'last
-    access' of the documents on the share</em></li>
+    <li>Write basic attributes permissions. See below: <em>Advanced Topics > 
+    Not changing 'last access' of the documents on the share</em></li>
+    <li>Read permissions (ACLs) for the file share. See below:
+    <em>Advanced Topics > Skipping Share Access Control</em></li>
   </ul>
 
   <p>Membership in one of these groups grants a Windows account the
@@ -175,6 +177,19 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </pre>
   </dd>
   <dt>
+  <code>filesystemadaptor.skipShareAccessControl</code>
+  </dt>
+  <dd>
+  This boolean configuration property enables or disables sending
+  the Access Control List (ACL) for the file share to the GSA.
+  See below: <em>Advanced Topics > Skipping Share Access Control</em>.
+  <p/>
+  Normally, the share ACLs are sent to the GSA, so the default value is:
+  <pre>
+  false
+  </pre>
+  </dd>
+  <dt>
   <code>filesystemadaptor.lastAccessedDate</code>
   </dt>
   <dd>
@@ -294,8 +309,29 @@ then the last access date for documents will change as the adaptor reads
 document content during a crawl.
 
 <br>
-<br>
+<h4>Skipping File Share Access Control</h4>
+<p>The adaptor attempts to preserve access control integrity when sending
+Access Control Lists (ACLs) to the GSA. In general, only users that have access
+to a file share have access to the files maintained on that share, so the 
+adaptor includes the share's ACL in those sent to the GSA.  However, in some
+configurations, the adaptor may not have sufficient permissions to read the
+share ACL. In those instances, the broken share ACL will prevent all files
+maintained on that file share from appearing in search results. The GSA's
+Index Diagnostics for those will also indicate a broken inheritance chain.</p>
 
+<p>If the share ACL cannot be read by the adaptor, the administrator may
+skip the attempt to read the share ACL by setting the 
+<code>filesystemadaptor.skipShareAccessControl</code> configuration option
+to <code>true</code>.  This feeds a highly permissive share ACL to the
+GSA, rather than the actual share ACL.</p>
+
+<p><b>WARNING:</b> Bypassing the file share access control may be 
+inconsistent with your enterprise security policies. This may allow users
+that do not have access to the file share to see documents hosted by that
+file share in search results.</p>
+
+<br>
+<br>
 
 <h3> Developer Topics </h3>
 
