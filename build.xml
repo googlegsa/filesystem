@@ -49,16 +49,6 @@
     </fileset>
   </path>
 
-   <target name="-discover-version" unless="adaptorlib.version">
-     <exec executable="git" outputproperty="adaptorlib.version"
-       logError="true" failifexecutionfails="false">
-       <arg value="describe"/>
-       <arg value="--always"/>
-     </exec>
-     <!-- Set version if git describe failed. -->
-     <property name="adaptorlib.version" value="unknown"/>
-   </target>
-
   <target name="-check-instrument-uptodate">
     <uptodate property="instrument.uptodate"
       targetfile="${build-instrument.dir}/cobertura.ser">
@@ -107,7 +97,7 @@ lib/plexi submodule or add the the command line argument
     unless="plexi.uptodate">
     <echo message="Detected Plexi changes. Re-packaging Plexi..."/>
     <ant antfile="${adaptor.clone.dir}/build.xml" dir="${adaptor.clone.dir}"
-      target="dist" inheritAll="false">
+      target="package" inheritAll="false">
       <property name="adaptorlib.suffix" value=""/>
     </ant>
   </target>
@@ -140,6 +130,16 @@ lib/plexi submodule or add the the command line argument
     </javac>
   </target>
 
+  <target name="-discover-version" unless="adaptor.version">
+    <exec executable="git" outputproperty="adaptor.version"
+      logError="true" failifexecutionfails="false">
+      <arg value="describe"/>
+      <arg value="--always"/>
+    </exec>
+    <!-- Set version if git describe failed. -->
+    <property name="adaptor.version" value="unknown"/>
+  </target>
+
   <target name="dist" description="Generate distribution binaries"
     depends="clean,test,package"/>
 
@@ -154,7 +154,6 @@ lib/plexi submodule or add the the command line argument
     <mkdir dir="${build.dir}/dist/staging"/>
     <mkdir dir="${dist.dir}"/>
 
-    <!-- adaptor-fs.jar -->
     <!-- Concatenate dependent JARs together into a comma-delimited list. -->
     <pathconvert pathsep=" " refid="adaptor.run.classpath"
       property="tmp.adaptor.classpath">
@@ -166,13 +165,12 @@ lib/plexi submodule or add the the command line argument
       <manifest>
         <attribute name="Main-Class" value="${adaptor.class}"/>
         <attribute name="Class-Path" value="${tmp.adaptor.classpath}"/>
-
         <section name="com/google/enterprise/adaptor/fs/">
           <attribute name="Implementation-Title"
             value="Google File-System Adaptor"/>
           <attribute name="Implementation-Vendor" value="Google Inc."/>
           <attribute name="Implementation-Version"
-            value="${adaptorlib.version}"/>
+            value="${adaptor.version}"/>
         </section>
       </manifest>
     </jar>
