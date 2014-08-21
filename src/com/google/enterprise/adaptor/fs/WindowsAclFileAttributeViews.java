@@ -331,7 +331,7 @@ class WindowsAclFileAttributeViews {
     } catch (Win32Exception e) {
       // Only the least significant 16-bits signifies the HR code.
       if ((e.getHR().intValue() & 0xFFFF) == WinError.ERROR_NONE_MAPPED) {
-        log.log(Level.WARNING, "Skipping ACE with unresolvable SID: {0}.",
+        log.log(Level.FINEST, "Skipping ACE with unresolvable SID: {0}.",
             ace.getSidString());
         return null;
       } else {
