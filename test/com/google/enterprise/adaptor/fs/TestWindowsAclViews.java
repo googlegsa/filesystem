@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -47,6 +48,9 @@ import java.util.List;
  */
 public class TestWindowsAclViews {
 
+  // Store the SIDs in a map to avoid serializing and deserializing them.
+  static HashMap<Long, AccountSid> sidMap = new HashMap<Long, AccountSid>();
+    
   @Rule
   public final TemporaryFolder temp = new TemporaryFolder();
 
@@ -154,6 +158,7 @@ public class TestWindowsAclViews {
       sid.write();
       // See ACCESS_ACEStructure(Pointer p) constructor for mystery offsets.
       memory.setPointer(4 + 4, sid.getPointer());
+      sidMap.put(Pointer.nativeValue(sid.getPointer()), sid);
       ace = new Ace(memory);
       assertEquals(ace.getSID().sid, sid.getPointer());
       return ace;
@@ -255,7 +260,7 @@ public class TestWindowsAclViews {
 
     @Override
     Account getAccountBySid(WinNT.PSID sid) throws Win32Exception {
-      return new AccountSid(sid.sid).getAccount();
+      return sidMap.get(Pointer.nativeValue(sid.sid)).getAccount();
     }
   }
 }
