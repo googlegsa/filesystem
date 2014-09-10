@@ -168,6 +168,7 @@ public class FsAdaptor extends AbstractAdaptor implements
   private FileDelegate delegate;
   private boolean skipShareAcl;
   private ShareAcls lastPushedShareAcls = null;
+  private boolean monitorForUpdates;
 
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
@@ -217,6 +218,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
     config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
+    config.addKey("filesystemadaptor.monitorForUpdates", "true");
     config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
   }
 
@@ -230,6 +232,10 @@ public class FsAdaptor extends AbstractAdaptor implements
     }
     rootPath = delegate.getPath(source);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
+
+    monitorForUpdates = Boolean.parseBoolean(
+        context.getConfig().getValue("filesystemadaptor.monitorForUpdates"));
+    log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
     try {
       rootPathDocId = delegate.newDocId(rootPath);
@@ -328,7 +334,9 @@ public class FsAdaptor extends AbstractAdaptor implements
           + "attributes and ACLs is required to crawl a path.", e);
     }
 
-    delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
+    if (monitorForUpdates) {
+      delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
+    }
     context.setPollingIncrementalLister(this);
   }
 
