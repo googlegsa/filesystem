@@ -94,12 +94,36 @@ interface FileDelegate {
   DirectoryStream<Path> newDirectoryStream(Path doc) throws IOException;
 
   /**
-   * Returns the active storage UNC path of a DFS UNC path.
+   * Returns {@code true} if the supplied UNC path is a DFS
+   * root namespace.  This would typically be a path like
+   * {@code \\\\server\\namespace} or {@code \\\\domain\\namespace}.
    *
-   * @param doc The DFS UNC path to get the storage for.
-   * @returns the backing storage path, or null if doc is not a DFS path
+   * @param doc a UNC Path that may be a DFS root or DFS link
+   * @returns {@code true} if the path is a DFS root, {@code false} otherwise
    */
-  Path getDfsUncActiveStorageUnc(Path doc) throws IOException;
+  boolean isDfsRoot(Path doc) throws IOException;
+
+  /**
+   * Returns {@code true} if the supplied UNC path is a DFS link.
+   * This would typically be a path like
+   * {@code \\\\server\\namespace\\link} or {@code \\\\domain\\namespace\\link}.
+   *
+   * @param doc a UNC Path that may be a DFS root or DFS link
+   * @returns {@code true} if the path is a DFS link, {@code false} otherwise
+   */
+  boolean isDfsLink(Path doc) throws IOException;
+
+  /**
+   * Returns the active storage UNC path of a DFS link UNC path.
+   * The supplied would typically be a path like
+   * {@code \\\\server\\namespace\\link} or {@code \\\\domain\\namespace\\link},
+   * and resolve to a path like {@code \\\\server\\share}.
+   *
+   * @param doc the DFS UNC path to get the storage for
+   * @returns the backing storage path, or {@code null} if doc is not a
+   *     DFS link path
+   */
+  Path resolveDfsLink(Path doc) throws IOException;
 
   /**
    * Returns an {@link AclFileAttributeViews} that contains the directly

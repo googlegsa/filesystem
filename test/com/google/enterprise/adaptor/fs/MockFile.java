@@ -55,7 +55,9 @@ class MockFile {
   private boolean isRegularFile;
   private boolean isDirectory;
   private List<MockFile> directoryContents;
-  private Path dfsUncActiveStorageUnc;
+  private boolean isDfsLink;
+  private boolean isDfsRoot;  
+  private Path dfsActiveStorage;
   private AclFileAttributeView dfsShareAclView;
   private AclFileAttributeView shareAclView;
   private AclFileAttributeView aclView;
@@ -216,13 +218,32 @@ class MockFile {
     return new MockBasicFileAttributes();
   }
 
-  MockFile setDfsUncActiveStorageUnc(Path unc) {
-    this.dfsUncActiveStorageUnc = unc;
+  MockFile setIsDfsLink(boolean isLink) {
+    this.isDfsLink = isLink;
     return this;
   }
 
-  Path getDfsUncActiveStorageUnc() throws IOException {
-    return dfsUncActiveStorageUnc;
+  boolean isDfsLink() throws IOException {
+    return isDfsLink;
+  }
+
+  MockFile setIsDfsRoot(boolean isRoot) {
+    this.isDfsRoot = isRoot;
+    return this;
+  }
+
+  boolean isDfsRoot() throws IOException {
+    return isDfsRoot;
+  }
+
+  MockFile setDfsActiveStorage(Path path) {
+    this.dfsActiveStorage = path;
+    this.isDfsLink = true;
+    return this;
+  }
+
+  Path getDfsActiveStorage() throws IOException {
+    return dfsActiveStorage;
   }
 
   MockFile setDfsShareAclView(AclFileAttributeView aclView) {

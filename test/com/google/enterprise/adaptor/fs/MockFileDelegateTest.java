@@ -180,10 +180,10 @@ public class MockFileDelegateTest {
     Path path = delegate.getPath("root");
     assertTrue(delegate.isDirectory(path));
     assertFalse(delegate.isRegularFile(path));
-    assertNull(delegate.getDfsUncActiveStorageUnc(path));
+    assertNull(delegate.resolveDfsLink(path));
     Path uncPath = delegate.getPath("\\\\server\\share");
-    root.setDfsUncActiveStorageUnc(uncPath);
-    assertEquals(uncPath, delegate.getDfsUncActiveStorageUnc(path));
+    root.setDfsActiveStorage(uncPath);
+    assertEquals(uncPath, delegate.resolveDfsLink(path));
     assertNull(delegate.getDfsShareAclView(path));
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     assertEquals(MockFile.FULL_ACCESS_ACLVIEW,

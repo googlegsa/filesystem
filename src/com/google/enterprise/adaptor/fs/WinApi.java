@@ -92,6 +92,7 @@ class WinApi {
     public int NetDfsGetInfo(String DfsEntryPath, String ServerName,
         String ShareName, int Level, PointerByReference Buffer);
 
+    public static final int DFS_ROOT_FLAVOR_MASK = 0x00000300;
     public static final int DFS_STORAGE_STATE_ONLINE = 2;
 
     public static class DFS_INFO_3 extends Structure {

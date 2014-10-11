@@ -177,21 +177,30 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
-  public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
-    PointerByReference buf = new PointerByReference();
-    int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
-    if (rc != LMErr.NERR_Success) {
-      // Log this at INFO since we expect this when the adaptor is configured
-      // for non-DFS root paths. Adaptor.init will call
-      // getDfsUncActiveStorageUnc to check if the path is a DFS path.
-      log.log(Level.INFO, "Unable to get DFS details for {0}. Code: {1}",
-          new Object[] { doc, rc });
+  public boolean isDfsRoot(Path doc) throws IOException {
+    Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
+    if (info == null) {
+      return false;
+    }
+    return (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) != 0;
+  }
+
+  @Override
+  public boolean isDfsLink(Path doc) throws IOException {
+    Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
+    if (info == null) {
+      return false;
+    }
+    return (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) == 0;
+  }
+
+  @Override
+  public Path resolveDfsLink(Path doc) throws IOException {
+    Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
+    if (info == null ||
+        (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) != 0) {
       return null;
     }
-
-    Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3(buf.getValue());
-    netapi32.NetApiBufferFree(buf.getValue());
-
     // Find the active storage.
     String storageUnc = null;
     for (int i = 0; i < info.StorageInfos.length; i++) {
@@ -208,6 +217,23 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     return Paths.get(storageUnc);
+  }
+
+  private Netapi32Ex.DFS_INFO_3 getDfsInfo(Path doc) throws IOException {
+    PointerByReference buf = new PointerByReference();
+    int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
+    if (rc != LMErr.NERR_Success) {
+      // Log this at INFO since we expect this when the adaptor is configured
+      // for non-DFS root paths. Adaptor.init will call
+      // getDfsUncActiveStorageUnc to check if the path is a DFS path.
+      log.log(Level.FINER, "Unable to get DFS details for {0}. Code: {1}",
+          new Object[] { doc, rc });
+      return null;
+    }
+
+    Netapi32Ex.DFS_INFO_3 info = new Netapi32Ex.DFS_INFO_3(buf.getValue());
+    netapi32.NetApiBufferFree(buf.getValue());
+    return info;
   }
 
   @Override

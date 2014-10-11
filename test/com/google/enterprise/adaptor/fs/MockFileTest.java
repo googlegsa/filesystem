@@ -253,12 +253,32 @@ public class MockFileTest {
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUnc() throws Exception {
+  public void testIsDfsRoot() throws Exception {
     MockFile root = new MockFile("root", true);
-    assertNull(root.getDfsUncActiveStorageUnc());
+    assertFalse(root.isDfsRoot());
+    root.setIsDfsRoot(true);
+    assertTrue(root.isDfsRoot());
+    assertFalse(root.isDfsLink());
+  }
+
+  @Test
+  public void testIsDfsLink() throws Exception {
+    MockFile root = new MockFile("root", true);
+    assertFalse(root.isDfsLink());
+    root.setIsDfsLink(true);
+    assertTrue(root.isDfsLink());
+    assertFalse(root.isDfsRoot());
+  }
+
+  @Test
+  public void testGetDfsActiveStorage() throws Exception {
+    MockFile root = new MockFile("root", true);
+    assertNull(root.getDfsActiveStorage());
     Path uncPath = Paths.get("\\\\server\\share");
-    root.setDfsUncActiveStorageUnc(uncPath);
-    assertEquals(uncPath, root.getDfsUncActiveStorageUnc());
+    root.setDfsActiveStorage(uncPath);
+    assertEquals(uncPath, root.getDfsActiveStorage());
+    assertTrue(root.isDfsLink());
+    assertFalse(root.isDfsRoot());
   }
 
   @Test

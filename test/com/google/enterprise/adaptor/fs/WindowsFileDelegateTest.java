@@ -190,7 +190,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUncError() throws Exception {
+  public void testIsDfsRootError() throws Exception {
     Netapi32Ex netapi = new UnsupportedNetapi32() {
         @Override
         public int NetDfsGetInfo(String dfsPath, String server, String share,
@@ -198,41 +198,129 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           return WinError.ERROR_ACCESS_DENIED;
         }
       };
-    assertNull(getDfsUncActiveStorageUnc(netapi));
+    assertFalse(isDfsRoot(netapi));
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUncNoStorage() throws Exception {
+  public void testIsDfsRootNotRoot() throws Exception {
+    // DFS_VOLUME_STATE_OK is 1
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
+    assertFalse(isDfsRoot(info));
+  }
+
+  @Test
+  public void testIsDfsRootStandaloneRoot() throws Exception {
+    // DFS_VOLUME_FLAVOR_STANDALONE is 0x00000100
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000101);
+    assertTrue(isDfsRoot(info));
+  }
+
+  @Test
+  public void testIsDfsRootDomainRoot() throws Exception {
+    // DFS_VOLUME_FLAVOR_AD_BLOB is 0x00000200
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000201);
+    assertTrue(isDfsRoot(info));
+  }
+
+  private static boolean isDfsRoot(
+      final Netapi32Ex.DFS_INFO_3 info) throws Exception {
+    return isDfsRoot(getNetapi(info));
+  }
+
+  private static boolean isDfsRoot(final Netapi32Ex netapi) throws Exception {
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    return delegate.isDfsRoot(dfsPath);
+  }
+
+  @Test
+  public void testIsDfsLinkError() throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String server, String share,
+            int level, PointerByReference bufptr) {
+          return WinError.ERROR_ACCESS_DENIED;
+        }
+      };
+    assertFalse(isDfsLink(netapi));
+  }
+
+  @Test
+  public void testIsDfsLinkNotRoot() throws Exception {
+    // DFS_VOLUME_STATE_OK is 1
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
+    assertTrue(isDfsLink(info));
+  }
+
+  @Test
+  public void testIsDfsLinkStandaloneRoot() throws Exception {
+    // DFS_VOLUME_FLAVOR_STANDALONE is 0x00000100
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000101);
+    assertFalse(isDfsLink(info));
+  }
+
+  @Test
+  public void testIsDfsLinkDomainRoot() throws Exception {
+    // DFS_VOLUME_FLAVOR_AD_BLOB is 0x00000200
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000201);
+    assertFalse(isDfsLink(info));
+  }
+
+  private static boolean isDfsLink(
+      final Netapi32Ex.DFS_INFO_3 info) throws Exception {
+    return isDfsLink(getNetapi(info));
+  }
+
+  private static boolean isDfsLink(final Netapi32Ex netapi) throws Exception {
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    return delegate.isDfsLink(dfsPath);
+  }
+
+  @Test
+  public void testResolveDfsLinkError() throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String server, String share,
+            int level, PointerByReference bufptr) {
+          return WinError.ERROR_ACCESS_DENIED;
+        }
+      };
+    assertNull(resolveDfsLink(netapi));
+  }
+
+  @Test
+  public void testResolveDfsLinkNoStorage() throws Exception {
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3();
 
     assertEquals(0, info.NumberOfStorages.intValue());
     thrown.expect(IOException.class);
-    getDfsUncActiveStorageUnc(info);
+    resolveDfsLink(info);
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUncSingleActiveStorage()
+  public void testResolveDfsLinkSingleActiveStorage()
       throws Exception {
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
         new Storage(Netapi32Ex.DFS_STORAGE_STATE_ONLINE, "server", "share"));
 
     assertEquals(1, info.NumberOfStorages.intValue());
     assertEquals(Paths.get("\\\\server\\share"),
-                 getDfsUncActiveStorageUnc(info));
+                 resolveDfsLink(info));
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUncNoActiveStorage() throws Exception {
+  public void testResolveDfsLinkNoActiveStorage() throws Exception {
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
         new Storage(0, "server", "share"));
 
     assertEquals(1, info.NumberOfStorages.intValue());
     thrown.expect(IOException.class);
-    getDfsUncActiveStorageUnc(info);
+    resolveDfsLink(info);
   }
 
   @Test
-  public void testGetDfsUncActiveStorageUncSomeActiveStorage()
+  public void testResolveDfsLinkSomeActiveStorage()
       throws Exception {
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(
         new Storage(0, "inactive", "inactive"),
@@ -241,12 +329,11 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
     assertEquals(3, info.NumberOfStorages.intValue());
     assertEquals(Paths.get("\\\\server\\share"),
-                 getDfsUncActiveStorageUnc(info));
+                 resolveDfsLink(info));
   }
 
-  private static Path getDfsUncActiveStorageUnc(
-      final Netapi32Ex.DFS_INFO_3 info) throws Exception {
-    Netapi32Ex netapi = new UnsupportedNetapi32() {
+  private static Netapi32Ex getNetapi(final Netapi32Ex.DFS_INFO_3 info) {
+    return new UnsupportedNetapi32() {
         @Override
         public int NetDfsGetInfo(String dfsPath, String server, String share,
             int level, PointerByReference bufptr) {
@@ -258,15 +345,18 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           return WinError.ERROR_SUCCESS;
         }
       };
-
-    return getDfsUncActiveStorageUnc(netapi);
+  }
+    
+  private static Path resolveDfsLink(
+      final Netapi32Ex.DFS_INFO_3 info) throws Exception {
+    return resolveDfsLink(getNetapi(info));
   }
 
-  private static Path getDfsUncActiveStorageUnc(Netapi32Ex netapi)
+  private static Path resolveDfsLink(Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
     Path dfsPath = Paths.get("\\\\host\\share");
-    return delegate.getDfsUncActiveStorageUnc(dfsPath);
+    return delegate.resolveDfsLink(dfsPath);
   }
 
   private String makeLongPath() {
@@ -510,6 +600,12 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   }
 
   private static Netapi32Ex.DFS_INFO_3 newDfsInfo3(Storage... storages) {
+    // State of 1 is DFS_VOLUME_STATE_OK.
+    return newDfsInfo3(1, storages);
+  }
+
+  private static Netapi32Ex.DFS_INFO_3 newDfsInfo3(long state,
+                                                   Storage... storages) {
     final int sizeOfInfo = new Netapi32Ex.DFS_STORAGE_INFO().size();
     final int numberOfStorages = storages.length;
 
@@ -528,7 +624,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Memory ptr = new Memory(40);
     writeWString(ptr, 0, new WString(""));
     writeWString(ptr, Pointer.SIZE, new WString(""));
-    ptr.setLong(2 * Pointer.SIZE, 0);
+    ptr.setLong(2 * Pointer.SIZE, state);
     ptr.setLong(2 * Pointer.SIZE + Native.LONG_SIZE, numberOfStorages);
     ptr.setPointer(2 * Pointer.SIZE + 2 * Native.LONG_SIZE, storagesMem);
     return new Netapi32Ex.DFS_INFO_3(ptr);

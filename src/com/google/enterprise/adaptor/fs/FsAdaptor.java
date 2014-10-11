@@ -248,19 +248,16 @@ public class FsAdaptor extends AbstractAdaptor implements
     // considered non-DFS even though \\host\ns\link is a DFS link path.
     // This is OK for now since the check for root path below will cause an
     // InvalidConfigurationException.
-    Path dfsActiveStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
-    isDfsUnc = (dfsActiveStorage != null);
-    log.log(Level.INFO, "Using a {0} path.", isDfsUnc ? "DFS" : "non-DFS");
-
-    if (isDfsUnc) {
-      // We assume that DFS link has an active storage path that is
-      // different from the actual DFS link path.
-      final boolean isDfsLink = !rootPath.equals(dfsActiveStorage);
-      if (!isDfsLink) {
-        throw new InvalidConfigurationException("The DFS path " + rootPath
-            + " is not a supported DFS path. Only DFS links of the format "
-            + "\\\\host\\namespace\\link are supported.");
-      }
+    if (delegate.isDfsLink(rootPath)) {
+      Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
+      log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
+      isDfsUnc = true;
+    } else if (delegate.isDfsRoot(rootPath)) {
+      // TODO(bjohnson): Traverse all the links under the root, although that
+      // would require a monitor for each one.
+      throw new InvalidConfigurationException("The DFS path " + rootPath
+          + " is not a supported DFS path. Only DFS links of the format "
+          + "\\\\host\\namespace\\link are supported.");
     } else {
       if (!rootPath.equals(rootPath.getRoot())) {
         // We currently only support a config path that is a root.
@@ -272,6 +269,7 @@ public class FsAdaptor extends AbstractAdaptor implements
             + "X:\\ or \\\\host\\share. Additionally, you can specify a "
             + "DFS link path of the form \\\\host\\ns\\link.");
       }
+      log.log(Level.INFO, "Using a non-DFS path.");
     }
     if (!delegate.isDirectory(rootPath)) {
       throw new IOException("The path " + rootPath + " is not accessible. "
@@ -404,7 +402,7 @@ public class FsAdaptor extends AbstractAdaptor implements
           InheritanceType.AND_BOTH_PERMIT).build();
 
       // Push the Acl for the active storage UNC path.
-      Path activeStorage = delegate.getDfsUncActiveStorageUnc(rootPath);
+      Path activeStorage = delegate.resolveDfsLink(rootPath);
       if (activeStorage == null) {
         throw new IOException("The DFS path " + rootPath
             + " does not have an active storage.");

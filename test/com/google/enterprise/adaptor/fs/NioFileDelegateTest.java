@@ -236,7 +236,17 @@ public class NioFileDelegateTest {
     }
 
     @Override
-    public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
+    public boolean isDfsRoot(Path doc) throws IOException {
+      return false;
+    }
+
+    @Override
+    public boolean isDfsLink(Path doc) throws IOException {
+      return false;
+    }
+
+    @Override
+    public Path resolveDfsLink(Path doc) throws IOException {
       throw new UnsupportedOperationException();
     }
   }

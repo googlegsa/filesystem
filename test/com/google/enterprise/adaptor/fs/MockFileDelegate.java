@@ -162,8 +162,18 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public Path getDfsUncActiveStorageUnc(Path doc) throws IOException {
-    return root.getDfsUncActiveStorageUnc();
+  public boolean isDfsRoot(Path doc) throws IOException {
+    return root.isDfsRoot();
+  }
+
+  @Override
+  public boolean isDfsLink(Path doc) throws IOException {
+    return root.isDfsLink();
+  }
+
+  @Override
+  public Path resolveDfsLink(Path doc) throws IOException {
+    return root.getDfsActiveStorage();
   }
 
   @Override

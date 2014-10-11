@@ -132,15 +132,23 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testAdaptorInitDfsUncActiveStorageUnc() throws Exception {
-    root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+  public void testAdaptorInitDfsLink() throws Exception {
+    root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
   }
 
   @Test
-  public void testAdaptorInitNonLinkDfsUncActiveStorageUnc() throws Exception {
-    root.setDfsUncActiveStorageUnc(rootPath);
+  public void testAdaptorInitDfsLinkNoActiveStorage() throws Exception {
+    root.setIsDfsLink(true);
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    thrown.expect(IOException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitDfsRoot() throws Exception {
+    root.setIsDfsRoot(true);
     thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
@@ -274,7 +282,7 @@ public class FsAdaptorTest {
   @Test
   public void testGetDocIdsDfs() throws Exception {
     Path uncPath = Paths.get("\\\\dfshost\\share");
-    root.setDfsUncActiveStorageUnc(uncPath);
+    root.setDfsActiveStorage(uncPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
     adaptor.getDocIds(pusher);
@@ -322,7 +330,7 @@ public class FsAdaptorTest {
   @Test
   public void testGetDocIdsDfsSkipShareAcls() throws Exception {
     Path uncPath = Paths.get("\\\\dfshost\\share");
-    root.setDfsUncActiveStorageUnc(uncPath);
+    root.setDfsActiveStorage(uncPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
     adaptor.init(context);
@@ -345,12 +353,12 @@ public class FsAdaptorTest {
   @Test
   public void testGetDocIdsBrokenDfs() throws Exception {
     Path uncPath = Paths.get("\\\\dfshost\\share");
-    root.setDfsUncActiveStorageUnc(uncPath);
+    root.setDfsActiveStorage(uncPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
 
     // Now make the active storage disappear.
-    root.setDfsUncActiveStorageUnc(null);
+    root.setDfsActiveStorage(null);
     thrown.expect(IOException.class);
     adaptor.getDocIds(pusher);
   }
@@ -1033,7 +1041,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitDfsDenyShareAclAccess() throws Exception {
     root = new DenyShareAclAccessMockFile(ROOT, true);
-    root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+    root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     delegate = new MockFileDelegate(root);
     adaptor = new FsAdaptor(delegate);
@@ -1044,7 +1052,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitDfsDenyDfsShareAclAccess() throws Exception {
     root = new DenyDfsShareAclAccessMockFile(ROOT, true);
-    root.setDfsUncActiveStorageUnc(Paths.get("\\\\dfshost\\share"));
+    root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     delegate = new MockFileDelegate(root);
     adaptor = new FsAdaptor(delegate);
     thrown.expect(IOException.class);
