@@ -136,6 +136,9 @@ class WinApi {
       public ULONG SdLengthReserved;
       public Pointer pSecurityDescriptor;
   
+      public DFS_INFO_150() {
+      }
+
       public DFS_INFO_150(Pointer m) {
         useMemory(m);
         read();

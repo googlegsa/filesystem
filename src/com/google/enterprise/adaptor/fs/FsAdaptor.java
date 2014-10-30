@@ -396,7 +396,7 @@ public class FsAdaptor extends AbstractAdaptor implements
       // TODO(mifern): This assumes that rootPath is a DFS link since it calls
       // getParent determine the DFS namespace UNC path.
       AclBuilder builder = new AclBuilder(rootPath,
-          delegate.getDfsShareAclView(rootPath.getParent()),
+          delegate.getDfsShareAclView(rootPath),
           supportedWindowsAccounts, builtinPrefix, namespace);
       dfsShareAcl = builder.getAcl().setInheritanceType(
           InheritanceType.AND_BOTH_PERMIT).build();

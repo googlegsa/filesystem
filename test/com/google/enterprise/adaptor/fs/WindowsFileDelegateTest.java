@@ -90,6 +90,99 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   }
 
   @Test
+  public void testGetExplicitDfsShareAclView() throws Exception {
+    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
+    AclFileAttributeView expectedAcl = new AclView(
+        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+
+    AclFileAttributeView aclView = getExplicitDfsShareAclView(
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessAllowedAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessDeniedAce", null))
+        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
+        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build());
+
+    assertNotNull(aclView);
+    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  }
+
+  private static AclFileAttributeView getExplicitDfsShareAclView(
+      WinNT.ACCESS_ACEStructure... aces) throws Exception {
+    byte[] dacl = buildDaclMemory(aces);
+    final Memory daclMemory = new Memory(dacl.length);
+    daclMemory.write(0, dacl, 0, dacl.length);
+    final Netapi32Ex.DFS_INFO_150 dfsInfo150 = new Netapi32Ex.DFS_INFO_150();
+    dfsInfo150.SdLengthReserved = new ULONG(dacl.length);
+    dfsInfo150.pSecurityDescriptor = daclMemory;
+    dfsInfo150.write();
+
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String serverName,
+            String shareName, int level, PointerByReference bufptr) {
+          assertEquals(150, level);
+          bufptr.setValue(dfsInfo150.getPointer());
+          return WinError.ERROR_SUCCESS;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, netapi, null);
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
+
+    return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
+  }
+
+  @Test
+  public void testGetExplicitDfsShareAclViewError() throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String serverName,
+            String shareName, int level, PointerByReference bufptr) {
+          assertEquals(150, level);
+          return WinError.ERROR_ACCESS_DENIED;
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsAclFileAttributeViews wafav =
+        new TestAclFileAttributeViews(null, null, null, netapi, null);
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
+
+    thrown.expect(Win32Exception.class);
+    delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
+  }
+
+  @Test
   public void testGetDfsShareAclView() throws Exception {
     // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
     AclFileAttributeView expectedAcl = new AclView(
@@ -145,8 +238,18 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     byte[] dacl = buildDaclMemory(aces);
     final Memory memory = new Memory(dacl.length);
     memory.write(0, dacl, 0, dacl.length);
+    final Memory dfsInfo150 = new Memory(Native.LONG_SIZE + Pointer.SIZE);
+    dfsInfo150.setLong(0, 0L);
+    dfsInfo150.setPointer(Native.LONG_SIZE, null);
 
     Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String serverName,
+            String shareName, int level, PointerByReference bufptr) {
+          assertEquals(150, level);
+          bufptr.setValue(dfsInfo150);
+          return WinError.ERROR_SUCCESS;
+        }
         @Override
         public int NetDfsGetSecurity(String dfsPath, int securityInfo,
             PointerByReference bufptr, IntByReference bufsz) {
@@ -164,12 +267,23 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         new TestAclFileAttributeViews(null, null, null, netapi, null);
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
 
-    return delegate.getDfsShareAclView(Paths.get("\\\\host\\share"));
+    return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
   }
 
   @Test
   public void testGetDfsShareAclViewError() throws Exception {
+    final Memory dfsInfo150 = new Memory(Native.LONG_SIZE + Pointer.SIZE);
+    dfsInfo150.setLong(0, 0L);
+    dfsInfo150.setPointer(Native.LONG_SIZE, null);
+
     Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsGetInfo(String dfsPath, String serverName,
+            String shareName, int level, PointerByReference bufptr) {
+          assertEquals(150, level);
+          bufptr.setValue(dfsInfo150);
+          return WinError.ERROR_SUCCESS;
+        }
         @Override
         public int NetDfsGetSecurity(String dfsPath, int securityInfo,
             PointerByReference bufptr, IntByReference bufsz) {
@@ -186,7 +300,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, wafav);
 
     thrown.expect(Win32Exception.class);
-    delegate.getDfsShareAclView(Paths.get("\\\\host\\share"));
+    delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
   }
 
   @Test

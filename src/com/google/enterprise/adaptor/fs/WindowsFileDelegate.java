@@ -85,23 +85,11 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public AclFileAttributeView getDfsShareAclView(Path doc) {
-    PointerByReference sd = new PointerByReference();
-    IntByReference sdSize = new IntByReference();
-    int rc = netapi32.NetDfsGetSecurity(doc.toString(),
-        WinNT.DACL_SECURITY_INFORMATION
-            | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
-            | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
-        sd, sdSize);
-    if (LMErr.NERR_Success != rc) {
-      throw new Win32Exception(rc);
-    }
-
-    SECURITY_DESCRIPTOR_RELATIVEEx sdr =
-        new SECURITY_DESCRIPTOR_RELATIVEEx(sd.getValue());
-    WinNT.ACL dacl = sdr.getDiscretionaryACL();
-    rc = netapi32.NetApiBufferFree(sd.getValue());
-    if (LMErr.NERR_Success != rc) {
-      throw new Win32Exception(rc);
+    // First check for explicit permissions on the DFS link.
+    WinNT.ACL dacl = getDfsExplicitAcl(doc);
+    if (dacl == null) {
+      // If no explicit permissions, inherit from the namespace.
+      dacl = getDfsNamespaceAcl(doc.getParent());
     }
 
     ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
@@ -116,6 +104,55 @@ class WindowsFileDelegate extends NioFileDelegate {
     log.log(Level.FINEST, "DFS share ACL for {0}: {1}",
         new Object[] { doc, acl });
     return new SimpleAclFileAttributeView(acl);
+  }
+
+  /*
+   * Returns the explicit ACL set on a DFS link, or null if no explicit 
+   * ACL is set.
+   */
+  private WinNT.ACL getDfsExplicitAcl(Path doc) throws Win32Exception {
+    PointerByReference buf = new PointerByReference();
+    int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 150, buf);
+    if (rc != LMErr.NERR_Success) {
+      throw new Win32Exception(rc);
+    }
+    Netapi32Ex.DFS_INFO_150 info = new Netapi32Ex.DFS_INFO_150(buf.getValue());
+    WinNT.ACL dacl;
+    if (info.pSecurityDescriptor == null) {
+      dacl = null;
+    } else {
+      // There are explicit permissions set on the DFS link.
+      SECURITY_DESCRIPTOR_RELATIVEEx sdr =
+          new SECURITY_DESCRIPTOR_RELATIVEEx(info.pSecurityDescriptor);
+      dacl = sdr.getDiscretionaryACL();
+    }
+    rc = netapi32.NetApiBufferFree(buf.getValue());
+    if (LMErr.NERR_Success != rc) {
+      throw new Win32Exception(rc);
+   }
+   return dacl;
+  }
+
+  /* Returns the ACL set on a DFS namespace. */
+  private WinNT.ACL getDfsNamespaceAcl(Path doc) throws Win32Exception {
+    PointerByReference sd = new PointerByReference();
+    IntByReference sdSize = new IntByReference();
+    int rc = netapi32.NetDfsGetSecurity(doc.toString(),
+        WinNT.DACL_SECURITY_INFORMATION
+          | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
+          | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
+          sd, sdSize);
+    if (LMErr.NERR_Success != rc) {
+      throw new Win32Exception(rc);
+    }
+    SECURITY_DESCRIPTOR_RELATIVEEx sdr =
+        new SECURITY_DESCRIPTOR_RELATIVEEx(sd.getValue());
+    WinNT.ACL dacl = sdr.getDiscretionaryACL();
+    rc = netapi32.NetApiBufferFree(sd.getValue());
+    if (LMErr.NERR_Success != rc) {
+      throw new Win32Exception(rc);
+    }
+    return dacl;
   }
 
   public static class ACLEx extends WinNT.ACL {
