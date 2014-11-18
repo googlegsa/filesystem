@@ -506,7 +506,6 @@ public class FsAdaptor extends AbstractAdaptor implements
       return;
     }
 
-    // Populate the document metadata.
     BasicFileAttributes attrs;
     try {
       attrs = delegate.readBasicAttributes(doc);
@@ -550,14 +549,26 @@ public class FsAdaptor extends AbstractAdaptor implements
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
-    if (!docIsDirectory) {
-      resp.setContentType(delegate.probeContentType(doc));
-    }
 
     // TODO(mifern): Include extended attributes.
 
     // Populate the document ACL.
-    final boolean isRoot = id.equals(rootPathDocId);
+    getFileAcls(doc, resp);
+
+    // Populate the document content.
+    if (docIsDirectory) {
+      getDirectoryContent(doc, id, resp);
+    } else {
+      getFileContent(doc, lastAccessTime, resp);
+    }
+    log.exiting("FsAdaptor", "getDocContent");
+  }
+
+  /* Populate the document ACL in the response. */
+  private void getFileAcls(Path doc, Response resp) throws IOException {
+    final boolean isRoot = doc.equals(rootPath);
+    final boolean isDirectory = delegate.isDirectory(doc);
+
     DocId parentDocId = null;
     if (!isRoot) {
       final Path parent = doc.getParent();
@@ -576,12 +587,12 @@ public class FsAdaptor extends AbstractAdaptor implements
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       acl = builder.getAcl().setInheritFrom(SHARE_ACL_DOCID)
-          .setInheritanceType(docIsDirectory ? InheritanceType.CHILD_OVERRIDES
+          .setInheritanceType(isDirectory ? InheritanceType.CHILD_OVERRIDES
                               : InheritanceType.LEAF_NODE).build();
     } else {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      if (docIsDirectory) {
+      if (isDirectory) {
         acl = builder.getAcl()
             .setInheritFrom(parentDocId, CHILD_FOLDER_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
@@ -596,7 +607,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     resp.setAcl(acl);
 
     // Push the additional Acls for a folder.
-    if (docIsDirectory) {
+    if (isDirectory) {
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
             builder.getInheritableByAllDescendentFoldersAcl()
@@ -633,50 +644,55 @@ public class FsAdaptor extends AbstractAdaptor implements
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       }
     }
+  }
 
-    // Populate the document content.
-    if (docIsDirectory) {
-      HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-      writer.start(id, getFileName(doc));
-      DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
-      try {
-        for (Path file : files) {
-          if (isFileOrFolder(file)) {
-            DocId docId;
-            try {
-              docId = delegate.newDocId(file);
-            } catch (IllegalArgumentException e) {
-              log.log(Level.WARNING, "Skipping {0} because {1}.",
-                      new Object[] { doc, e.getMessage() });
-              continue;
-            }
-            writer.addLink(docId, getFileName(file));
+  /* Adds HTML content of links to the directory's contents to the response. */
+  private void getDirectoryContent(Path doc, DocId docid, Response resp)
+      throws IOException {
+    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
+    writer.start(docid, getFileName(doc));
+    DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+    try {
+      for (Path file : files) {
+        if (isFileOrFolder(file)) {
+          DocId docId;
+          try {
+            docId = delegate.newDocId(file);
+          } catch (IllegalArgumentException e) {
+            log.log(Level.WARNING, "Skipping {0} because {1}.",
+                    new Object[] { doc, e.getMessage() });
+            continue;
           }
+          writer.addLink(docId, getFileName(file));
         }
-      } finally {
-        files.close();
       }
-      writer.finish();
-    } else {
-      InputStream input = delegate.newInputStream(doc);
+    } finally {
+      files.close();
+    }
+    writer.finish();
+  }
+
+  /* Adds the file's content to the response. */
+  private void getFileContent(Path doc, FileTime lastAccessTime, Response resp)
+      throws IOException {
+    resp.setContentType(delegate.probeContentType(doc));
+    InputStream input = delegate.newInputStream(doc);
+    try {
+      IOHelper.copyStream(input, resp.getOutputStream());
+    } finally {
       try {
-        IOHelper.copyStream(input, resp.getOutputStream());
+        input.close();
       } finally {
         try {
-          input.close();
-        } finally {
-          try {
-            delegate.setLastAccessTime(doc, lastAccessTime);
-          } catch (IOException e) {
-            // This failure can be expected. We can have full permissions
-            // to read but not write/update permissions.
-            log.log(Level.CONFIG,
-                "Unable to restore last access time for {0}.", doc);
-          }
+          delegate.setLastAccessTime(doc, lastAccessTime);
+        } catch (IOException e) {
+          // This failure can be expected. We can have full permissions
+          // to read but not write/update permissions.
+          log.log(Level.CONFIG,
+                  "Unable to restore last access time for {0}.", doc);
         }
       }
     }
-    log.exiting("FsAdaptor", "getDocContent");
   }
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
