@@ -216,6 +216,12 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public boolean isDfsRoot(Path doc) throws IOException {
+    // A DFS root namespace has a namecount of 0, but so does a shared folder
+    // or a filesystem root. This gets called frequently, mostly with paths
+    // where namecount is > 0, so avoid getting DFS info in those cases.
+    if (doc.getNameCount() > 0) {
+      return false;
+    }
     Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
     if (info == null) {
       return false;
@@ -225,6 +231,13 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public boolean isDfsLink(Path doc) throws IOException {
+    // A DFS link has a namecount of 1, but so does a anything at the top level
+    // of a shared folder or a filesystem root. This gets called frequently,
+    // mostly with paths where namecount is > 1, so avoid getting DFS info in
+    // those cases.
+    if (doc.getNameCount() != 1) {
+      return false;
+    }
     Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
     if (info == null) {
       return false;
@@ -239,6 +252,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) != 0) {
       return null;
     }
+
     // Find the active storage.
     String storageUnc = null;
     for (int i = 0; i < info.StorageInfos.length; i++) {
@@ -275,6 +289,37 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
+  public List<Path> enumerateDfsLinks(Path doc) throws IOException {
+    PointerByReference buf = new PointerByReference();
+    IntByReference bufSize = new IntByReference();
+
+    int rc = netapi32.NetDfsEnum(doc.toString(), 1, -1, buf, bufSize, null);
+    if (rc != LMErr.NERR_Success) {
+      throw new IOException("Unable to enumerate DFS links for " + doc
+          + ". Code: " + rc);
+    }
+    
+    int numLinks = bufSize.getValue();
+    ImmutableList.Builder<Path> builder = ImmutableList.builder();
+    try {
+      Pointer bufp = buf.getValue();
+      for (int i = 0; i < numLinks; i++) {
+        Netapi32Ex.DFS_INFO_1 info = new Netapi32Ex.DFS_INFO_1(bufp);
+        Path path = Paths.get(info.EntryPath.toString()); 
+        // For some reason, NetDfsEnum includes the namespace itself in the
+        // enumeration. The namespace has a nameCount of 0, the links, 1.
+        if (path.getNameCount() == 1) {
+          builder.add(path);
+        }
+        bufp = bufp.share(info.size());
+      }
+      return builder.build();
+    } finally {
+      netapi32.NetApiBufferFree(buf.getValue());
+    }
+  }
+
+  @Override
   public DocId newDocId(Path doc) throws IOException {
     File file = doc.toFile().getCanonicalFile();
     String id = file.getAbsolutePath().replace('\\', '/');
@@ -306,13 +351,14 @@ class WindowsFileDelegate extends NioFileDelegate {
           + ". The path is not a valid directory.");
     }
 
-    CountDownLatch startSignal = new CountDownLatch(1);
+    CountDownLatch startSignal;
     synchronized (monitors) {
-      MonitorThread monitorThread = monitors.remove(watchPath);
-      // Stop the current running monitor thread.
+      MonitorThread monitorThread = monitors.get(watchPath);
       if (monitorThread != null) {
-        monitorThread.shutdown();
+        // Already monitoring this directory.
+        return;
       }
+      startSignal = new CountDownLatch(1);
       monitorThread = new MonitorThread(watchPath, pusher, startSignal);
       monitorThread.start();
       monitors.put(watchPath, monitorThread);

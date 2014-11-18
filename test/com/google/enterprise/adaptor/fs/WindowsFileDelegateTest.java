@@ -27,6 +27,7 @@ import static java.nio.file.attribute.AclEntryType.*;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import com.google.enterprise.adaptor.Acl;
@@ -61,6 +62,7 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 
 /** Tests for {@link WindowsFileDelegate} */
@@ -312,38 +314,68 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           return WinError.ERROR_ACCESS_DENIED;
         }
       };
-    assertFalse(isDfsRoot(netapi));
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    assertFalse(isDfsRoot(dfsPath, netapi));
   }
 
   @Test
-  public void testIsDfsRootNotRoot() throws Exception {
+  public void testIsDfsRootButIsShare() throws Exception {
+    // Pathname could be a root, but NetDfsGetInfo returns NOT_FOUND
+    Path dfsPath = Paths.get("\\\\host\\share");
+    final Netapi32Ex.DFS_INFO_3 info = null;
+    assertFalse(isDfsRoot(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsRootButIsLongPath() throws Exception {
+    // Pathname could be not be a DFS root, it is too long.
+    Path dfsPath = Paths.get("\\\\host\\share\\dir\\file.txt");
+    final Netapi32Ex.DFS_INFO_3 info = null;
+    assertFalse(isDfsRoot(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsRootButIsLink() throws Exception {
+    // This is a Link, not a Root
     // DFS_VOLUME_STATE_OK is 1
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
-    assertFalse(isDfsRoot(info));
+    Path dfsPath = Paths.get("\\\\host\\namespace\\link");
+    assertFalse(isDfsRoot(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsRootButIsBrokenLink() throws Exception {
+    // This is a Link, with a malformed name.
+    // DFS_VOLUME_STATE_OK is 1
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    assertFalse(isDfsRoot(dfsPath, info));
   }
 
   @Test
   public void testIsDfsRootStandaloneRoot() throws Exception {
     // DFS_VOLUME_FLAVOR_STANDALONE is 0x00000100
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000101);
-    assertTrue(isDfsRoot(info));
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    assertTrue(isDfsRoot(dfsPath, info));
   }
 
   @Test
   public void testIsDfsRootDomainRoot() throws Exception {
     // DFS_VOLUME_FLAVOR_AD_BLOB is 0x00000200
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000201);
-    assertTrue(isDfsRoot(info));
+    Path dfsPath = Paths.get("\\\\domainhost.example.com\\namespace");
+    assertTrue(isDfsRoot(dfsPath, info));
   }
 
-  private static boolean isDfsRoot(
+  private static boolean isDfsRoot(Path dfsPath,
       final Netapi32Ex.DFS_INFO_3 info) throws Exception {
-    return isDfsRoot(getNetapi(info));
+    return isDfsRoot(dfsPath, getNetapi(info));
   }
 
-  private static boolean isDfsRoot(final Netapi32Ex netapi) throws Exception {
+  private static boolean isDfsRoot(Path dfsPath, final Netapi32Ex netapi)
+      throws Exception {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
-    Path dfsPath = Paths.get("\\\\host\\namespace");
     return delegate.isDfsRoot(dfsPath);
   }
 
@@ -356,38 +388,67 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           return WinError.ERROR_ACCESS_DENIED;
         }
       };
-    assertFalse(isDfsLink(netapi));
+    Path dfsPath = Paths.get("\\\\host\\namespace\\link");
+    assertFalse(isDfsLink(dfsPath, netapi));
   }
 
   @Test
-  public void testIsDfsLinkNotRoot() throws Exception {
+  public void testIsDfsLink() throws Exception {
     // DFS_VOLUME_STATE_OK is 1
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
-    assertTrue(isDfsLink(info));
+    Path dfsPath = Paths.get("\\\\host\\namespace\\link");
+    assertTrue(isDfsLink(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsLinkButIsShare() throws Exception {
+    // The pathname is too short to be a DFS link.
+    Path dfsPath = Paths.get("\\\\host\\share");
+    final Netapi32Ex.DFS_INFO_3 info = null;
+    assertFalse(isDfsLink(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsLinkButIsSharedFile() throws Exception {
+    // The pathname looks like it could be a DFS link, but
+    // NetDfsGetInfo returns NOT_FOUND;
+    Path dfsPath = Paths.get("\\\\host\\share\\file");
+    final Netapi32Ex.DFS_INFO_3 info = null;
+    assertFalse(isDfsLink(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsLinkButIsLongPath() throws Exception {
+    // The pathname is too long to be a DFS link.
+    Path dfsPath = Paths.get("\\\\host\\share\\dir\\file");
+    final Netapi32Ex.DFS_INFO_3 info = null;
+    assertFalse(isDfsLink(dfsPath, info));
   }
 
   @Test
   public void testIsDfsLinkStandaloneRoot() throws Exception {
     // DFS_VOLUME_FLAVOR_STANDALONE is 0x00000100
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000101);
-    assertFalse(isDfsLink(info));
+    Path dfsPath = Paths.get("\\\\host\\namespace");
+    assertFalse(isDfsLink(dfsPath, info));
   }
 
   @Test
   public void testIsDfsLinkDomainRoot() throws Exception {
     // DFS_VOLUME_FLAVOR_AD_BLOB is 0x00000200
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000201);
-    assertFalse(isDfsLink(info));
+    Path dfsPath = Paths.get("\\\\domainhost.example.com\\namespace");
+    assertFalse(isDfsLink(dfsPath, info));
   }
 
-  private static boolean isDfsLink(
+  private static boolean isDfsLink(final Path dfsPath,
       final Netapi32Ex.DFS_INFO_3 info) throws Exception {
-    return isDfsLink(getNetapi(info));
+    return isDfsLink(dfsPath, getNetapi(info));
   }
 
-  private static boolean isDfsLink(final Netapi32Ex netapi) throws Exception {
+  private static boolean isDfsLink(final Path dfsPath, final Netapi32Ex netapi)
+      throws Exception {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
-    Path dfsPath = Paths.get("\\\\host\\namespace");
     return delegate.isDfsLink(dfsPath);
   }
 
@@ -451,8 +512,12 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         @Override
         public int NetDfsGetInfo(String dfsPath, String server, String share,
             int level, PointerByReference bufptr) {
-          bufptr.setValue(info.getPointer());
-          return LMErr.NERR_Success;
+          if (info != null) {
+            bufptr.setValue(info.getPointer());
+            return LMErr.NERR_Success;
+          } else {
+            return WinError.ERROR_NOT_FOUND;
+          }
         }
         @Override
         public int NetApiBufferFree(Pointer buf) {
@@ -469,8 +534,74 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private static Path resolveDfsLink(Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
-    Path dfsPath = Paths.get("\\\\host\\share");
+    Path dfsPath = Paths.get("\\\\host\\namespace\\link");
     return delegate.resolveDfsLink(dfsPath);
+  }
+
+  @Test
+  public void testEnumerateDfsLinksNotNamespace() throws Exception {
+    thrown.expect(IOException.class);
+    enumerateDfsLinks((Memory) null);
+  }
+
+  @Test
+  public void testEnumerateDfsLinksNoLinks() throws Exception {
+    // Enumerate always include the namespace itself in the result.
+    final Memory infos = newDfsInfo1("\\\\host\\namespace");
+    List<Path> links = enumerateDfsLinks(infos);
+    // But the namespace should have been removed from the enumeration.
+    assertEquals(0, links.size());
+  }
+
+  @Test
+  public void testEnumerateDfsLinksOneLink() throws Exception {
+    List<Path> expected =
+        ImmutableList.of(Paths.get("\\\\host\\namespace\\link"));
+    final Memory infos = newDfsInfo1("\\\\host\\namespace",
+                                     "\\\\host\\namespace\\link");
+    List<Path> links = enumerateDfsLinks(infos);
+    assertEquals(expected, links);
+  }
+
+  @Test
+  public void testEnumerateDfsLinksSeveralLinks() throws Exception {
+    List<Path> expected =
+        ImmutableList.of(Paths.get("\\\\host\\namespace\\link1"),
+                         Paths.get("\\\\host\\namespace\\link2"),
+                         Paths.get("\\\\host\\namespace\\link3"));
+
+    final Memory infos = newDfsInfo1("\\\\host\\namespace",
+                                     "\\\\host\\namespace\\link1",
+                                     "\\\\host\\namespace\\link2",
+                                     "\\\\host\\namespace\\link3");
+    List<Path> links = enumerateDfsLinks(infos);
+    assertEquals(expected, links);
+  }
+
+  private static List<Path> enumerateDfsLinks(final Memory infos)
+      throws Exception {
+    Netapi32Ex netapi = new UnsupportedNetapi32() {
+        @Override
+        public int NetDfsEnum(String dfsPath, int level, int prefMaxLen,
+            PointerByReference bufptr, IntByReference entriesRead,
+            IntByReference resumeHandle) {
+          if (infos != null) {
+            int sizeofInfo = new Netapi32Ex.DFS_INFO_1().size();
+            bufptr.setValue(infos.share(0));
+            entriesRead.setValue((int)(infos.size() / sizeofInfo));
+            return LMErr.NERR_Success;
+          } else {
+            return WinError.ERROR_NOT_FOUND;
+          }
+        }
+        @Override
+        public int NetApiBufferFree(Pointer buf) {
+          return WinError.ERROR_SUCCESS;
+        }
+      };
+
+    WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
+    return delegate.enumerateDfsLinks(Paths.get("\\\\host\\namespace"));
   }
 
   private String makeLongPath() {
@@ -711,6 +842,20 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private DocIdPusher.Record newRecord(Path path) throws Exception {
     return new DocIdPusher.Record.Builder(delegate.newDocId(path))
         .setCrawlImmediately(true).build();
+  }
+
+  private static Memory newDfsInfo1(String... entries) {
+    final int sizeOfInfo = new Netapi32Ex.DFS_INFO_1().size();
+    final int numberOfEntries = entries.length;
+
+    // Cannot supply length of 0 so always allocate 1 more byte than needed.
+    Memory infosMem = new Memory(1 + numberOfEntries * sizeOfInfo);
+    int offset = 0;
+    for (String entry : entries) {
+      writeWString(infosMem, offset, new WString(entry));
+      offset += sizeOfInfo;
+    }
+    return infosMem;
   }
 
   private static Netapi32Ex.DFS_INFO_3 newDfsInfo3(Storage... storages) {

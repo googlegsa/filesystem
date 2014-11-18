@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.util.List;
 
 interface FileDelegate {
   /**
@@ -132,6 +133,17 @@ interface FileDelegate {
    * @throws IOException
    */
   Path resolveDfsLink(Path doc) throws IOException;
+
+  /**
+   * Returns a list of DFS links contained within a DFS root namespace.
+   * The supplied would typically be a path like
+   * {@code \\\\server\\namespace} or {@code \\\\domain\\namespace}.
+   *
+   * @param doc the DFS UNC path to a DFS root
+   * @returns a List of DFS link paths
+   * @throws IOException if doc is not a DFS root namespace or is not accessable
+   */
+  List<Path> enumerateDfsLinks(Path doc) throws IOException;
 
   /**
    * Returns an {@link AclFileAttributeViews} that contains the directly

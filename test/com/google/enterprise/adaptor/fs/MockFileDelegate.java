@@ -16,6 +16,7 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
@@ -31,6 +32,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.BlockingQueue;
 import java.util.Iterator;
+import java.util.List;
 
 class MockFileDelegate implements FileDelegate {
 
@@ -66,6 +68,19 @@ class MockFileDelegate implements FileDelegate {
       file = file.getChild(iter.next().toString());
     }
     return file;
+  }
+
+  /**
+   * Returns the {@link MockFile} identified by the supplied {@link Path},
+   * or the root if the file is not found.  This is a hack to allow paths
+   * like \\server\namespace to actually resolve to the root as a convenience.
+   */
+  MockFile getFileOrRoot(Path doc) {
+    try {
+      return getFile(doc);
+    } catch (FileNotFoundException e) {
+      return root;
+    }
   }
 
   @Override
@@ -153,27 +168,37 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public AclFileAttributeView getShareAclView(Path doc) throws IOException {
-    return root.getShareAclView();
+    return getFileOrRoot(doc).getShareAclView();
   }
 
   @Override
   public AclFileAttributeView getDfsShareAclView(Path doc) throws IOException {
-    return root.getDfsShareAclView();
+    return getFileOrRoot(doc).getDfsShareAclView();
   }
 
   @Override
   public boolean isDfsRoot(Path doc) throws IOException {
-    return root.isDfsRoot();
+    return getFileOrRoot(doc).isDfsRoot();
   }
 
   @Override
   public boolean isDfsLink(Path doc) throws IOException {
-    return root.isDfsLink();
+    return getFileOrRoot(doc).isDfsLink();
   }
 
   @Override
   public Path resolveDfsLink(Path doc) throws IOException {
-    return root.getDfsActiveStorage();
+    return getFileOrRoot(doc).getDfsActiveStorage();
+  }
+
+  @Override
+  public List<Path> enumerateDfsLinks(Path doc) throws IOException {
+    MockFile file = getFileOrRoot(doc);
+    if (file.isDfsRoot()) {
+      return ImmutableList.copyOf(file.newDirectoryStream());
+    } else {
+      throw new IOException("Not a DFS Root: " + doc);
+    }
   }
 
   @Override

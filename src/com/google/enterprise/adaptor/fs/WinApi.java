@@ -92,8 +92,29 @@ class WinApi {
     public int NetDfsGetInfo(String DfsEntryPath, String ServerName,
         String ShareName, int Level, PointerByReference Buffer);
 
+    public int NetDfsEnum(String DfsName, int Level, int PrefMaxLen,
+        PointerByReference Buffer, IntByReference EntriesRead,
+        IntByReference ResumeHandle);
+
     public static final int DFS_ROOT_FLAVOR_MASK = 0x00000300;
     public static final int DFS_STORAGE_STATE_ONLINE = 2;
+
+    public static class DFS_INFO_1 extends Structure {
+      public WString EntryPath;
+  
+      public DFS_INFO_1() {
+      }
+
+      public DFS_INFO_1(Pointer m) {
+        useMemory(m);
+        read();
+      }
+  
+      @Override
+      protected List<String> getFieldOrder() {
+        return Arrays.asList("EntryPath");
+      }
+    }
 
     public static class DFS_INFO_3 extends Structure {
       public WString EntryPath;

@@ -56,6 +56,13 @@ public class UnsupportedNetapi32 implements Netapi32, Netapi32Ex {
   }
 
   @Override
+  public int NetDfsEnum(String DfsName, int Level, int PrefMaxLen,
+      PointerByReference Buffer, IntByReference EntriesRead,
+      IntByReference ResumeHandle)  {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public int NetGetJoinInformation(String lpServer,
       PointerByReference lpNameBuffer, IntByReference bufferType) {
     throw new UnsupportedOperationException();

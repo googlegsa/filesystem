@@ -56,7 +56,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -68,12 +67,18 @@ import java.util.logging.Logger;
  * <p>
  * Features:<br>
  * <ul>
- * <li>Supports UNC path to single matchine's share
- * <li>Supports UNC path to standalone DFS
- * <li>Supports UNC path to domain DFS
+ * <li>Supports UNC path to single machine's share, such as \\host\share
+ * <li>Supports UNC path to standalone or domain-based DFS root namespace,
+ *     such as \\dfs-server\namespace or \\domain-dfs-server\namespace and
+ *     will follow all the DFS links within that namespace
+ * <li>Supports UNC path to standalone or domain-based DFS link, such as
+ *     \\dfs-server\namespace\link or \\domain-dfs-server\namespace\link
  * <li>Uses hierarchical ACL model
  * </ul>
  */
+// TODO(bmj): Now that getModifiedDocIds() does nothing,
+// drop the PollingIncrementalLister implementation,
+// and remove CONFIG_MAX_INCREMENTAL_LATENCY.
 public class FsAdaptor extends AbstractAdaptor implements
     PollingIncrementalLister {
   private static final Logger log
@@ -169,9 +174,6 @@ public class FsAdaptor extends AbstractAdaptor implements
   private FileDelegate delegate;
   private boolean skipShareAcl;
   private boolean monitorForUpdates;
-
-  private Map<Path, ShareAcls> pushedShareAcls =
-      new ConcurrentHashMap<Path, ShareAcls>();
 
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
@@ -283,37 +285,36 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
     // considered non-DFS even though \\host\ns\link is a DFS link path.
-    // This is OK for now since the check for root path below will cause an
-    // InvalidConfigurationException.
+    // This is OK for now since it will fail all three checks below and
+    // will throw an InvalidConfigurationException.
     if (delegate.isDfsLink(rootPath)) {
       Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
       log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
+      validateStartPath(rootPath);
     } else if (delegate.isDfsRoot(rootPath)) {
-      // TODO(bjohnson): Traverse all the links under the root, although that
-      // would require a monitor for each one.
-      throw new InvalidConfigurationException("The DFS path " + rootPath
-          + " is not a supported DFS path. Only DFS links of the format "
-          + "\\\\host\\namespace\\link are supported.");
-    } else {
-      if (!rootPath.equals(rootPath.getRoot())) {
-        // We currently only support a config path that is a root.
-        // Non-root paths will fail to produce Acls for all the folders up
-        // to the root from the configured path, so we limit configuration
-        // only to root paths.
-        throw new InvalidConfigurationException(
-            "Only root paths are supported. Use a path such as C:\\ or "
-            + "X:\\ or \\\\host\\share. Additionally, you can specify a "
-            + "DFS link path of the form \\\\host\\namespace\\link.");
+      log.log(Level.INFO, "Using a DFS root namespace." );
+      for (Path link : delegate.enumerateDfsLinks(rootPath)) {
+        // TODO(bmj): Do this in a try/catch so that one bad link don't spoil
+        // the whole bunch, girl?
+        Path dfsActiveStorage = delegate.resolveDfsLink(link);
+        log.log(Level.FINE, "DFS path {0} resolved to {1}",
+                new Object[] {link, dfsActiveStorage});
+        validateStartPath(link);
       }
+    } else if (rootPath.equals(rootPath.getRoot())) {
       log.log(Level.INFO, "Using a non-DFS path.");
+      validateStartPath(rootPath);
+    } else {
+      // We currently only support a config path that is a root.
+      // Non-root paths will fail to produce Acls for all the folders up
+      // to the root from the configured path, so we limit configuration
+      // only to root paths.
+      throw new InvalidConfigurationException(
+          "Only root paths are supported. Use a path such as C:\\ or X:\\ "
+          + "or \\\\host\\share. Additionally, you can specify a DFS path "
+          + "of the form \\\\host\\namespace or \\\\host\\namespace\\link.");
     }
 
-    // Verify the rootPath is available, and we have access to it.
-    validateStartPath(rootPath);
-
-    if (monitorForUpdates) {
-      delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
-    }
     context.setPollingIncrementalLister(this);
   }
 
@@ -322,6 +323,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     delegate.destroy();
   }
 
+  /** Verify the startPath is available, and we have access to it. */
   private void validateStartPath(Path startPath) throws IOException {
     if (!delegate.isDirectory(startPath)) {
       throw new IOException("The path " + startPath + " is not accessible. "
@@ -418,7 +420,7 @@ public class FsAdaptor extends AbstractAdaptor implements
           delegate.getShareAclView(activeStorage),
           supportedWindowsAccounts, builtinPrefix, namespace);
       shareAcl = builder.getAcl()
-          .setInheritFrom(newShareAclDocId(DFS_SHARE_ACL, share))
+          .setInheritFrom(delegate.newDocId(share), DFS_SHARE_ACL)
           .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
     } else {
       // For a non-DFS UNC we have only have a share Acl to push.
@@ -441,43 +443,12 @@ public class FsAdaptor extends AbstractAdaptor implements
     log.exiting("FsAdaptor", "getDocIds", pusher);
   }
 
+  // TODO(bmj): Now that getModifiedDocIds() does nothing,
+  // drop the PollingIncrementalLister implementation.
   @Override
   public void getModifiedDocIds(DocIdPusher pusher)
       throws InterruptedException, IOException {
-    log.entering("FsAdaptor", "getModifiedDocIds");
-    for (Path share : pushedShareAcls.keySet()) {
-      pushShareAcls(pusher, share);
-    }
-    log.exiting("FsAdaptor", "getModifiedDocIds", pusher);
-  }
-
-  private void pushShareAcls(DocIdPusher pusher, Path share)
-      throws InterruptedException, IOException {
-    ShareAcls shareAcls = readShareAcls(share);
-    ShareAcls lastPushedShareAcls = pushedShareAcls.get(share);
-    Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
-    if ((shareAcls.dfsShareAcl != null) &&
-        !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl)) {
-      DocId dfsShareAclDocid = newShareAclDocId(DFS_SHARE_ACL, share);
-      namedResources.put(dfsShareAclDocid, shareAcls.dfsShareAcl);
-    }
-    if (!shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl)) {
-      DocId shareAclDocid = newShareAclDocId(SHARE_ACL, share);
-      namedResources.put(shareAclDocid, shareAcls.shareAcl);
-    }
-    if (namedResources.size() > 0) {
-      pusher.pushNamedResources(namedResources);
-      pushedShareAcls.put(share, shareAcls);
-    }
-  }
-
-  private DocId newShareAclDocId(String fragment, Path share) {
-    // The pusher does not support fragments in named resources.
-    // Feed a DocId that is just the fragment to avoid
-    // collisions with the share docid.
-    // TODO(bmj): Generate a unique docid from the fragment and the
-    // share that does not collide with the share docid.
-    return new DocId(fragment);
+    // Do nothing. Modified files are fed by the monitor.
   }
 
   @Override
@@ -563,68 +534,88 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     // TODO(mifern): Include extended attributes.
 
-    if (doc.equals(rootPath)) {
-      ShareAcls shareAcls = readShareAcls(doc);
-      if (shareAcls.dfsShareAcl != null) {
-        DocId dfsShareAclDocid = newShareAclDocId(DFS_SHARE_ACL, doc);
-        resp.putNamedResource(dfsShareAclDocid.getUniqueId(),
-                              shareAcls.dfsShareAcl);
-      }
-      DocId shareAclDocid = newShareAclDocId(SHARE_ACL, doc);
-      resp.putNamedResource(shareAclDocid.getUniqueId(), shareAcls.shareAcl);
-      pushedShareAcls.put(doc, shareAcls);
-    }
-
-    // Populate the document ACL.
-    getFileAcls(doc, resp);
-
-    // Populate the document content.
-    if (docIsDirectory) {
-      getDirectoryContent(doc, id, resp);
+    if (delegate.isDfsRoot(doc)) {
+      // Enumerate links in a namespace.
+      getDfsNamespaceContent(doc, id, resp);
     } else {
-      getFileContent(doc, lastAccessTime, resp);
+      // If we are at the root of a filesystem or share point, supply the
+      // SHARE ACL. If it is a DFS Link, also include the DFS SHARE ACL.
+      if (doc.equals(rootPath) || delegate.isDfsLink(doc)) {
+        ShareAcls shareAcls = readShareAcls(doc);
+        if (shareAcls.dfsShareAcl != null) {
+          resp.putNamedResource(DFS_SHARE_ACL, shareAcls.dfsShareAcl);
+        }
+        resp.putNamedResource(SHARE_ACL, shareAcls.shareAcl);
+
+        if (monitorForUpdates) {
+          delegate.startMonitorPath(doc, context.getAsyncDocIdPusher());
+        }
+      }
+
+      // Populate the document filesystem ACL.
+      getFileAcls(doc, resp);
+
+      // Populate the document content.
+      if (docIsDirectory) {
+        getDirectoryContent(doc, id, resp);
+      } else {
+        getFileContent(doc, lastAccessTime, resp);
+      }
     }
     log.exiting("FsAdaptor", "getDocContent");
   }
 
+  /* Returns the parent of a Path, or its root if it has no parent. */
+  private Path getParent(Path path) throws IOException {
+    Path parent = path.getParent();
+    return (parent == null) ? path.getRoot() : parent;
+  }
+
   /* Populate the document ACL in the response. */
   private void getFileAcls(Path doc, Response resp) throws IOException {
-    final boolean isRoot = doc.equals(rootPath);
+    final boolean isRoot = doc.equals(rootPath) || delegate.isDfsLink(doc);
     final boolean isDirectory = delegate.isDirectory(doc);
-
-    DocId parentDocId = null;
-    if (!isRoot) {
-      final Path parent = doc.getParent();
-      if (parent == null) {
-        throw new IOException("Unable to get the parent of " + doc);
-      }
-      parentDocId = delegate.newDocId(parent);
-    }
-
-    DocId shareAclDocId;
     AclFileAttributeViews aclViews = delegate.getAclViews(doc);
     boolean hasNoInheritedAcl =
         aclViews.getInheritedAclView().getAcl().isEmpty();
+
+    Path inheritFrom;
+    if (isRoot) {
+      // Roots will inherit from their own share ACLs.
+      inheritFrom = doc;
+    } else if (hasNoInheritedAcl) {
+      // Files and folders that do not inherit permissions from their parent
+      // inherit directly from the share ACL.
+      for (inheritFrom = doc;
+           !(inheritFrom.equals(rootPath) || delegate.isDfsLink(inheritFrom));
+           inheritFrom = inheritFrom.getParent());
+    } else {
+      // All others inherit permissions from their parent.
+      inheritFrom = getParent(doc);
+    }
+    if (inheritFrom == null) {
+      throw new IOException("Unable to determine inherited ACL for " + doc);
+    }
+    DocId inheritFromDocId = delegate.newDocId(inheritFrom);
+
     AclBuilder builder;
     Acl acl;
     if (isRoot || hasNoInheritedAcl) {
-      shareAclDocId = newShareAclDocId(SHARE_ACL, rootPath);
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      acl = builder.getAcl().setInheritFrom(shareAclDocId)
+      acl = builder.getAcl().setInheritFrom(inheritFromDocId, SHARE_ACL)
           .setInheritanceType(isDirectory ? InheritanceType.CHILD_OVERRIDES
                               : InheritanceType.LEAF_NODE).build();
     } else {
-      shareAclDocId = null;
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       if (isDirectory) {
         acl = builder.getAcl()
-            .setInheritFrom(parentDocId, CHILD_FOLDER_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, CHILD_FOLDER_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
       } else {
         acl = builder.getAcl()
-            .setInheritFrom(parentDocId, CHILD_FILE_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, CHILD_FILE_INHERIT_ACL)
             .setInheritanceType(InheritanceType.LEAF_NODE).build();
       }
     }
@@ -637,39 +628,58 @@ public class FsAdaptor extends AbstractAdaptor implements
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
             builder.getInheritableByAllDescendentFoldersAcl()
-            .setInheritFrom(shareAclDocId)
+            .setInheritFrom(inheritFromDocId, SHARE_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
             builder.getInheritableByAllDescendentFilesAcl()
-            .setInheritFrom(shareAclDocId)
+            .setInheritFrom(inheritFromDocId, SHARE_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
             builder.getInheritableByChildFoldersOnlyAcl()
-            .setInheritFrom(shareAclDocId)
+            .setInheritFrom(inheritFromDocId, SHARE_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
             builder.getInheritableByChildFilesOnlyAcl()
-            .setInheritFrom(shareAclDocId)
+            .setInheritFrom(inheritFromDocId, SHARE_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
             builder.getInheritableByAllDescendentFoldersAcl()
-            .setInheritFrom(parentDocId, ALL_FOLDER_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, ALL_FOLDER_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
             builder.getInheritableByAllDescendentFilesAcl()
-            .setInheritFrom(parentDocId, ALL_FILE_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, ALL_FILE_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
             builder.getInheritableByChildFoldersOnlyAcl()
-            .setInheritFrom(parentDocId, ALL_FOLDER_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, ALL_FOLDER_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
             builder.getInheritableByChildFilesOnlyAcl()
-            .setInheritFrom(parentDocId, ALL_FILE_INHERIT_ACL)
+            .setInheritFrom(inheritFromDocId, ALL_FILE_INHERIT_ACL)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       }
     }
+  }
+
+  /* Adds HTML content of links to the DFS namespace's links to the response. */
+  private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
+      throws IOException {
+    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
+    writer.start(docid, getFileName(doc));
+    for (Path link : delegate.enumerateDfsLinks(doc)) {
+      DocId docId;
+      try {
+        docId = delegate.newDocId(link);
+      } catch (IllegalArgumentException e) {
+        log.log(Level.WARNING, "Skipping {0} because {1}.",
+                new Object[] { doc, e.getMessage() });
+        continue;
+      }
+      writer.addLink(docId, getFileName(link));
+    }
+    writer.finish();
   }
 
   /* Adds HTML content of links to the directory's contents to the response. */
@@ -753,7 +763,7 @@ public class FsAdaptor extends AbstractAdaptor implements
    */
   @VisibleForTesting
   boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
-    for (Path file = doc; file != null; file = file.getParent()) {
+    for (Path file = doc; file != null; file = getParent(file)) {
       if (!crawlHiddenFiles && delegate.isHidden(file)) {
         if (doc.equals(file)) {
           log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
