@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -105,16 +106,17 @@ public class FsAdaptor extends AbstractAdaptor implements
   private static final String CONFIG_LAST_MODIFIED_DATE =
       "filesystemadaptor.lastModifiedDate";
 
+  /** Fragements used for creating the inherited ACL named resources. */
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
   private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
   private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
   private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
 
-  /** DocId for the DFS share ACL named resource. */
-  private static final DocId DFS_SHARE_ACL_DOCID = new DocId("dfsShareAcl");
+  /** Fragement used for creating the DFS share ACL named resource. */
+  private static final String DFS_SHARE_ACL = "dfsShareAcl";
 
-  /** DocId for the share ACL named resource. */
-  private static final DocId SHARE_ACL_DOCID = new DocId("shareAcl");
+  /** Fragement used for creating the share ACL named resource. */
+  private static final String SHARE_ACL = "shareAcl";
 
   /** The config option that forces us to ignore the share ACL. */
   private static final String CONFIG_SKIP_SHARE_ACL = 
@@ -167,8 +169,10 @@ public class FsAdaptor extends AbstractAdaptor implements
   private DocId rootPathDocId;
   private FileDelegate delegate;
   private boolean skipShareAcl;
-  private ShareAcls lastPushedShareAcls = null;
   private boolean monitorForUpdates;
+
+  private Map<Path, ShareAcls> pushedShareAcls =
+      new ConcurrentHashMap<Path, ShareAcls>();
 
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
@@ -267,7 +271,7 @@ public class FsAdaptor extends AbstractAdaptor implements
         throw new InvalidConfigurationException(
             "Only root paths are supported. Use a path such as C:\\ or "
             + "X:\\ or \\\\host\\share. Additionally, you can specify a "
-            + "DFS link path of the form \\\\host\\ns\\link.");
+            + "DFS link path of the form \\\\host\\namespace\\link.");
       }
       log.log(Level.INFO, "Using a non-DFS path.");
     }
@@ -322,7 +326,7 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     // Verify that the adaptor has permission to read the Acl and share Acl.
     try {
-      readShareAcls();
+      readShareAcls(rootPath);
       delegate.getAclViews(rootPath);
     } catch (IOException e) {
       throw new IOException("Unable to read ACLs for " + rootPath
@@ -381,7 +385,7 @@ public class FsAdaptor extends AbstractAdaptor implements
     }
   }
 
-  private ShareAcls readShareAcls() throws IOException {
+  private ShareAcls readShareAcls(Path share) throws IOException {
     Acl shareAcl;
     Acl dfsShareAcl;
 
@@ -390,21 +394,19 @@ public class FsAdaptor extends AbstractAdaptor implements
       dfsShareAcl = null;
       shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
           .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
-    } else if (isDfsUnc) {
+    } else if (delegate.isDfsLink(share)) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
-      // TODO(mifern): This assumes that rootPath is a DFS link since it calls
-      // getParent determine the DFS namespace UNC path.
-      AclBuilder builder = new AclBuilder(rootPath,
-          delegate.getDfsShareAclView(rootPath),
+      AclBuilder builder = new AclBuilder(share,
+          delegate.getDfsShareAclView(share),
           supportedWindowsAccounts, builtinPrefix, namespace);
       dfsShareAcl = builder.getAcl().setInheritanceType(
           InheritanceType.AND_BOTH_PERMIT).build();
 
       // Push the Acl for the active storage UNC path.
-      Path activeStorage = delegate.resolveDfsLink(rootPath);
+      Path activeStorage = delegate.resolveDfsLink(share);
       if (activeStorage == null) {
-        throw new IOException("The DFS path " + rootPath
+        throw new IOException("The DFS path " + share
             + " does not have an active storage.");
       }
 
@@ -412,12 +414,12 @@ public class FsAdaptor extends AbstractAdaptor implements
           delegate.getShareAclView(activeStorage),
           supportedWindowsAccounts, builtinPrefix, namespace);
       shareAcl = builder.getAcl()
-          .setInheritFrom(DFS_SHARE_ACL_DOCID)
+          .setInheritFrom(newShareAclDocId(DFS_SHARE_ACL, share))
           .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
     } else {
       // For a non-DFS UNC we have only have a share Acl to push.
-      AclBuilder builder = new AclBuilder(rootPath,
-          delegate.getShareAclView(rootPath),
+      AclBuilder builder = new AclBuilder(share,
+          delegate.getShareAclView(share),
           supportedWindowsAccounts, builtinPrefix, namespace);
       dfsShareAcl = null;
       shareAcl = builder.getAcl().setInheritanceType(
@@ -432,7 +434,7 @@ public class FsAdaptor extends AbstractAdaptor implements
       IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
-    pushShareAcls(pusher, true);
+    pushShareAcls(pusher, true, rootPath);
     log.exiting("FsAdaptor", "getDocIds", pusher);
   }
 
@@ -440,33 +442,45 @@ public class FsAdaptor extends AbstractAdaptor implements
   public void getModifiedDocIds(DocIdPusher pusher)
       throws InterruptedException, IOException {
     log.entering("FsAdaptor", "getModifiedDocIds");
-    pushShareAcls(pusher, false);
+    for (Path share : pushedShareAcls.keySet()) {
+      pushShareAcls(pusher, false, share);
+    }
     log.exiting("FsAdaptor", "getModifiedDocIds", pusher);
   }
 
-  private synchronized void pushShareAcls(DocIdPusher pusher,
-      boolean forcePush) throws InterruptedException, IOException {
+  private void pushShareAcls(DocIdPusher pusher,
+       boolean forcePush, Path share) throws InterruptedException, IOException {
+    ShareAcls shareAcls = readShareAcls(share);
+    ShareAcls lastPushedShareAcls = pushedShareAcls.get(share);
+
     // The share Acls may not have been pushed yet. So if lastPushedShareAcls
     // is null, we want to force a push if there are any share Acls.
     forcePush = forcePush || (lastPushedShareAcls == null);
 
-    // The pusher does not support fragments in named resources.
-    // Feed a DocId that is just the SHARE_ACL fragment to avoid
-    // collisions with the root docid.
-    ShareAcls shareAcls = readShareAcls();
     Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
     if ((shareAcls.dfsShareAcl != null) && (forcePush
         || !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
-      namedResources.put(DFS_SHARE_ACL_DOCID, shareAcls.dfsShareAcl);
+      DocId dfsShareAclDocid = newShareAclDocId(DFS_SHARE_ACL, share);
+      namedResources.put(dfsShareAclDocid, shareAcls.dfsShareAcl);
     }
     if ((shareAcls.shareAcl != null) && (forcePush
         || !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
-      namedResources.put(SHARE_ACL_DOCID, shareAcls.shareAcl);
+      DocId shareAclDocid = newShareAclDocId(SHARE_ACL, share);
+      namedResources.put(shareAclDocid, shareAcls.shareAcl);
     }
     if (namedResources.size() > 0) {
       pusher.pushNamedResources(namedResources);
-      lastPushedShareAcls = shareAcls;
+      pushedShareAcls.put(share, shareAcls);
     }
+  }
+
+  private DocId newShareAclDocId(String fragment, Path share) {
+    // The pusher does not support fragments in named resources.
+    // Feed a DocId that is just the fragment to avoid
+    // collisions with the share docid.
+    // TODO(bmj): Generate a unique docid from the fragment and the
+    // share that does not collide with the share docid.
+    return new DocId(fragment);
   }
 
   @Override
@@ -578,18 +592,21 @@ public class FsAdaptor extends AbstractAdaptor implements
       parentDocId = delegate.newDocId(parent);
     }
 
+    DocId shareAclDocId;
     AclFileAttributeViews aclViews = delegate.getAclViews(doc);
     boolean hasNoInheritedAcl =
         aclViews.getInheritedAclView().getAcl().isEmpty();
     AclBuilder builder;
     Acl acl;
     if (isRoot || hasNoInheritedAcl) {
+      shareAclDocId = newShareAclDocId(SHARE_ACL, rootPath);
       builder = new AclBuilder(doc, aclViews.getCombinedAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      acl = builder.getAcl().setInheritFrom(SHARE_ACL_DOCID)
+      acl = builder.getAcl().setInheritFrom(shareAclDocId)
           .setInheritanceType(isDirectory ? InheritanceType.CHILD_OVERRIDES
                               : InheritanceType.LEAF_NODE).build();
     } else {
+      shareAclDocId = null;
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       if (isDirectory) {
@@ -611,19 +628,19 @@ public class FsAdaptor extends AbstractAdaptor implements
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
             builder.getInheritableByAllDescendentFoldersAcl()
-            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritFrom(shareAclDocId)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(ALL_FILE_INHERIT_ACL,
             builder.getInheritableByAllDescendentFilesAcl()
-            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritFrom(shareAclDocId)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FOLDER_INHERIT_ACL,
             builder.getInheritableByChildFoldersOnlyAcl()
-            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritFrom(shareAclDocId)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
         resp.putNamedResource(CHILD_FILE_INHERIT_ACL,
             builder.getInheritableByChildFilesOnlyAcl()
-            .setInheritFrom(SHARE_ACL_DOCID)
+            .setInheritFrom(shareAclDocId)
             .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build());
       } else {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
