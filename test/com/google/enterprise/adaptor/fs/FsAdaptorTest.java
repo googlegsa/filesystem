@@ -66,7 +66,14 @@ public class FsAdaptorTest {
 
   static final String ROOT = "/";
   static final Path rootPath = Paths.get(ROOT);
-  static final DocId shareAclDocId = new DocId("shareAcl");
+  static final String DFS_SHARE_ACL = "dfsShareAcl";
+  static final DocId dfsShareAclDocId = new DocId(DFS_SHARE_ACL);
+  static final String SHARE_ACL = "shareAcl";
+  static final DocId shareAclDocId = new DocId(SHARE_ACL);
+  static final Acl defaultShareAcl = new Acl.Builder()
+      .setEverythingCaseInsensitive()
+      .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+      .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
 
   private final Set<String> windowsAccounts = ImmutableSet.of(
       "BUILTIN\\Administrators", "Everyone", "BUILTIN\\Users",
@@ -133,6 +140,7 @@ public class FsAdaptorTest {
 
   @Test
   public void testAdaptorInitDfsLink() throws Exception {
+    root.setIsDfsLink(true);
     root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
@@ -268,20 +276,16 @@ public class FsAdaptorTest {
     List<Record> records = pusher.getRecords();
     assertEquals(1, records.size());
     assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
-
-    // We should have pushed an acl for the share.
+    
+    // We no longer push the share ACL in getDocIds.
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
-    Acl expected = new Acl.Builder().setEverythingCaseInsensitive()
-        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
-        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
-    assertEquals(1, namedResources.size());
-    assertEquals(1, namedResources.get(0).size());
-    assertEquals(expected, namedResources.get(0).get(shareAclDocId));
+    assertEquals(0, namedResources.size());
   }
 
   @Test
   public void testGetDocIdsDfs() throws Exception {
     Path uncPath = Paths.get("\\\\dfshost\\share");
+    root.setIsDfsLink(true);
     root.setDfsActiveStorage(uncPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
@@ -292,75 +296,9 @@ public class FsAdaptorTest {
     assertEquals(1, records.size());
     assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
 
-    // We should have pushed acls for the share and the dfsShare.
+    // We no longer push the share ACLs in getDocIds.
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
-    DocId dfsShareAcl = new DocId("dfsShareAcl");
-    Acl expectedDfsShareAcl = new Acl.Builder().setEverythingCaseInsensitive()
-        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
-        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
-    Acl expectedShareAcl = new Acl.Builder(expectedDfsShareAcl)
-        .setInheritFrom(dfsShareAcl).build();
-    assertEquals(1, namedResources.size());
-    Map<DocId, Acl> acls = namedResources.get(0);
-    assertEquals(2, acls.size());
-    assertEquals(expectedDfsShareAcl, acls.get(dfsShareAcl));
-    assertEquals(expectedShareAcl, acls.get(shareAclDocId));
-  }
-
-  @Test
-  public void testGetDocIdsSkipShareAcl() throws Exception {
-    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
-    adaptor.init(context);
-    adaptor.getDocIds(pusher);
-
-    // We should just push the root docid.
-    List<Record> records = pusher.getRecords();
-    assertEquals(1, records.size());
-    assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
-
-    // We should have pushed an empty, child-overrides ACL for the share.
-    List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
-    Acl expected = new Acl.Builder().setEverythingCaseInsensitive()
-        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
-    assertEquals(1, namedResources.size());
-    assertEquals(1, namedResources.get(0).size());
-    assertEquals(expected, namedResources.get(0).get(shareAclDocId));
-  }
-
-  @Test
-  public void testGetDocIdsDfsSkipShareAcls() throws Exception {
-    Path uncPath = Paths.get("\\\\dfshost\\share");
-    root.setDfsActiveStorage(uncPath);
-    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
-    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
-    adaptor.init(context);
-    adaptor.getDocIds(pusher);
-
-    // We should just push the root docid.
-    List<Record> records = pusher.getRecords();
-    assertEquals(1, records.size());
-    assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
-
-    // We should have pushed an empty, child-overrides ACL for the share.
-    List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
-    Acl expected = new Acl.Builder().setEverythingCaseInsensitive()
-        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
-    assertEquals(1, namedResources.size());
-    assertEquals(1, namedResources.get(0).size());
-    assertEquals(expected, namedResources.get(0).get(shareAclDocId));
-  }
-
-  @Test
-  public void testGetDocIdsBrokenDfs() throws Exception {
-    Path uncPath = Paths.get("\\\\dfshost\\share");
-    root.setDfsActiveStorage(uncPath);
-    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
-    adaptor.init(context);
-
-    // Now make the active storage disappear.
-    root.setDfsActiveStorage(null);
-    thrown.expect(IOException.class);
-    adaptor.getDocIds(pusher);
+    assertEquals(0, namedResources.size());
   }
 
   @Test
@@ -388,6 +326,20 @@ public class FsAdaptorTest {
     // The requested DocId is missing the root component of the path.
     adaptor.getDocContent(new MockRequest(new DocId("badfile")), response);
     assertTrue(response.notFound);
+  }
+
+  @Test
+  public void testGetDocContentBrokenDfs() throws Exception {
+    root.setIsDfsLink(true);
+    root.setDfsActiveStorage(Paths.get("\\\\host\\share"));
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    adaptor.init(context);
+
+    // Now make the active storage disappear.
+    root.setDfsActiveStorage(null);
+    MockResponse response = new MockResponse();
+    thrown.expect(IOException.class);
+    adaptor.getDocContent(new MockRequest(rootDocId), response);
   }
 
   @Test
@@ -673,6 +625,96 @@ public class FsAdaptorTest {
         .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
         .setInheritFrom(shareAclDocId).build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
+        SHARE_ACL, defaultShareAcl,
+        "allFoldersAcl", expectedAcl,
+        "allFilesAcl", expectedAcl,
+        "childFoldersAcl", expectedAcl,
+        "childFilesAcl", expectedAcl);
+    testGetDocContentAcls(rootPath, expectedAcl, expectedResources);
+  }
+
+  @Test
+  public void testGetDocContentDfsRootAcls() throws Exception {
+    AclFileAttributeView dfsAclView = new AclView(
+        group("EVERYBODY").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    AclFileAttributeView shareAclView = new AclView(
+        group("Everyone").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    root.setIsDfsLink(true);
+    root.setDfsActiveStorage(Paths.get("\\\\host\\share"));
+    root.setDfsShareAclView(dfsAclView);
+    root.setShareAclView(shareAclView);
+
+    Acl expectedDfsShareAcl = new Acl.Builder()
+       .setEverythingCaseInsensitive()
+       .setPermitGroups(Collections.singleton(new GroupPrincipal("EVERYBODY")))
+       .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
+    Acl expectedShareAcl = new Acl.Builder()
+       .setEverythingCaseInsensitive()
+       .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+       .setInheritFrom(dfsShareAclDocId)
+       .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
+
+    Acl expectedAcl = new Acl.Builder().setEverythingCaseInsensitive()
+        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
+        .setInheritFrom(shareAclDocId).build();
+    Map<String, Acl> expectedResources = new ImmutableMap.Builder<String, Acl>()
+        .put(DFS_SHARE_ACL, expectedDfsShareAcl)
+        .put(SHARE_ACL, expectedShareAcl)
+        .put("allFoldersAcl", expectedAcl)
+        .put("allFilesAcl", expectedAcl)
+        .put("childFoldersAcl", expectedAcl)
+        .put("childFilesAcl", expectedAcl).build();
+    testGetDocContentAcls(rootPath, expectedAcl, expectedResources);
+  }
+
+
+
+  @Test
+  public void testGetDocContentRootSkipShareAcls() throws Exception {
+    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
+    Acl expectedShareAcl = new Acl.Builder().setEverythingCaseInsensitive()
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    Acl expectedAcl = new Acl.Builder().setEverythingCaseInsensitive()
+        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
+        .setInheritFrom(shareAclDocId).build();
+    Map<String, Acl> expectedResources = ImmutableMap.of(
+        // We should have pushed an empty, child-overrides ACL for the share.
+        SHARE_ACL, expectedShareAcl,
+        "allFoldersAcl", expectedAcl,
+        "allFilesAcl", expectedAcl,
+        "childFoldersAcl", expectedAcl,
+        "childFilesAcl", expectedAcl);
+    testGetDocContentAcls(rootPath, expectedAcl, expectedResources);
+  }
+
+  @Test
+  public void testGetDocContentDfsRootSkipShareAcls() throws Exception {
+    config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
+    AclFileAttributeView dfsAclView = new AclView(
+        group("EVERYBODY").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    AclFileAttributeView shareAclView = new AclView(
+        group("Everyone").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+    root.setIsDfsLink(true);
+    root.setDfsActiveStorage(Paths.get("\\\\host\\share"));
+    root.setDfsShareAclView(dfsAclView);
+    root.setShareAclView(shareAclView);
+
+    Acl expectedShareAcl = new Acl.Builder().setEverythingCaseInsensitive()
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    Acl expectedAcl = new Acl.Builder().setEverythingCaseInsensitive()
+        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+        .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
+        .setInheritFrom(shareAclDocId).build();
+
+    Map<String, Acl> expectedResources = ImmutableMap.of(
+        // We should have pushed an empty, child-overrides ACL for the share.
+        SHARE_ACL, expectedShareAcl,
         "allFoldersAcl", expectedAcl,
         "allFilesAcl", expectedAcl,
         "childFoldersAcl", expectedAcl,
@@ -701,6 +743,7 @@ public class FsAdaptorTest {
             new UserPrincipal("Longfellow Deeds")))
         .build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
+        SHARE_ACL, defaultShareAcl,
         "allFoldersAcl", expectedInheritableAcl,
         "allFilesAcl", expectedInheritableAcl,
         "childFoldersAcl", expectedInheritableAcl,
@@ -731,6 +774,7 @@ public class FsAdaptorTest {
     Acl expectedNonChildAcl = new Acl.Builder(expectedAcl)
         .setPermitUsers(Collections.<UserPrincipal>emptySet()).build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
+        SHARE_ACL, defaultShareAcl,
         "allFoldersAcl", expectedNonChildAcl,
         "allFilesAcl", expectedNonChildAcl,
         "childFoldersAcl", expectedAcl,
@@ -758,6 +802,7 @@ public class FsAdaptorTest {
     Acl expectedFolderAcl = new Acl.Builder(expectedAcl)
         .setPermitUsers(Collections.<UserPrincipal>emptySet()).build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
+        SHARE_ACL, defaultShareAcl,
         "allFoldersAcl", expectedFolderAcl,
         "allFilesAcl", expectedAcl,
         "childFoldersAcl", expectedFolderAcl,
@@ -785,6 +830,7 @@ public class FsAdaptorTest {
     Acl expectedFilesAcl = new Acl.Builder(expectedAcl)
         .setPermitUsers(Collections.<UserPrincipal>emptySet()).build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
+        SHARE_ACL, defaultShareAcl,
         "allFoldersAcl", expectedAcl,
         "allFilesAcl", expectedFilesAcl,
         "childFoldersAcl", expectedAcl,
@@ -982,13 +1028,25 @@ public class FsAdaptorTest {
         InheritanceType.AND_BOTH_PERMIT).build();
     root.setShareAclView(aclView);
 
+    // The share ACLs are no longer pushed by getDocIds.
     adaptor.getDocIds(pusher);
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
-    assertEquals(1, namedResources.size());
-    assertEquals(acl, namedResources.get(0).get(shareAclDocId));
+    assertEquals(0, namedResources.size());
 
-    // Clear the pusher and call getModifiedDocIds. Nothing should be
-    // pushed since the share Acl has not changed.
+    // Clear the pusher and call getModifiedDocIds. Since we haven't crawled
+    // the share docid, the share ACL has not been fed yet and getModifiedDocIds
+    // does not know about it.
+    pusher.reset();
+    adaptor.getModifiedDocIds(pusher);
+    namedResources = pusher.getNamedResources();
+    assertEquals(0, namedResources.size());
+
+    // Call getDocContent on the root. This will feed the shareAcl.
+    // (Other tests check that it actually feeds the shareAcl.)
+    // But getModifiedDocIds will see the shareAcl as unchanged.
+    MockRequest request = new MockRequest(delegate.newDocId(rootPath));
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(request, response);
     pusher.reset();
     adaptor.getModifiedDocIds(pusher);
     namedResources = pusher.getNamedResources();
@@ -1041,6 +1099,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitDfsDenyShareAclAccess() throws Exception {
     root = new DenyShareAclAccessMockFile(ROOT, true);
+    root.setIsDfsLink(true);
     root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     delegate = new MockFileDelegate(root);
@@ -1052,6 +1111,7 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitDfsDenyDfsShareAclAccess() throws Exception {
     root = new DenyDfsShareAclAccessMockFile(ROOT, true);
+    root.setIsDfsLink(true);
     root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
     delegate = new MockFileDelegate(root);
     adaptor = new FsAdaptor(delegate);

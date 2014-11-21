@@ -165,7 +165,6 @@ public class FsAdaptor extends AbstractAdaptor implements
 
   private AdaptorContext context;
   private Path rootPath;
-  private boolean isDfsUnc;
   private DocId rootPathDocId;
   private FileDelegate delegate;
   private boolean skipShareAcl;
@@ -255,7 +254,6 @@ public class FsAdaptor extends AbstractAdaptor implements
     if (delegate.isDfsLink(rootPath)) {
       Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
       log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
-      isDfsUnc = true;
     } else if (delegate.isDfsRoot(rootPath)) {
       // TODO(bjohnson): Traverse all the links under the root, although that
       // would require a monitor for each one.
@@ -434,7 +432,6 @@ public class FsAdaptor extends AbstractAdaptor implements
       IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
-    pushShareAcls(pusher, true, rootPath);
     log.exiting("FsAdaptor", "getDocIds", pusher);
   }
 
@@ -443,28 +440,22 @@ public class FsAdaptor extends AbstractAdaptor implements
       throws InterruptedException, IOException {
     log.entering("FsAdaptor", "getModifiedDocIds");
     for (Path share : pushedShareAcls.keySet()) {
-      pushShareAcls(pusher, false, share);
+      pushShareAcls(pusher, share);
     }
     log.exiting("FsAdaptor", "getModifiedDocIds", pusher);
   }
 
-  private void pushShareAcls(DocIdPusher pusher,
-       boolean forcePush, Path share) throws InterruptedException, IOException {
+  private void pushShareAcls(DocIdPusher pusher, Path share)
+      throws InterruptedException, IOException {
     ShareAcls shareAcls = readShareAcls(share);
     ShareAcls lastPushedShareAcls = pushedShareAcls.get(share);
-
-    // The share Acls may not have been pushed yet. So if lastPushedShareAcls
-    // is null, we want to force a push if there are any share Acls.
-    forcePush = forcePush || (lastPushedShareAcls == null);
-
     Map<DocId, Acl> namedResources = new HashMap<DocId, Acl>();
-    if ((shareAcls.dfsShareAcl != null) && (forcePush
-        || !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl))) {
+    if ((shareAcls.dfsShareAcl != null) &&
+        !shareAcls.dfsShareAcl.equals(lastPushedShareAcls.dfsShareAcl)) {
       DocId dfsShareAclDocid = newShareAclDocId(DFS_SHARE_ACL, share);
       namedResources.put(dfsShareAclDocid, shareAcls.dfsShareAcl);
     }
-    if ((shareAcls.shareAcl != null) && (forcePush
-        || !shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl))) {
+    if (!shareAcls.shareAcl.equals(lastPushedShareAcls.shareAcl)) {
       DocId shareAclDocid = newShareAclDocId(SHARE_ACL, share);
       namedResources.put(shareAclDocid, shareAcls.shareAcl);
     }
@@ -565,6 +556,18 @@ public class FsAdaptor extends AbstractAdaptor implements
         new Date(attrs.creationTime().toMillis())));
 
     // TODO(mifern): Include extended attributes.
+
+    if (doc.equals(rootPath)) {
+      ShareAcls shareAcls = readShareAcls(doc);
+      if (shareAcls.dfsShareAcl != null) {
+        DocId dfsShareAclDocid = newShareAclDocId(DFS_SHARE_ACL, doc);
+        resp.putNamedResource(dfsShareAclDocid.getUniqueId(),
+                              shareAcls.dfsShareAcl);
+      }
+      DocId shareAclDocid = newShareAclDocId(SHARE_ACL, doc);
+      resp.putNamedResource(shareAclDocid.getUniqueId(), shareAcls.shareAcl);
+      pushedShareAcls.put(doc, shareAcls);
+    }
 
     // Populate the document ACL.
     getFileAcls(doc, resp);
@@ -771,8 +774,6 @@ public class FsAdaptor extends AbstractAdaptor implements
 
     public ShareAcls(Acl shareAcl, Acl dfsShareAcl) {
       Preconditions.checkNotNull(shareAcl, "the share Acl may not be null");
-      Preconditions.checkArgument(skipShareAcl || !isDfsUnc 
-          || (dfsShareAcl != null), "the DFS share Acl may not be null");
       this.shareAcl = shareAcl;
       this.dfsShareAcl = dfsShareAcl;
     }
