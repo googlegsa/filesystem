@@ -236,6 +236,40 @@ public class FsAdaptor extends AbstractAdaptor implements
     rootPath = delegate.getPath(source);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
+    builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
+    log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
+
+    namespace = context.getConfig().getValue(CONFIG_NAMESPACE);
+    log.log(Level.CONFIG, "namespace: {0}", namespace);
+
+    String accountsStr =
+        context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
+    supportedWindowsAccounts = Collections.unmodifiableSet(Sets.newHashSet(
+        Splitter.on(',').trimResults().split(accountsStr)));
+    log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
+        supportedWindowsAccounts);
+
+    crawlHiddenFiles = Boolean.parseBoolean(
+        context.getConfig().getValue(CONFIG_CRAWL_HIDDEN_FILES));
+    log.log(Level.CONFIG, "crawlHiddenFiles: {0}",
+        crawlHiddenFiles);
+    if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
+      throw new InvalidConfigurationException("The path " + rootPath + " is "
+          + "hidden. To crawl hidden content, you must set the configuration "
+          + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
+    }
+
+    // The Administrator may bypass Share access control.
+    skipShareAcl = Boolean.parseBoolean(
+        context.getConfig().getValue(CONFIG_SKIP_SHARE_ACL));
+    log.log(Level.CONFIG, "skipShareAcl: {0}", skipShareAcl);
+
+    // Add filters that may exclude older content.
+    lastAccessTimeFilter = getFileTimeFilter(context.getConfig(),
+        CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
+    lastModifiedTimeFilter = getFileTimeFilter(context.getConfig(),
+        CONFIG_LAST_MODIFIED_DAYS, CONFIG_LAST_MODIFIED_DATE);
+
     monitorForUpdates = Boolean.parseBoolean(
         context.getConfig().getValue("filesystemadaptor.monitorForUpdates"));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
@@ -273,66 +307,9 @@ public class FsAdaptor extends AbstractAdaptor implements
       }
       log.log(Level.INFO, "Using a non-DFS path.");
     }
-    if (!delegate.isDirectory(rootPath)) {
-      throw new IOException("The path " + rootPath + " is not accessible. "
-          + "The path does not exist, or it is not a directory, or it is not "
-          + "shared, or its hosting file server is currently unavailable.");
-    }
 
-    // Verify that the adaptor has permission to read the contents of the root.
-    try {
-      delegate.newDirectoryStream(rootPath).close();
-    } catch (AccessDeniedException e) {
-      throw new IOException("Unable to list the contents of " + rootPath
-          + ". This can happen if the Windows account used to crawl "
-          + "the path does not have sufficient permissions.", e);
-    }
-
-    builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
-    log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
-
-    namespace = context.getConfig().getValue(CONFIG_NAMESPACE);
-    log.log(Level.CONFIG, "namespace: {0}", namespace);
-
-    String accountsStr =
-        context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
-    supportedWindowsAccounts = Collections.unmodifiableSet(Sets.newHashSet(
-        Splitter.on(',').trimResults().split(accountsStr)));
-    log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
-        supportedWindowsAccounts);
-
-    crawlHiddenFiles = Boolean.parseBoolean(
-        context.getConfig().getValue(CONFIG_CRAWL_HIDDEN_FILES));
-    log.log(Level.CONFIG, "crawlHiddenFiles: {0}",
-        crawlHiddenFiles);
-    if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
-      throw new InvalidConfigurationException("The path " + rootPath + " is "
-          + "hidden. To crawl hidden content, you must set the configuration "
-          + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
-    }
-
-    // The Administrator may bypass Share access control.
-    skipShareAcl = Boolean.parseBoolean(
-        context.getConfig().getValue(CONFIG_SKIP_SHARE_ACL));
-    log.log(Level.CONFIG, "skipShareAcl: {0}", skipShareAcl);
-
-    // Add filters that may exclude older content.
-    lastAccessTimeFilter = getFileTimeFilter(context.getConfig(),
-        CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
-    lastModifiedTimeFilter = getFileTimeFilter(context.getConfig(),
-        CONFIG_LAST_MODIFIED_DAYS, CONFIG_LAST_MODIFIED_DATE);
-
-    // Verify that the adaptor has permission to read the Acl and share Acl.
-    try {
-      readShareAcls(rootPath);
-      delegate.getAclViews(rootPath);
-    } catch (IOException e) {
-      throw new IOException("Unable to read ACLs for " + rootPath
-          + ". This can happen if the Windows account used to crawl "
-          + "the path does not have sufficient permissions. A Windows "
-          + "account with sufficient permissions to read content, "
-          + "attributes and ACLs is required to crawl a path.", e);
-    }
+    // Verify the rootPath is available, and we have access to it.
+    validateStartPath(rootPath);
 
     if (monitorForUpdates) {
       delegate.startMonitorPath(rootPath, context.getAsyncDocIdPusher());
@@ -343,6 +320,35 @@ public class FsAdaptor extends AbstractAdaptor implements
   @Override
   public void destroy() {
     delegate.destroy();
+  }
+
+  private void validateStartPath(Path startPath) throws IOException {
+    if (!delegate.isDirectory(startPath)) {
+      throw new IOException("The path " + startPath + " is not accessible. "
+          + "The path does not exist, or it is not a directory, or it is not "
+          + "shared, or its hosting file server is currently unavailable.");
+    }
+
+    // Verify that the adaptor has permission to read the contents of the root.
+    try {
+      delegate.newDirectoryStream(startPath).close();
+    } catch (AccessDeniedException e) {
+      throw new IOException("Unable to list the contents of " + startPath
+          + ". This can happen if the Windows account used to crawl "
+          + "the path does not have sufficient permissions.", e);
+    }
+
+    // Verify that the adaptor has permission to read the Acl and share Acl.
+    try {
+      readShareAcls(startPath);
+      delegate.getAclViews(startPath);
+    } catch (IOException e) {
+      throw new IOException("Unable to read ACLs for " + startPath
+          + ". This can happen if the Windows account used to crawl "
+          + "the path does not have sufficient permissions. A Windows "
+          + "account with sufficient permissions to read content, "
+          + "attributes and ACLs is required to crawl a path.", e);
+    }
   }
 
   private FileTimeFilter getFileTimeFilter(Config config, String configDaysKey,
