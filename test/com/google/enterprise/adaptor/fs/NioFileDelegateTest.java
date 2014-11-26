@@ -216,11 +216,6 @@ public class NioFileDelegateTest {
     }
       
     @Override
-    public void stopMonitorPath() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
     public AclFileAttributeViews getAclViews(Path doc) throws IOException {
       throw new UnsupportedOperationException();
     }

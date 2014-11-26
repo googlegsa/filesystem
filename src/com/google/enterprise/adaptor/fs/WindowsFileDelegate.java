@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
@@ -57,8 +58,8 @@ class WindowsFileDelegate extends NioFileDelegate {
   private final Netapi32Ex netapi32;
   private final WindowsAclFileAttributeViews aclViews;
 
-  private MonitorThread monitorThread;
-  private final Object monitorThreadLock = new Object();
+  private HashMap<Path, MonitorThread>monitors =
+      new HashMap<Path, MonitorThread>();
 
   public WindowsFileDelegate() {
     this(Kernel32Ex.INSTANCE, Netapi32Ex.INSTANCE,
@@ -299,8 +300,6 @@ class WindowsFileDelegate extends NioFileDelegate {
   @Override
   public void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher)
       throws IOException {
-    // Stop the current running monitor thread.
-    stopMonitorPath();
 
     if (!Files.isDirectory(watchPath, LinkOption.NOFOLLOW_LINKS)) {
       throw new IOException("Could not monitor " + watchPath
@@ -308,9 +307,15 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
 
     CountDownLatch startSignal = new CountDownLatch(1);
-    synchronized (monitorThreadLock) {
+    synchronized (monitors) {
+      MonitorThread monitorThread = monitors.remove(watchPath);
+      // Stop the current running monitor thread.
+      if (monitorThread != null) {
+        monitorThread.shutdown();
+      }
       monitorThread = new MonitorThread(watchPath, pusher, startSignal);
       monitorThread.start();
+      monitors.put(watchPath, monitorThread);
     }
     // Wait for the monitor thread to start watching filesystem.
     try {
@@ -320,13 +325,12 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
   }
 
-  @Override
-  public void stopMonitorPath() {
-    synchronized (monitorThreadLock) {
-      if (monitorThread != null) {
+  private void stopMonitorPaths() {
+    synchronized (monitors) {
+      for (MonitorThread monitorThread : monitors.values()) {
         monitorThread.shutdown();
-        monitorThread = null;
       }
+      monitors.clear();
     }
   }
 
@@ -542,6 +546,6 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public void destroy() {
-    stopMonitorPath();
+    stopMonitorPaths();
   }
 }

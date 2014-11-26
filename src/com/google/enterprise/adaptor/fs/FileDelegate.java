@@ -32,6 +32,7 @@ interface FileDelegate {
    *
    * @param pathname the path string
    * @return the real Path
+   * @throws IOException
    */
   Path getPath(String pathname) throws IOException;
 
@@ -65,6 +66,7 @@ interface FileDelegate {
    *
    * @param doc the file/folder to set the last accessed time on
    * @param time the last access time
+   * @throws IOException
    */
   void setLastAccessTime(Path doc, FileTime time) throws IOException;
 
@@ -74,6 +76,7 @@ interface FileDelegate {
    * @param doc the file to get the content type
    * @return the content type of the file, or {@code null} if the
    * content type cannot be determined
+   * @throws IOException
    */
   String probeContentType(Path doc) throws IOException;
    
@@ -82,6 +85,7 @@ interface FileDelegate {
    *
    * @param doc the file to read
    * @return an InputStream to read the file contents
+   * @throws IOException
    */
   InputStream newInputStream(Path doc) throws IOException;
 
@@ -90,6 +94,7 @@ interface FileDelegate {
    *
    * @param doc the directory to list
    * @return an DirectoryStream to read the directory entries
+   * @throws IOException
    */
   DirectoryStream<Path> newDirectoryStream(Path doc) throws IOException;
 
@@ -100,6 +105,7 @@ interface FileDelegate {
    *
    * @param doc a UNC Path that may be a DFS root or DFS link
    * @returns {@code true} if the path is a DFS root, {@code false} otherwise
+   * @throws IOException
    */
   boolean isDfsRoot(Path doc) throws IOException;
 
@@ -110,6 +116,7 @@ interface FileDelegate {
    *
    * @param doc a UNC Path that may be a DFS root or DFS link
    * @returns {@code true} if the path is a DFS link, {@code false} otherwise
+   * @throws IOException
    */
   boolean isDfsLink(Path doc) throws IOException;
 
@@ -122,6 +129,7 @@ interface FileDelegate {
    * @param doc the DFS UNC path to get the storage for
    * @returns the backing storage path, or {@code null} if doc is not a
    *     DFS link path
+   * @throws IOException
    */
   Path resolveDfsLink(Path doc) throws IOException;
 
@@ -139,6 +147,7 @@ interface FileDelegate {
    * specified path.
    *
    * @param doc The file/folder to get the {@link AclFileAttributeView} for.
+   * @throws IOException
    */
   AclFileAttributeView getShareAclView(Path doc) throws IOException;
 
@@ -147,21 +156,40 @@ interface FileDelegate {
    * specified DFS namespace.
    *
    * @param doc A DFS namespace to get the {@link AclFileAttributeView} for.
+   * @throws IOException
    */
   AclFileAttributeView getDfsShareAclView(Path doc) throws IOException;
 
   /**
-   * Creates a new {@link DocId}.
+   * Creates a new {@link DocId} for the supplied file or folder.
    *
    * @param doc The file/folder to get the {@link DocId} for.
    * @throws IOException
    */
   DocId newDocId(Path doc) throws IOException;
 
+  /**
+   * Start monitoring the file system identified by {@code watchPath} for
+   * changes. Changes include creating, deleting, modifying, renaming, or 
+   * moving files or folders, as well as changes to certain metadata and ACLs.
+   * The {@link DocId} of each file or folder experiencing changes is pushed
+   * to the GSA via the supplied {@code pusher}.
+   *
+   * Multiple file system monitors may be created by calling this method
+   * with different watchPaths. If a the supplied {@code watchPath} is already
+   * being monitored, a new monitor is not created.
+   *
+   * @param watchPath root of a directory tree to monitor for changes
+   * @param pusher an {@link AsyncDocIdPusher} that recieves the DocIds for
+   *        changed files and folders.
+   * @throws IOException
+   */
   void startMonitorPath(Path watchPath, AsyncDocIdPusher pusher)
       throws IOException;
 
-  void stopMonitorPath();
-
+  /**
+   * Shut down the {@code FileDelegate}, releasing its resources, and
+   * terminating any file system change monitors.
+   */
   void destroy();
 }

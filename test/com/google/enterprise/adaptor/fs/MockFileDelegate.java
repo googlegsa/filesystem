@@ -183,12 +183,6 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public void stopMonitorPath() {
-    // TODO (bmj): implementation
-  }
-
-  @Override
   public void destroy() {
-    stopMonitorPath();
   }
 }

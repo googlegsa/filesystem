@@ -569,7 +569,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   @Test
   public void testStartStopMonitor() throws Exception {
     delegate.startMonitorPath(tempRoot, pusher);
-    delegate.stopMonitorPath();
+    delegate.destroy();
   }
 
   @Test
