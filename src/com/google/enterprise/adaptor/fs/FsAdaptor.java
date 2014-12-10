@@ -76,11 +76,7 @@ import java.util.logging.Logger;
  * <li>Uses hierarchical ACL model
  * </ul>
  */
-// TODO(bmj): Now that getModifiedDocIds() does nothing,
-// drop the PollingIncrementalLister implementation,
-// and remove CONFIG_MAX_INCREMENTAL_LATENCY.
-public class FsAdaptor extends AbstractAdaptor implements
-    PollingIncrementalLister {
+public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
 
@@ -130,10 +126,6 @@ public class FsAdaptor extends AbstractAdaptor implements
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
-
-  /** The config parameter name for the max incremental batch latency. */
-  private static final String CONFIG_MAX_INCREMENTAL_LATENCY =
-      "adaptor.incrementalPollPeriodSecs";
 
   /** The config parameter name for the adaptor namespace. */
   private static final String CONFIG_NAMESPACE = "adaptor.namespace";
@@ -224,7 +216,6 @@ public class FsAdaptor extends AbstractAdaptor implements
     config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.addKey("filesystemadaptor.monitorForUpdates", "true");
-    config.overrideKey(CONFIG_MAX_INCREMENTAL_LATENCY, "300");
   }
 
   @Override
@@ -314,8 +305,6 @@ public class FsAdaptor extends AbstractAdaptor implements
           + "or \\\\host\\share. Additionally, you can specify a DFS path "
           + "of the form \\\\host\\namespace or \\\\host\\namespace\\link.");
     }
-
-    context.setPollingIncrementalLister(this);
   }
 
   @Override
@@ -441,14 +430,6 @@ public class FsAdaptor extends AbstractAdaptor implements
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
     pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
     log.exiting("FsAdaptor", "getDocIds", pusher);
-  }
-
-  // TODO(bmj): Now that getModifiedDocIds() does nothing,
-  // drop the PollingIncrementalLister implementation.
-  @Override
-  public void getModifiedDocIds(DocIdPusher pusher)
-      throws InterruptedException, IOException {
-    // Do nothing. Modified files are fed by the monitor.
   }
 
   @Override
