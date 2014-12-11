@@ -231,13 +231,8 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public boolean isDfsLink(Path doc) throws IOException {
-    // A DFS link has a namecount of 1, but so does a anything at the top level
-    // of a shared folder or a filesystem root. This gets called frequently,
-    // mostly with paths where namecount is > 1, so avoid getting DFS info in
-    // those cases.
-    if (doc.getNameCount() != 1) {
-      return false;
-    }
+    // A DFS link has a namecount of at least 1, but so does a anything at
+    // the top level of a shared folder or a filesystem root.
     Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
     if (info == null) {
       return false;
@@ -307,8 +302,9 @@ class WindowsFileDelegate extends NioFileDelegate {
         Netapi32Ex.DFS_INFO_1 info = new Netapi32Ex.DFS_INFO_1(bufp);
         Path path = Paths.get(info.EntryPath.toString()); 
         // For some reason, NetDfsEnum includes the namespace itself in the
-        // enumeration. The namespace has a nameCount of 0, the links, 1.
-        if (path.getNameCount() == 1) {
+        // enumeration. The namespace has a nameCount of 0, the links have a
+        // nameCount > 0.
+        if (path.getNameCount() > 0) {
           builder.add(path);
         }
         bufp = bufp.share(info.size());

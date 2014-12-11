@@ -419,10 +419,18 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
   @Test
   public void testIsDfsLinkButIsLongPath() throws Exception {
-    // The pathname is too long to be a DFS link.
-    Path dfsPath = Paths.get("\\\\host\\share\\dir\\file");
+    // Long path that is not a link.
+    Path dfsPath = Paths.get("\\\\host\\share\\dir\\dir\\file");
     final Netapi32Ex.DFS_INFO_3 info = null;
     assertFalse(isDfsLink(dfsPath, info));
+  }
+
+  @Test
+  public void testIsDfsLinkWithLongLinkPath() throws Exception {
+    // Now try a long path that is a link.
+    Path dfsPath = Paths.get("\\\\server\\namespace\\folder\\folder\\link");
+    final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
+    assertTrue(isDfsLink(dfsPath, info));
   }
 
   @Test
