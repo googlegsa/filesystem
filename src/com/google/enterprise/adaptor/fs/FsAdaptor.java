@@ -75,6 +75,92 @@ import java.util.logging.Logger;
  *     \\dfs-server\namespace\link or \\domain-dfs-server\namespace\link
  * <li>Uses hierarchical ACL model
  * </ul>
+ * <p>
+ * This adaptor attempts to replicate the Windows file system ACL inheritance
+ * model in a manner the GSA can apply.  All ACLs, including those from a 
+ * DFS server, network share, and the file system are supplied as named
+ * resources at crawl time in {@link #getDocContent}. The resource names are
+ * a combination of the DocId of the item being crawled and a "fragment"
+ * identifying the type of ACL that the named resource value contains.
+ * <p>
+ * Windows permission inheritance has many nuances:
+ * <ul>
+ * <li>Generally, files and folders inherit permissions from their parent
+ *     folder.
+ * <li>Files and folders may also have explicit permissions that enhance
+ *     or reduce permissions inherited from their parent.
+ * <li>A file or folder can be configured to not inherit any permissions from
+ *     its parent.
+ * <li>A folder can have permissions that apply only to itself and child
+ *     folders.
+ * <li>A folder can have permissions that apply only to child files.
+ * <li>A folder can have permissions that do not apply to itself, but
+ *     do apply to its children.
+ * <li>A folder can have permissions that applies to itself, but
+ *     does apply to any of its children.
+ * <li>A folder can have permissions that applies only to its direct children,
+ *     but none of their descendants.
+ * </ul>
+ * For more details, see {@link AclBuilder}.
+ * <p>
+ * To model these various behaviors, folders typically supply four separate
+ * ACLs as named resources used for inheritance purposes:
+ * <ul>
+ * <li>{@code ALL_FOLDER_INHERIT_ACL}: Permissions inheritable by all
+ *     descendent folders.
+ * <li>{@code ALL_FILE_INHERIT_ACL}: Permissions inheritable by all
+ *     descendent regular files.
+ * <li>{@code CHILD_FOLDER_INHERIT_ACL}: Permissions inheritable only by
+ *     direct child folders, but no other descendent folders.
+ * <li>{@code CHILD_FILE_INHERIT_ACL}: Permissions inheritable only by
+ *     direct child files, but no other descendent regular files.
+ * </ul>
+ * Folders and regular files also supply their own specific ACL, which contains
+ * any explicit permissions set on that item. Usually, this ACL is empty
+ * and simply inherits from one of its parent's four inheritable ACLs.
+ * <p>
+ * File system ACLs are not the only ACLs supplied the the GSA. Windows shares
+ * and DFS links also gate access to the file system, so their permissions must
+ * be considered as well.
+ * <p>
+ * The Share ACL is used by the system to control access to the network
+ * share and usually presents itself as a username/password prompt when the
+ * user attempts to mount the network file system. The SHARE_ACL is supplied
+ * as a named resource when the root of the shared folder is crawled, in
+ * addition to the four inheritable named resources. The file share may be an
+ * explicit network share supplied as a start path, or it may be the target of
+ * a DFS link (see below). The root of the share (the folder that was made
+ * sharable) inherits from the SHARE_ACL, not its parent folder. Note that
+ * the user must be  permitted by the Share ACL <em>AND</em> the file system
+ * ACL to be granted access to an item.
+ * <p>
+ * In 2003, Microsoft rolled out Distributed File System (DFS). A typical
+ * DFS configuration consists of one or more <em>Namespaces</em>. Each
+ * Namespace contains one or more <em>Links</em>. Each Link redirects to one
+ * or more <em>Targets</em>. Targets are network shared folders. Users
+ * generally access a single Target. The others are often used for
+ * replication and fail-over. The DFS configuration may be stored on a
+ * domain controller such as Active Directory, in which case it is known as
+ * a <em>Domain-based</em> DFS configuration.
+ * DFS configuration hosted by a member server, rather than the domain
+ * controller, is known as a <em>Stand-alone</em> DFS configuration.
+ * Note that from the point of view of this adaptor, we do not distinguish
+ * between Domain-based and Stand-alone DFS.
+ * <p>
+ * The DFS system employs access control when navigating its links,
+ * and usually each DFS Link has its own ACL. One of the more exotic
+ * mechanisms employed by this is <em>Access-based Enumeration</em> (ABE).
+ * With ABE deployed, users may only see a subset of the DFS Links, possibly
+ * only one when ABE is used to isolate hosted home directories.
+ * When traversing a DFS system, this adaptor supplies the DFS Link ACL,
+ * in addition to the target's Share ACL as a named resource when the
+ * DFS Link is crawled. In this case, the Share ACL inherits from the
+ * DFS ACL. The user must be permitted by the DFS ACL <em>AND</em> the Share
+ * ACL <em>AND</em> the file system ACL to be granted access to an item.
+ * <p>
+ * Note: If the DFS system employs Access-based Enumeration, make sure
+ * the traversal user has sufficient permissions to see all the links
+ * that require indexing.
  */
 public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
