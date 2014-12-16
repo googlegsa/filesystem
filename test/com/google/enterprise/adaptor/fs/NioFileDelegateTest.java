@@ -232,7 +232,7 @@ public class NioFileDelegateTest {
     }
 
     @Override
-    public boolean isDfsRoot(Path doc) throws IOException {
+    public boolean isDfsNamespace(Path doc) throws IOException {
       return false;
     }
 

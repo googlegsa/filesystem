@@ -177,8 +177,8 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public boolean isDfsRoot(Path doc) throws IOException {
-    return getFileOrRoot(doc).isDfsRoot();
+  public boolean isDfsNamespace(Path doc) throws IOException {
+    return getFileOrRoot(doc).isDfsNamespace();
   }
 
   @Override
@@ -194,7 +194,7 @@ class MockFileDelegate implements FileDelegate {
   @Override
   public List<Path> enumerateDfsLinks(Path doc) throws IOException {
     MockFile file = getFileOrRoot(doc);
-    if (file.isDfsRoot()) {
+    if (file.isDfsNamespace()) {
       return ImmutableList.copyOf(file.newDirectoryStream());
     } else {
       throw new IOException("Not a DFS Root: " + doc);

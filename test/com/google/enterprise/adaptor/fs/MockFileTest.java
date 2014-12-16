@@ -253,11 +253,11 @@ public class MockFileTest {
   }
 
   @Test
-  public void testIsDfsRoot() throws Exception {
+  public void testIsDfsNamespace() throws Exception {
     MockFile root = new MockFile("root", true);
-    assertFalse(root.isDfsRoot());
-    root.setIsDfsRoot(true);
-    assertTrue(root.isDfsRoot());
+    assertFalse(root.isDfsNamespace());
+    root.setIsDfsNamespace(true);
+    assertTrue(root.isDfsNamespace());
     assertFalse(root.isDfsLink());
   }
 
@@ -267,7 +267,7 @@ public class MockFileTest {
     assertFalse(root.isDfsLink());
     root.setIsDfsLink(true);
     assertTrue(root.isDfsLink());
-    assertFalse(root.isDfsRoot());
+    assertFalse(root.isDfsNamespace());
   }
 
   @Test
@@ -278,7 +278,7 @@ public class MockFileTest {
     root.setDfsActiveStorage(uncPath);
     assertEquals(uncPath, root.getDfsActiveStorage());
     assertTrue(root.isDfsLink());
-    assertFalse(root.isDfsRoot());
+    assertFalse(root.isDfsNamespace());
   }
 
   @Test

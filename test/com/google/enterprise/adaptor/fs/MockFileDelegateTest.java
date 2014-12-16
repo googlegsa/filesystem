@@ -181,6 +181,14 @@ public class MockFileDelegateTest {
     assertTrue(delegate.isDirectory(path));
     assertFalse(delegate.isRegularFile(path));
     assertNull(delegate.resolveDfsLink(path));
+    assertFalse(delegate.isDfsNamespace(path));
+    root.setIsDfsNamespace(true);
+    assertTrue(delegate.isDfsNamespace(path));
+    root.setIsDfsNamespace(false);
+    assertFalse(delegate.isDfsNamespace(path));
+    assertFalse(delegate.isDfsLink(path));
+    root.setIsDfsLink(true);
+    assertTrue(delegate.isDfsLink(path));
     Path uncPath = delegate.getPath("\\\\server\\share");
     root.setDfsActiveStorage(uncPath);
     assertEquals(uncPath, delegate.resolveDfsLink(path));

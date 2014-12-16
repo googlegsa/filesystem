@@ -101,21 +101,22 @@ interface FileDelegate {
 
   /**
    * Returns {@code true} if the supplied UNC path is a DFS
-   * root namespace.  This would typically be a path like
+   * Namespace.  This would typically be a path like
    * {@code \\\\server\\namespace} or {@code \\\\domain\\namespace}.
    *
-   * @param doc a UNC Path that may be a DFS root or DFS link
-   * @returns {@code true} if the path is a DFS root, {@code false} otherwise
+   * @param doc a UNC Path that may be a DFS namespace or DFS link
+   * @returns {@code true} if the path is a DFS namespace, or {@code false}
+   *          otherwise
    * @throws IOException
    */
-  boolean isDfsRoot(Path doc) throws IOException;
+  boolean isDfsNamespace(Path doc) throws IOException;
 
   /**
-   * Returns {@code true} if the supplied UNC path is a DFS link.
+   * Returns {@code true} if the supplied UNC path is a DFS Link.
    * This would typically be a path like
    * {@code \\\\server\\namespace\\link} or {@code \\\\domain\\namespace\\link}.
    *
-   * @param doc a UNC Path that may be a DFS root or DFS link
+   * @param doc a UNC Path that may be a DFS namespace or DFS link
    * @returns {@code true} if the path is a DFS link, {@code false} otherwise
    * @throws IOException
    */
@@ -135,13 +136,13 @@ interface FileDelegate {
   Path resolveDfsLink(Path doc) throws IOException;
 
   /**
-   * Returns a list of DFS links contained within a DFS root namespace.
-   * The supplied would typically be a path like
+   * Returns a list of DFS links contained within a DFS namespace.
+   * The supplied path would typically be like
    * {@code \\\\server\\namespace} or {@code \\\\domain\\namespace}.
    *
-   * @param doc the DFS UNC path to a DFS root
+   * @param doc the DFS UNC path to a DFS namespace
    * @returns a List of DFS link paths
-   * @throws IOException if doc is not a DFS root namespace or is not accessable
+   * @throws IOException if doc is not a DFS namespace or is not accessable
    */
   List<Path> enumerateDfsLinks(Path doc) throws IOException;
 

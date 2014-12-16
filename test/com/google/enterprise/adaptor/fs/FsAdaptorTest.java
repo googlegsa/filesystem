@@ -153,27 +153,27 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testAdaptorInitDfsRoot() throws Exception {
-    makeDfsRoot(root);
+  public void testAdaptorInitDfsNamespace() throws Exception {
+    makeDfsNamespace(root);
     adaptor.init(context);
   }
 
   @Test
-  public void testAdaptorInitDfsRootWithBadDfsLink() throws Exception {
-    makeDfsRoot(root);
+  public void testAdaptorInitDfsNamespaceWithBadDfsLink() throws Exception {
+    makeDfsNamespace(root);
     root.getChild("dfsLink3").setDfsActiveStorage(null);
     thrown.expect(IOException.class);
     adaptor.init(context);
   }
 
-  private void makeDfsRoot(MockFile dfsRoot) {
-    dfsRoot.setIsDfsRoot(true);
+  private void makeDfsNamespace(MockFile dfsNamespace) {
+    dfsNamespace.setIsDfsNamespace(true);
     for (int i = 0; i < 5; i++) {
       MockFile dfsLink = new MockFile("dfsLink" + i, true);
       dfsLink.setIsDfsLink(true);
       dfsLink.setDfsActiveStorage(Paths.get("\\\\host\\share" + i));
       dfsLink.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
-      dfsRoot.addChildren(dfsLink);
+      dfsNamespace.addChildren(dfsLink);
     }
   }
 
@@ -299,8 +299,8 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocIdsDfsRoot() throws Exception {
-    makeDfsRoot(root);
+  public void testGetDocIdsDfsNamespace() throws Exception {
+    makeDfsNamespace(root);
     adaptor.init(context);
     adaptor.getDocIds(pusher);
 
@@ -375,7 +375,7 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocContentBrokenDfsRoot() throws Exception {
+  public void testGetDocContentBrokenDfsNamespace() throws Exception {
     MockFile dfsRoot = new MockFile("dfsRoot", true) {
         @Override
         DirectoryStream<Path> newDirectoryStream() throws IOException {
@@ -383,7 +383,7 @@ public class FsAdaptorTest {
         }
       };
     root.addChildren(dfsRoot);
-    makeDfsRoot(dfsRoot);
+    makeDfsNamespace(dfsRoot);
     adaptor.init(context);
     MockRequest request =
         new MockRequest(delegate.newDocId(delegate.getPath(dfsRoot.getPath())));
@@ -463,8 +463,8 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocContentDfsRoot() throws Exception {
-    makeDfsRoot(root);
+  public void testGetDocContentDfsNamespace() throws Exception {
+    makeDfsNamespace(root);
     FileTime modifyTime = root.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
     adaptor.init(context);
@@ -718,7 +718,7 @@ public class FsAdaptorTest {
   public void testGetDocContentDfsLinkNonStartPointAcls() throws Exception {
     MockFile dfsLink = new MockFile("dfsLink", true);
     root.addChildren(dfsLink);
-    root.setIsDfsRoot(true);
+    root.setIsDfsNamespace(true);
     testGetDocContentDfsLinkAcls(dfsLink);
   }
 
@@ -780,7 +780,7 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocContentDfsRootSkipShareAcls() throws Exception {
+  public void testGetDocContentDfsNamespaceSkipShareAcls() throws Exception {
     config.overrideKey("filesystemadaptor.skipShareAccessControl", "true");
     AclFileAttributeView dfsAclView = new AclView(
         group("EVERYBODY").type(ALLOW).perms(GENERIC_READ)

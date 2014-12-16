@@ -306,7 +306,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   }
 
   @Test
-  public void testIsDfsRootError() throws Exception {
+  public void testIsDfsNamespaceError() throws Exception {
     Netapi32Ex netapi = new UnsupportedNetapi32() {
         @Override
         public int NetDfsGetInfo(String dfsPath, String server, String share,
@@ -315,68 +315,68 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         }
       };
     Path dfsPath = Paths.get("\\\\host\\namespace");
-    assertFalse(isDfsRoot(dfsPath, netapi));
+    assertFalse(isDfsNamespace(dfsPath, netapi));
   }
 
   @Test
-  public void testIsDfsRootButIsShare() throws Exception {
+  public void testIsDfsNamespaceButIsShare() throws Exception {
     // Pathname could be a root, but NetDfsGetInfo returns NOT_FOUND
     Path dfsPath = Paths.get("\\\\host\\share");
     final Netapi32Ex.DFS_INFO_3 info = null;
-    assertFalse(isDfsRoot(dfsPath, info));
+    assertFalse(isDfsNamespace(dfsPath, info));
   }
 
   @Test
-  public void testIsDfsRootButIsLongPath() throws Exception {
+  public void testIsDfsNamespaceButIsLongPath() throws Exception {
     // Pathname could be not be a DFS root, it is too long.
     Path dfsPath = Paths.get("\\\\host\\share\\dir\\file.txt");
     final Netapi32Ex.DFS_INFO_3 info = null;
-    assertFalse(isDfsRoot(dfsPath, info));
+    assertFalse(isDfsNamespace(dfsPath, info));
   }
 
   @Test
-  public void testIsDfsRootButIsLink() throws Exception {
+  public void testIsDfsNamespaceButIsLink() throws Exception {
     // This is a Link, not a Root
     // DFS_VOLUME_STATE_OK is 1
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
     Path dfsPath = Paths.get("\\\\host\\namespace\\link");
-    assertFalse(isDfsRoot(dfsPath, info));
+    assertFalse(isDfsNamespace(dfsPath, info));
   }
 
   @Test
-  public void testIsDfsRootButIsBrokenLink() throws Exception {
+  public void testIsDfsNamespaceButIsBrokenLink() throws Exception {
     // This is a Link, with a malformed name.
     // DFS_VOLUME_STATE_OK is 1
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000001);
     Path dfsPath = Paths.get("\\\\host\\namespace");
-    assertFalse(isDfsRoot(dfsPath, info));
+    assertFalse(isDfsNamespace(dfsPath, info));
   }
 
   @Test
-  public void testIsDfsRootStandaloneRoot() throws Exception {
+  public void testIsDfsNamespaceStandaloneDfs() throws Exception {
     // DFS_VOLUME_FLAVOR_STANDALONE is 0x00000100
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000101);
     Path dfsPath = Paths.get("\\\\host\\namespace");
-    assertTrue(isDfsRoot(dfsPath, info));
+    assertTrue(isDfsNamespace(dfsPath, info));
   }
 
   @Test
-  public void testIsDfsRootDomainRoot() throws Exception {
+  public void testIsDfsNamespaceDomainBasedDfs() throws Exception {
     // DFS_VOLUME_FLAVOR_AD_BLOB is 0x00000200
     final Netapi32Ex.DFS_INFO_3 info = newDfsInfo3(0x00000201);
     Path dfsPath = Paths.get("\\\\domainhost.example.com\\namespace");
-    assertTrue(isDfsRoot(dfsPath, info));
+    assertTrue(isDfsNamespace(dfsPath, info));
   }
 
-  private static boolean isDfsRoot(Path dfsPath,
+  private static boolean isDfsNamespace(Path dfsPath,
       final Netapi32Ex.DFS_INFO_3 info) throws Exception {
-    return isDfsRoot(dfsPath, getNetapi(info));
+    return isDfsNamespace(dfsPath, getNetapi(info));
   }
 
-  private static boolean isDfsRoot(Path dfsPath, final Netapi32Ex netapi)
+  private static boolean isDfsNamespace(Path dfsPath, final Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate = new WindowsFileDelegate(null, netapi, null);
-    return delegate.isDfsRoot(dfsPath);
+    return delegate.isDfsNamespace(dfsPath);
   }
 
   @Test

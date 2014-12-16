@@ -215,8 +215,8 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
-  public boolean isDfsRoot(Path doc) throws IOException {
-    // A DFS root namespace has a namecount of 0, but so does a shared folder
+  public boolean isDfsNamespace(Path doc) throws IOException {
+    // A DFS namespace has a namecount of 0, but so does a shared folder
     // or a filesystem root. This gets called frequently, mostly with paths
     // where namecount is > 0, so avoid getting DFS info in those cases.
     if (doc.getNameCount() > 0) {

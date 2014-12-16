@@ -68,7 +68,7 @@ import java.util.logging.Logger;
  * Features:<br>
  * <ul>
  * <li>Supports UNC path to single machine's share, such as \\host\share
- * <li>Supports UNC path to standalone or domain-based DFS root namespace,
+ * <li>Supports UNC path to standalone or domain-based DFS namespace,
  *     such as \\dfs-server\namespace or \\domain-dfs-server\namespace and
  *     will follow all the DFS links within that namespace
  * <li>Supports UNC path to standalone or domain-based DFS link, such as
@@ -368,8 +368,8 @@ public class FsAdaptor extends AbstractAdaptor {
       Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
       log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
       validateStartPath(rootPath);
-    } else if (delegate.isDfsRoot(rootPath)) {
-      log.log(Level.INFO, "Using a DFS root namespace." );
+    } else if (delegate.isDfsNamespace(rootPath)) {
+      log.log(Level.INFO, "Using a DFS namespace." );
       for (Path link : delegate.enumerateDfsLinks(rootPath)) {
         // TODO(bmj): Do this in a try/catch so that one bad link don't spoil
         // the whole bunch, girl?
@@ -601,7 +601,7 @@ public class FsAdaptor extends AbstractAdaptor {
 
     // TODO(mifern): Include extended attributes.
 
-    if (delegate.isDfsRoot(doc)) {
+    if (delegate.isDfsNamespace(doc)) {
       // Enumerate links in a namespace.
       getDfsNamespaceContent(doc, id, resp);
     } else {
