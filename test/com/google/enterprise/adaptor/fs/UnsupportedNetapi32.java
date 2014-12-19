@@ -43,13 +43,6 @@ public class UnsupportedNetapi32 implements Netapi32, Netapi32Ex {
   }
 
   @Override
-  public int NetDfsGetSecurity(String dfsEntryPath, int securityInformation,
-      PointerByReference ppSecurityDescriptor,
-      IntByReference lpcbSecurityDescriptor) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public int NetDfsGetInfo(String dfsEntryPath, String serverName,
       String shareName, int Level, PointerByReference buffer) {
     throw new UnsupportedOperationException();

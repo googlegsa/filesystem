@@ -20,10 +20,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
+import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
+import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
+import com.sun.jna.WString;
+import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
@@ -54,6 +58,7 @@ class WindowsFileDelegate extends NioFileDelegate {
   private static final Logger log
       = Logger.getLogger(WindowsFileDelegate.class.getName());
 
+  private final Advapi32 advapi32;
   private final Kernel32Ex kernel32;
   private final Netapi32Ex netapi32;
   private final WindowsAclFileAttributeViews aclViews;
@@ -62,13 +67,14 @@ class WindowsFileDelegate extends NioFileDelegate {
       new HashMap<Path, MonitorThread>();
 
   public WindowsFileDelegate() {
-    this(Kernel32Ex.INSTANCE, Netapi32Ex.INSTANCE,
+    this(Advapi32.INSTANCE, Kernel32Ex.INSTANCE, Netapi32Ex.INSTANCE,
          new WindowsAclFileAttributeViews());
   }
 
   @VisibleForTesting
-  WindowsFileDelegate(Kernel32Ex kernel32, Netapi32Ex netapi32,
-      WindowsAclFileAttributeViews aclViews) {
+  WindowsFileDelegate(Advapi32 advapi32, Kernel32Ex kernel32,
+      Netapi32Ex netapi32, WindowsAclFileAttributeViews aclViews) {
+    this.advapi32 = advapi32;
     this.kernel32 = kernel32;
     this.netapi32 = netapi32;
     this.aclViews = aclViews;
@@ -89,7 +95,8 @@ class WindowsFileDelegate extends NioFileDelegate {
     // First check for explicit permissions on the DFS link.
     WinNT.ACL dacl = getDfsExplicitAcl(doc);
     if (dacl == null) {
-      // If no explicit permissions, inherit from the namespace.
+      // If no explicit permissions, use the permissions from the local 
+      // filesystem of the namespace server.
       dacl = getDfsNamespaceAcl(doc.getParent());
     }
 
@@ -134,26 +141,39 @@ class WindowsFileDelegate extends NioFileDelegate {
    return dacl;
   }
 
-  /* Returns the ACL set on a DFS namespace. */
+  /*
+   * Returns the ACL set on a DFS namespace. From the Windows dialog box
+   * encountered when setting permissions on a DFS link,
+   * "By default, permissions are inherited from local file system of the
+   * namespace server..."  So if there is no explicit ACL on the link,
+   * get the file system ACL from the folder containing the link.
+   */
   private WinNT.ACL getDfsNamespaceAcl(Path doc) throws Win32Exception {
-    PointerByReference sd = new PointerByReference();
-    IntByReference sdSize = new IntByReference();
-    int rc = netapi32.NetDfsGetSecurity(doc.toString(),
-        WinNT.DACL_SECURITY_INFORMATION
-          | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
-          | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION,
-          sd, sdSize);
-    if (LMErr.NERR_Success != rc) {
+    WString wpath = new WString(doc.toString());
+    IntByReference lengthNeeded = new IntByReference();
+    int daclType = WinNT.DACL_SECURITY_INFORMATION
+        | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
+        | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION;
+
+    if (advapi32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
+      throw new AssertionError("GetFileSecurity was expected to fail with "
+          + "ERROR_INSUFFICIENT_BUFFER");
+    }
+
+    int rc = kernel32.GetLastError();
+    if (rc != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
       throw new Win32Exception(rc);
     }
-    SECURITY_DESCRIPTOR_RELATIVEEx sdr =
-        new SECURITY_DESCRIPTOR_RELATIVEEx(sd.getValue());
-    WinNT.ACL dacl = sdr.getDiscretionaryACL();
-    rc = netapi32.NetApiBufferFree(sd.getValue());
-    if (LMErr.NERR_Success != rc) {
-      throw new Win32Exception(rc);
+
+    Memory memory = new Memory(lengthNeeded.getValue());
+    if (!advapi32.GetFileSecurity(wpath, daclType, memory, (int) memory.size(),
+        lengthNeeded)) {
+      throw new Win32Exception(kernel32.GetLastError());
     }
-    return dacl;
+
+    SECURITY_DESCRIPTOR_RELATIVEEx securityDescriptor =
+        new SECURITY_DESCRIPTOR_RELATIVEEx(memory);
+    return securityDescriptor.getDiscretionaryACL();
   }
 
   public static class ACLEx extends WinNT.ACL {
@@ -574,16 +594,6 @@ class WindowsFileDelegate extends NioFileDelegate {
             + " to the GSA.", e);
       }
     }
-  }
-
-  private interface Kernel32Ex extends Kernel32 {
-    Kernel32Ex INSTANCE = (Kernel32Ex) Native.loadLibrary("Kernel32",
-        Kernel32Ex.class, W32APIOptions.UNICODE_OPTIONS);
-
-    public static final int WAIT_IO_COMPLETION = 0x000000C0;
-
-    int WaitForSingleObjectEx(HANDLE hHandle, int dwMilliseconds,
-        boolean bAlertable);
   }
 
   @Override

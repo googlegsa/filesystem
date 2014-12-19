@@ -465,7 +465,7 @@ class WindowsAclFileAttributeViews {
     IntByReference lengthNeeded = new IntByReference();
 
     if (advapi32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
-      throw new RuntimeException("GetFileSecurity was expected to fail with "
+      throw new AssertionError("GetFileSecurity was expected to fail with "
           + "ERROR_INSUFFICIENT_BUFFER");
     }
 

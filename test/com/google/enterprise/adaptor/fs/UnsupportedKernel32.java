@@ -14,6 +14,8 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
+
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.Kernel32;
@@ -37,7 +39,7 @@ import java.nio.Buffer;
  * subclass this and override those methods used by the object
  * under test.
  */
-public class UnsupportedKernel32 implements Kernel32 {
+public class UnsupportedKernel32 implements Kernel32, Kernel32Ex {
 
   @Override
   public int FormatMessage(int dwFlags, Pointer lpSource, int dwMessageId,
@@ -213,6 +215,12 @@ public class UnsupportedKernel32 implements Kernel32 {
 
   @Override
   public int WaitForSingleObject(HANDLE hHandle, int dwMilliseconds) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int WaitForSingleObjectEx(HANDLE hHandle, int dwMilliseconds,
+      boolean bAlertable) {
     throw new UnsupportedOperationException();
   }
 

@@ -18,6 +18,7 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.WString;
+import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.ULONG;
@@ -32,6 +33,16 @@ import java.util.List;
 class WinApi {
   private WinApi() {
     // Prevent instantiation.
+  }
+
+  public interface Kernel32Ex extends Kernel32 {
+    Kernel32Ex INSTANCE = (Kernel32Ex) Native.loadLibrary("Kernel32",
+        Kernel32Ex.class, W32APIOptions.UNICODE_OPTIONS);
+
+    public static final int WAIT_IO_COMPLETION = 0x000000C0;
+
+    int WaitForSingleObjectEx(HANDLE hHandle, int dwMilliseconds,
+        boolean bAlertable);
   }
 
   public interface Shlwapi extends StdCallLibrary {
@@ -84,10 +95,6 @@ class WinApi {
             });
       }
     }
-
-    public int NetDfsGetSecurity(String DfsEntryPath, int SecurityInformation,
-        PointerByReference ppSecurityDescriptor,
-        IntByReference lpcbSecurityDescriptor);
 
     public int NetDfsGetInfo(String DfsEntryPath, String ServerName,
         String ShareName, int Level, PointerByReference Buffer);
