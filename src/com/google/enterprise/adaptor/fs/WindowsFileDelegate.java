@@ -290,11 +290,6 @@ class WindowsFileDelegate extends NioFileDelegate {
     PointerByReference buf = new PointerByReference();
     int rc = netapi32.NetDfsGetInfo(doc.toString(), null, null, 3, buf);
     if (rc != LMErr.NERR_Success) {
-      // Log this at INFO since we expect this when the adaptor is configured
-      // for non-DFS root paths. Adaptor.init will call
-      // getDfsUncActiveStorageUnc to check if the path is a DFS path.
-      log.log(Level.FINER, "Unable to get DFS details for {0}. Code: {1}",
-          new Object[] { doc, rc });
       return null;
     }
 
@@ -325,6 +320,10 @@ class WindowsFileDelegate extends NioFileDelegate {
         // enumeration. The namespace has a nameCount of 0, the links have a
         // nameCount > 0.
         if (path.getNameCount() > 0) {
+          // Enumerated DFS links tend to have normalized server names
+          // in the path, either all uppercase, or FQDN, or both.
+          // This re-resolves the link against our supplied Namespace.
+          path = doc.resolve(doc.relativize(path));
           builder.add(path);
         }
         bufp = bufp.share(info.size());
