@@ -367,29 +367,28 @@ public class FsAdaptor extends AbstractAdaptor {
     if (delegate.isDfsLink(rootPath)) {
       Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
       log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
-      validateStartPath(rootPath);
+      validateShare(rootPath);
     } else if (delegate.isDfsNamespace(rootPath)) {
       log.log(Level.INFO, "Using a DFS namespace." );
       for (Path link : delegate.enumerateDfsLinks(rootPath)) {
-        // TODO(bmj): Do this in a try/catch so that one bad link don't spoil
-        // the whole bunch, girl?
+        // TODO(bmj): Consider moving DFS link validation into getDocContent
         Path dfsActiveStorage = delegate.resolveDfsLink(link);
         log.log(Level.FINE, "DFS path {0} resolved to {1}",
                 new Object[] {link, dfsActiveStorage});
-        validateStartPath(link);
+        validateShare(link);
       }
     } else if (rootPath.equals(rootPath.getRoot())) {
       log.log(Level.INFO, "Using a non-DFS path.");
-      validateStartPath(rootPath);
+      validateShare(rootPath);
     } else {
       // We currently only support a config path that is a root.
       // Non-root paths will fail to produce Acls for all the folders up
       // to the root from the configured path, so we limit configuration
       // only to root paths.
       throw new InvalidConfigurationException(
-          "Only root paths are supported. Use a path such as C:\\ or X:\\ "
-          + "or \\\\host\\share. Additionally, you can specify a DFS path "
-          + "of the form \\\\host\\namespace or \\\\host\\namespace\\link.");
+          "Invalid " + CONFIG_SRC + " . Acceptable paths need to be"
+          + " either \\\\host\\namespace or \\\\host\\namespace\\link"
+          + " or \\\\host\\share.");
     }
   }
 
@@ -398,29 +397,34 @@ public class FsAdaptor extends AbstractAdaptor {
     delegate.destroy();
   }
 
-  /** Verify the startPath is available, and we have access to it. */
-  private void validateStartPath(Path startPath) throws IOException {
-    if (!delegate.isDirectory(startPath)) {
-      throw new IOException("The path " + startPath + " is not accessible. "
+  /** Verify the path is available and we have access to it. */
+  private void validateShare(Path sharePath) throws IOException {
+    if (delegate.isDfsNamespace(sharePath)) {
+      throw new AssertionError("validateShare can only be called "
+          + "on DFS links or active storage paths");
+    }
+
+    if (!delegate.isDirectory(sharePath)) {
+      throw new IOException("The path " + sharePath + " is not accessible. "
           + "The path does not exist, or it is not a directory, or it is not "
           + "shared, or its hosting file server is currently unavailable.");
     }
 
     // Verify that the adaptor has permission to read the contents of the root.
     try {
-      delegate.newDirectoryStream(startPath).close();
+      delegate.newDirectoryStream(sharePath).close();
     } catch (AccessDeniedException e) {
-      throw new IOException("Unable to list the contents of " + startPath
+      throw new IOException("Unable to list the contents of " + sharePath
           + ". This can happen if the Windows account used to crawl "
           + "the path does not have sufficient permissions.", e);
     }
 
     // Verify that the adaptor has permission to read the Acl and share Acl.
     try {
-      readShareAcls(startPath);
-      delegate.getAclViews(startPath);
+      readShareAcls(sharePath);
+      delegate.getAclViews(sharePath);
     } catch (IOException e) {
-      throw new IOException("Unable to read ACLs for " + startPath
+      throw new IOException("Unable to read ACLs for " + sharePath
           + ". This can happen if the Windows account used to crawl "
           + "the path does not have sufficient permissions. A Windows "
           + "account with sufficient permissions to read content, "
@@ -475,6 +479,9 @@ public class FsAdaptor extends AbstractAdaptor {
       dfsShareAcl = null;
       shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
           .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+    } else if (delegate.isDfsNamespace(share)) {
+      throw new AssertionError("readShareAcls can only be called "
+          + "on DFS links or active storage paths");
     } else if (delegate.isDfsLink(share)) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
@@ -690,7 +697,7 @@ public class FsAdaptor extends AbstractAdaptor {
         new Object[] { doc, acl });
     resp.setAcl(acl);
 
-    // Push the additional Acls for a folder.
+    // Add the additional Acls for a folder.
     if (isDirectory) {
       if (isRoot || hasNoInheritedAcl) {
         resp.putNamedResource(ALL_FOLDER_INHERIT_ACL, 
@@ -730,7 +737,7 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /* Adds HTML content of links to the DFS namespace's links to the response. */
+  /* Makes HTML document with web links to namespace's DFS links. */
   private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
       throws IOException {
     HtmlResponseWriter writer = createHtmlResponseWriter(resp);
@@ -749,7 +756,7 @@ public class FsAdaptor extends AbstractAdaptor {
     writer.finish();
   }
 
-  /* Adds HTML content of links to the directory's contents to the response. */
+  /* Makes HTML document with links this directory's files and folder. */
   private void getDirectoryContent(Path doc, DocId docid, Response resp)
       throws IOException {
     HtmlResponseWriter writer = createHtmlResponseWriter(resp);
