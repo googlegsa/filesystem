@@ -162,7 +162,6 @@ public class FsAdaptorTest {
   public void testAdaptorInitDfsNamespaceWithBadDfsLink() throws Exception {
     makeDfsNamespace(root);
     root.getChild("dfsLink3").setDfsActiveStorage(null);
-    thrown.expect(IOException.class);
     adaptor.init(context);
   }
 

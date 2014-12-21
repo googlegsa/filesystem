@@ -371,11 +371,14 @@ public class FsAdaptor extends AbstractAdaptor {
     } else if (delegate.isDfsNamespace(rootPath)) {
       log.log(Level.INFO, "Using a DFS namespace." );
       for (Path link : delegate.enumerateDfsLinks(rootPath)) {
-        // TODO(bmj): Consider moving DFS link validation into getDocContent
-        Path dfsActiveStorage = delegate.resolveDfsLink(link);
-        log.log(Level.FINE, "DFS path {0} resolved to {1}",
-                new Object[] {link, dfsActiveStorage});
-        validateShare(link);
+        // Postpone full validation until crawl time.
+        try {
+          Path dfsActiveStorage = delegate.resolveDfsLink(link);
+          log.log(Level.INFO, "DFS path {0} resolved to {1}",
+                  new Object[] {link, dfsActiveStorage});
+        } catch (IOException e) {
+          log.log(Level.WARNING, "Unable to resolve DFS link", e);
+        }
       }
     } else if (rootPath.equals(rootPath.getRoot())) {
       log.log(Level.INFO, "Using a non-DFS path.");
@@ -615,6 +618,8 @@ public class FsAdaptor extends AbstractAdaptor {
       // If we are at the root of a filesystem or share point, supply the
       // SHARE ACL. If it is a DFS Link, also include the DFS SHARE ACL.
       if (doc.equals(rootPath) || delegate.isDfsLink(doc)) {
+        // TODO(bmj): Maybe have validateShare return the share ACLs it read.
+        validateShare(doc);
         ShareAcls shareAcls = readShareAcls(doc);
         if (shareAcls.dfsShareAcl != null) {
           resp.putNamedResource(DFS_SHARE_ACL, shareAcls.dfsShareAcl);
