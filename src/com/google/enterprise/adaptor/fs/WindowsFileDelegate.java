@@ -320,11 +320,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         // enumeration. The namespace has a nameCount of 0, the links have a
         // nameCount > 0.
         if (path.getNameCount() > 0) {
-          // Enumerated DFS links tend to have normalized server names
-          // in the path, either all uppercase, or FQDN, or both.
-          // This re-resolves the link against our supplied Namespace.
-          path = doc.resolve(doc.relativize(path));
-          builder.add(path);
+          builder.add(preserveOriginalNamespace(doc, path));
         }
         bufp = bufp.share(info.size());
       }
@@ -332,6 +328,16 @@ class WindowsFileDelegate extends NioFileDelegate {
     } finally {
       netapi32.NetApiBufferFree(buf.getValue());
     }
+  }
+
+  /*
+   * Enumerated DFS links tend to have normalized server names
+   * in the path, either all uppercase, or FQDN, or both.
+   * This re-resolves the link against our supplied Namespace.
+   */
+  @VisibleForTesting
+  static Path preserveOriginalNamespace(Path namespace, Path link) {
+    return namespace.getRoot().resolve(link.getRoot().relativize(link));
   }
 
   @Override

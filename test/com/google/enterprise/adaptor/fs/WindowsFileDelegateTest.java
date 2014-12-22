@@ -646,6 +646,25 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     return delegate.enumerateDfsLinks(Paths.get("\\\\host\\namespace"));
   }
 
+  @Test
+  public void testPreserveOriginalNamespace() throws Exception {
+    WindowsFileDelegate delegate = new WindowsFileDelegate();
+    Path original = Paths.get("\\\\server\\namespace");
+    Path expected = Paths.get("\\\\server\\namespace", "link");
+    assertEquals(expected, delegate.preserveOriginalNamespace(original,
+        Paths.get("\\\\server\\namespace\\link")));
+    assertEquals(expected, delegate.preserveOriginalNamespace(original,
+        Paths.get("\\\\SERVER\\namespace\\link")));
+    assertEquals(expected, delegate.preserveOriginalNamespace(original,
+        Paths.get("\\\\ALIAS\\namespace\\link")));
+    assertEquals(expected, delegate.preserveOriginalNamespace(original,
+        Paths.get("\\\\server.example.com\\namespace\\link")));
+
+    expected = Paths.get("\\\\server\\namespace", "folder", "link");
+    assertEquals(expected, delegate.preserveOriginalNamespace(original,
+        Paths.get("\\\\SERVER\\namespace\\folder\\link")));
+  }
+
   private String makeLongPath() {
     String abc = "abcdefghijklmnopqrstuvwxyz";
     StringBuilder builder = new StringBuilder();
