@@ -193,17 +193,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_LAST_MODIFIED_DATE =
       "filesystemadaptor.lastModifiedDate";
 
-  /** Fragements used for creating the inherited ACL named resources. */
-  private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
-  private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
-  private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
-  private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
-
-  /** Fragement used for creating the DFS share ACL named resource. */
-  private static final String DFS_SHARE_ACL = "dfsShareAcl";
-
-  /** Fragement used for creating the share ACL named resource. */
-  private static final String SHARE_ACL = "shareAcl";
+  /** Enable/disable filesystem change monitors. */
+  private static final String CONFIG_MONITOR_UPDATES =
+      "filesystemadaptor.monitorForUpdates";
 
   /** The config option that forces us to ignore the share ACL. */
   private static final String CONFIG_SKIP_SHARE_ACL = 
@@ -215,6 +207,18 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /** The config parameter name for the adaptor namespace. */
   private static final String CONFIG_NAMESPACE = "adaptor.namespace";
+
+  /** Fragements used for creating the inherited ACL named resources. */
+  private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
+  private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
+  private static final String CHILD_FOLDER_INHERIT_ACL = "childFoldersAcl";
+  private static final String CHILD_FILE_INHERIT_ACL = "childFilesAcl";
+
+  /** Fragement used for creating the DFS share ACL named resource. */
+  private static final String DFS_SHARE_ACL = "dfsShareAcl";
+
+  /** Fragement used for creating the share ACL named resource. */
+  private static final String SHARE_ACL = "shareAcl";
 
   /** Charset used in generated HTML responses. */
   private static final Charset CHARSET = Charset.forName("UTF-8");
@@ -301,7 +305,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
     config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
-    config.addKey("filesystemadaptor.monitorForUpdates", "true");
+    config.addKey(CONFIG_MONITOR_UPDATES, "true");
   }
 
   @Override
@@ -350,7 +354,7 @@ public class FsAdaptor extends AbstractAdaptor {
         CONFIG_LAST_MODIFIED_DAYS, CONFIG_LAST_MODIFIED_DATE);
 
     monitorForUpdates = Boolean.parseBoolean(
-        context.getConfig().getValue("filesystemadaptor.monitorForUpdates"));
+        context.getConfig().getValue(CONFIG_MONITOR_UPDATES));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
     try {
