@@ -17,7 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
@@ -50,7 +50,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
@@ -311,7 +310,8 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void init(AdaptorContext context) throws Exception {
     this.context = context;
-    String source = context.getConfig().getValue(CONFIG_SRC);
+    Config config = context.getConfig();
+    String source = config.getValue(CONFIG_SRC);
     if (source.isEmpty()) {
       throw new InvalidConfigurationException("The configuration value "
           + CONFIG_SRC + " is empty. Please specify a valid root path.");
@@ -319,23 +319,21 @@ public class FsAdaptor extends AbstractAdaptor {
     rootPath = delegate.getPath(source);
     log.log(Level.CONFIG, "rootPath: {0}", rootPath);
 
-    builtinPrefix = context.getConfig().getValue(CONFIG_BUILTIN_PREFIX);
+    builtinPrefix = config.getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
 
-    namespace = context.getConfig().getValue(CONFIG_NAMESPACE);
+    namespace = config.getValue(CONFIG_NAMESPACE);
     log.log(Level.CONFIG, "namespace: {0}", namespace);
 
-    String accountsStr =
-        context.getConfig().getValue(CONFIG_SUPPORTED_ACCOUNTS);
-    supportedWindowsAccounts = Collections.unmodifiableSet(Sets.newHashSet(
-        Splitter.on(',').trimResults().split(accountsStr)));
+    String accountsStr = config.getValue(CONFIG_SUPPORTED_ACCOUNTS);
+    supportedWindowsAccounts = ImmutableSet.copyOf(
+        Splitter.on(',').trimResults().omitEmptyStrings().split(accountsStr));
     log.log(Level.CONFIG, "supportedWindowsAccounts: {0}",
         supportedWindowsAccounts);
 
     crawlHiddenFiles = Boolean.parseBoolean(
-        context.getConfig().getValue(CONFIG_CRAWL_HIDDEN_FILES));
-    log.log(Level.CONFIG, "crawlHiddenFiles: {0}",
-        crawlHiddenFiles);
+        config.getValue(CONFIG_CRAWL_HIDDEN_FILES));
+    log.log(Level.CONFIG, "crawlHiddenFiles: {0}", crawlHiddenFiles);
     if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
       throw new InvalidConfigurationException("The path " + rootPath + " is "
           + "hidden. To crawl hidden content, you must set the configuration "
@@ -344,17 +342,17 @@ public class FsAdaptor extends AbstractAdaptor {
 
     // The Administrator may bypass Share access control.
     skipShareAcl = Boolean.parseBoolean(
-        context.getConfig().getValue(CONFIG_SKIP_SHARE_ACL));
+        config.getValue(CONFIG_SKIP_SHARE_ACL));
     log.log(Level.CONFIG, "skipShareAcl: {0}", skipShareAcl);
 
     // Add filters that may exclude older content.
-    lastAccessTimeFilter = getFileTimeFilter(context.getConfig(),
+    lastAccessTimeFilter = getFileTimeFilter(config,
         CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
-    lastModifiedTimeFilter = getFileTimeFilter(context.getConfig(),
+    lastModifiedTimeFilter = getFileTimeFilter(config,
         CONFIG_LAST_MODIFIED_DAYS, CONFIG_LAST_MODIFIED_DATE);
 
     monitorForUpdates = Boolean.parseBoolean(
-        context.getConfig().getValue(CONFIG_MONITOR_UPDATES));
+        config.getValue(CONFIG_MONITOR_UPDATES));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
     try {
