@@ -217,6 +217,116 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testAdaptorInitMultipleStartPaths() throws Exception {
+    MultiRootMockFileDelegate delegate = getMultiRootFileDelegate();
+    AdaptorContext context = new MockAdaptorContext();
+    FsAdaptor adaptor = getMultiRootFsAdaptor(context, delegate);
+    adaptor.init(context);
+  }
+
+  // Returns a MultiRootMockFileDelegate configured with multiple start paths.
+  private MultiRootMockFileDelegate getMultiRootFileDelegate()
+      throws Exception {
+    MockFile root1 = new MockFile("\\\\host\\namespace1", true);
+    makeDfsNamespace(root1);
+    MockFile root2 = new MockFile("\\\\host\\namespace2", true);
+    makeDfsNamespace(root2);
+    MockFile root3 = new MockFile("\\\\host\\namespace3", true);
+    makeDfsNamespace(root3);
+    return new MultiRootMockFileDelegate(root1, root2, root3);
+  }
+
+  // Returns an FsAdaptor configured with multiple start paths.
+  private FsAdaptor getMultiRootFsAdaptor(AdaptorContext context,
+      MultiRootMockFileDelegate delegate) throws Exception {
+    FsAdaptor adaptor = new FsAdaptor(delegate);
+    Config config = context.getConfig();
+    StringBuilder builder = new StringBuilder();
+    for (MockFile root : delegate.roots) {
+      builder.append(root.getPath()).append(";");
+    }
+    String sources = builder.toString();
+    adaptor.initConfig(config);
+    config.overrideKey("filesystemadaptor.src", sources);
+    return adaptor;
+  }
+
+  @Test
+  public void testGetStartPathsNoSeparator() throws Exception {
+    // Believe it or not, semicolons are valid filename characters in Windows.
+    String dir = getPath("semicolons;in;filename").toString();
+    Set<Path> expected = ImmutableSet.of(getPath(dir));
+    assertEquals(expected, adaptor.getStartPaths(dir, ""));
+  }
+
+  @Test
+  public void testGetStartPathsDefaultSeparator() throws Exception {
+    String dir1 = getPath("dir1").toString();
+    String dir2 = getPath("dir2").toString();
+    String dir3 = getPath("dir3").toString();
+    String separator = ";";
+    String sources = dir1 + separator + dir2 + separator + dir3;
+    Set<Path> expected =
+        ImmutableSet.of(getPath(dir1), getPath(dir2), getPath(dir3));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
+  public void testGetStartPathsNonDefaultSeparator() throws Exception {
+    // Believe it or not, semicolons are valid filename characters in Windows.
+    String dir1 = getPath("dir;1").toString();
+    String dir2 = getPath("dir;2").toString();
+    String dir3 = getPath("dir;3").toString();
+    String separator = ":";
+    String sources = dir1 + separator + dir2 + separator + dir3;
+    Set<Path> expected =
+        ImmutableSet.of(getPath(dir1), getPath(dir2), getPath(dir3));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
+  public void testGetStartPathsEmptyItems() throws Exception {
+    String dir1 = getPath("dir1").toString();
+    String dir2 = getPath("dir2").toString();
+    String separator = ";";
+    String sources = dir1 + separator + separator + dir2 + separator;
+    Set<Path> expected = ImmutableSet.of(getPath(dir1), getPath(dir2));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
+  public void testGetStartPathsEmbeddedWhiteSpace() throws Exception {
+    String dir1 = getPath("dir 1").toString();
+    String dir2 = getPath("dir 2").toString();
+    String separator = ";";
+    String sources = dir1 + separator + dir2;
+    Set<Path> expected = ImmutableSet.of(getPath(dir1), getPath(dir2));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
+  public void testGetStartPathsTrimExtraneousWhiteSpace() throws Exception {
+    String dir1 = getPath("dir 1").toString();
+    String dir2 = getPath("dir 2").toString();
+    String separator = ";";
+    String sources = " " + dir1 + separator + " " + dir2 + " ";
+    Set<Path> expected = ImmutableSet.of(getPath(dir1), getPath(dir2));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
+  public void testGetStartPathsUncPaths() throws Exception {
+    String dir1 = "\\\\server\\share1";
+    String dir2 = "\\\\server\\share2";
+    String dir3 = "\\\\server\\share3";
+    String separator = ";";
+    String sources = dir1 + separator + dir2 + separator + dir3;
+    Set<Path> expected =
+        ImmutableSet.of(Paths.get(dir1), Paths.get(dir2), Paths.get(dir3));
+    assertEquals(expected, adaptor.getStartPaths(sources, separator));
+  }
+
+  @Test
   public void testGetFolderName() throws Exception {
     assertEquals("share", adaptor.getFileName(Paths.get("\\\\host/share/")));
     assertEquals("folder2",
@@ -328,6 +438,34 @@ public class FsAdaptorTest {
     assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
 
     // We no longer push the share ACLs in getDocIds.
+    List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
+    assertEquals(0, namedResources.size());
+  }
+
+  @Test
+  public void testGetDocidsMultipleStartPaths() throws Exception {
+    MultiRootMockFileDelegate delegate = getMultiRootFileDelegate();
+    AdaptorContext context = new MockAdaptorContext();
+    AccumulatingDocIdPusher pusher =
+        (AccumulatingDocIdPusher) context.getDocIdPusher();
+    FsAdaptor adaptor = getMultiRootFsAdaptor(context, delegate);
+    adaptor.init(context);
+    adaptor.getDocIds(pusher);
+
+    // We should have pushed the docids for all the start paths.
+    ImmutableSet.Builder<DocId> builder = ImmutableSet.builder();
+    for (MockFile root : delegate.roots) {
+      builder.add(delegate.newDocId(Paths.get(root.getPath())));
+    }
+    Set<DocId> expectedDocids = builder.build();
+    builder = ImmutableSet.builder();
+    for (Record record : pusher.getRecords()) {
+      builder.add(record.getDocId());
+    }
+    Set<DocId> fedDocids = builder.build();
+    assertEquals(expectedDocids, fedDocids);
+
+    // There should be no named resources associated with the DFS Roots.
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
     assertEquals(0, namedResources.size());
   }

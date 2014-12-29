@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
@@ -48,10 +49,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +72,8 @@ import java.util.logging.Logger;
  *     will follow all the DFS links within that namespace
  * <li>Supports UNC path to standalone or domain-based DFS link, such as
  *     \\dfs-server\namespace\link or \\domain-dfs-server\namespace\link
+ * <li>Supports multiple UNC paths to any combination of simple file shares,
+ *     DFS namespaces, or DFS links
  * <li>Uses hierarchical ACL model
  * </ul>
  * <p>
@@ -165,8 +167,15 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final Logger log
       = Logger.getLogger(FsAdaptor.class.getName());
 
-  /** The config parameter name for the root path. */
+  /** The config parameter name for the start paths. */
   private static final String CONFIG_SRC = "filesystemadaptor.src";
+
+  /**
+   * The config parameter defining the delimiter used to separate
+   * multiple start paths supplied in CONFIG_SRC. Default is ";".
+   */
+  private static final String CONFIG_SRC_SEPARATOR =
+      "filesystemadaptor.src.separator";
 
   /** The config parameter name for the supported Windows accounts. */
   private static final String CONFIG_SUPPORTED_ACCOUNTS =
@@ -250,11 +259,12 @@ public class FsAdaptor extends AbstractAdaptor {
   private boolean crawlHiddenFiles;
 
   private AdaptorContext context;
-  private Path rootPath;
-  private DocId rootPathDocId;
   private FileDelegate delegate;
   private boolean skipShareAcl;
   private boolean monitorForUpdates;
+
+  /** The set of file systems we will be traversing. */
+  private Set<Path> startPaths;
 
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
@@ -293,6 +303,8 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void initConfig(Config config) {
     config.addKey(CONFIG_SRC, null);
+    // TODO(bmj): Make default separator platform dependent?
+    config.addKey(CONFIG_SRC_SEPARATOR, ";");
     config.addKey(CONFIG_SUPPORTED_ACCOUNTS,
         "BUILTIN\\Administrators,Everyone,BUILTIN\\Users,BUILTIN\\Guest,"
         + "NT AUTHORITY\\INTERACTIVE,NT AUTHORITY\\Authenticated Users");
@@ -311,13 +323,13 @@ public class FsAdaptor extends AbstractAdaptor {
   public void init(AdaptorContext context) throws Exception {
     this.context = context;
     Config config = context.getConfig();
-    String source = config.getValue(CONFIG_SRC);
-    if (source.isEmpty()) {
+
+    String sources = config.getValue(CONFIG_SRC);
+    if (sources.isEmpty()) {
       throw new InvalidConfigurationException("The configuration value "
           + CONFIG_SRC + " is empty. Please specify a valid root path.");
     }
-    rootPath = delegate.getPath(source);
-    log.log(Level.CONFIG, "rootPath: {0}", rootPath);
+    startPaths = getStartPaths(sources, config.getValue(CONFIG_SRC_SEPARATOR));
 
     builtinPrefix = config.getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
@@ -334,11 +346,6 @@ public class FsAdaptor extends AbstractAdaptor {
     crawlHiddenFiles = Boolean.parseBoolean(
         config.getValue(CONFIG_CRAWL_HIDDEN_FILES));
     log.log(Level.CONFIG, "crawlHiddenFiles: {0}", crawlHiddenFiles);
-    if (!crawlHiddenFiles && delegate.isHidden(rootPath)) {
-      throw new InvalidConfigurationException("The path " + rootPath + " is "
-          + "hidden. To crawl hidden content, you must set the configuration "
-          + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
-    }
 
     // The Administrator may bypass Share access control.
     skipShareAcl = Boolean.parseBoolean(
@@ -355,24 +362,63 @@ public class FsAdaptor extends AbstractAdaptor {
         config.getValue(CONFIG_MONITOR_UPDATES));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
+    // Verify that the startPaths are good.
+    for (Path startPath : startPaths) {
+      validateStartPath(startPath);
+    }
+  }
+
+  @Override
+  public void destroy() {
+    delegate.destroy();
+  }
+
+  /** Parses the collection of startPaths from the supplied sources. */
+  @VisibleForTesting
+  Set<Path> getStartPaths(String sources, String separator)
+      throws IOException {
+    if (separator.isEmpty()) {
+      // No separator implies a single startPath.
+      return ImmutableSet.of(delegate.getPath(sources));
+    }
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+    Iterable<String> startPoints = Splitter.on(separator)
+        .trimResults().omitEmptyStrings().split(sources);
+    for (String startPoint : startPoints) {
+      Path startPath = delegate.getPath(startPoint);
+      builder.add(startPath);
+      log.log(Level.CONFIG, "startPath: {0}", startPath);
+    }
+    return builder.build();
+  }
+
+  /** Verify that a startPath is valid. */
+  private void validateStartPath(Path startPath) throws IOException,
+      InvalidConfigurationException {
     try {
-      rootPathDocId = delegate.newDocId(rootPath);
+      delegate.newDocId(startPath);
     } catch (IllegalArgumentException e) {
-        throw new InvalidConfigurationException("The path " + rootPath
+        throw new InvalidConfigurationException("The path " + startPath
              + " is not valid path - " + e.getMessage() + ".");
+    }
+
+    if (!crawlHiddenFiles && delegate.isHidden(startPath)) {
+      throw new InvalidConfigurationException("The path " + startPath + " is "
+          + "hidden. To crawl hidden content, you must set the configuration "
+          + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
     // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
     // considered non-DFS even though \\host\ns\link is a DFS link path.
     // This is OK for now since it will fail all three checks below and
     // will throw an InvalidConfigurationException.
-    if (delegate.isDfsLink(rootPath)) {
-      Path dfsActiveStorage = delegate.resolveDfsLink(rootPath);
+    if (delegate.isDfsLink(startPath)) {
+      Path dfsActiveStorage = delegate.resolveDfsLink(startPath);
       log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
-      validateShare(rootPath);
-    } else if (delegate.isDfsNamespace(rootPath)) {
+      validateShare(startPath);
+    } else if (delegate.isDfsNamespace(startPath)) {
       log.log(Level.INFO, "Using a DFS namespace." );
-      for (Path link : delegate.enumerateDfsLinks(rootPath)) {
+      for (Path link : delegate.enumerateDfsLinks(startPath)) {
         // Postpone full validation until crawl time.
         try {
           Path dfsActiveStorage = delegate.resolveDfsLink(link);
@@ -382,9 +428,9 @@ public class FsAdaptor extends AbstractAdaptor {
           log.log(Level.WARNING, "Unable to resolve DFS link", e);
         }
       }
-    } else if (rootPath.equals(rootPath.getRoot())) {
+    } else if (startPath.equals(startPath.getRoot())) {
       log.log(Level.INFO, "Using a non-DFS path.");
-      validateShare(rootPath);
+      validateShare(startPath);
     } else {
       // We currently only support a config path that is a root.
       // Non-root paths will fail to produce Acls for all the folders up
@@ -395,11 +441,6 @@ public class FsAdaptor extends AbstractAdaptor {
           + " either \\\\host\\namespace or \\\\host\\namespace\\link"
           + " or \\\\host\\share.");
     }
-  }
-
-  @Override
-  public void destroy() {
-    delegate.destroy();
   }
 
   /** Verify the path is available and we have access to it. */
@@ -525,8 +566,14 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void getDocIds(DocIdPusher pusher) throws InterruptedException,
       IOException {
-    log.entering("FsAdaptor", "getDocIds", new Object[] {pusher, rootPath});
-    pusher.pushDocIds(Arrays.asList(delegate.newDocId(rootPath)));
+    log.entering("FsAdaptor", "getDocIds", new Object[] {pusher});
+    ImmutableList.Builder<DocId> builder = ImmutableList.builder();
+    for (Path startPath : startPaths) {
+      DocId docid = delegate.newDocId(startPath);
+      log.log(Level.FINE, "Pushing docid {0}", docid);
+      builder.add(docid);
+    }
+    pusher.pushDocIds(builder.build());
     log.exiting("FsAdaptor", "getDocIds", pusher);
   }
 
@@ -619,7 +666,7 @@ public class FsAdaptor extends AbstractAdaptor {
     } else {
       // If we are at the root of a filesystem or share point, supply the
       // SHARE ACL. If it is a DFS Link, also include the DFS SHARE ACL.
-      if (doc.equals(rootPath) || delegate.isDfsLink(doc)) {
+      if (startPaths.contains(doc) || delegate.isDfsLink(doc)) {
         // TODO(bmj): Maybe have validateShare return the share ACLs it read.
         validateShare(doc);
         ShareAcls shareAcls = readShareAcls(doc);
@@ -654,7 +701,11 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /* Populate the document ACL in the response. */
   private void getFileAcls(Path doc, Response resp) throws IOException {
-    final boolean isRoot = doc.equals(rootPath) || delegate.isDfsLink(doc);
+    if (delegate.isDfsNamespace(doc)) {
+      throw new AssertionError("getFileAcls can not be called on "
+          + "DFS namespace paths");
+      }
+    final boolean isRoot = startPaths.contains(doc) || delegate.isDfsLink(doc);
     final boolean isDirectory = delegate.isDirectory(doc);
     AclFileAttributeViews aclViews = delegate.getAclViews(doc);
     boolean hasNoInheritedAcl =
@@ -666,10 +717,11 @@ public class FsAdaptor extends AbstractAdaptor {
       inheritFrom = doc;
     } else if (hasNoInheritedAcl) {
       // Files and folders that do not inherit permissions from their parent
-      // inherit directly from the share ACL.
+      // inherit directly from the share ACL. Crawl up to node with share ACL.
       for (inheritFrom = doc;
-           !(inheritFrom.equals(rootPath) || delegate.isDfsLink(inheritFrom));
-           inheritFrom = inheritFrom.getParent());
+          !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
+          inheritFrom = inheritFrom.getParent())
+        ;	// Empty body.
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
@@ -839,7 +891,7 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   /**
-   * Verifies that the file is a descendant of the root directory,
+   * Verifies that the file is a descendant of one of the startPaths,
    * and that it, nor none of its ancestors, is hidden.
    */
   @VisibleForTesting
@@ -855,13 +907,12 @@ public class FsAdaptor extends AbstractAdaptor {
         }
         return false;
       }
-      if (file.equals(rootPath)) {
+      if (startPaths.contains(file)) {
         return true;
       }
     }
     log.log(Level.WARNING,
-        "Skipping {0} because it is not a descendant of {1}.",
-        new Object[] { doc, rootPath });
+        "Skipping {0} because it is not a descendant of a start path.", doc);
     return false;
   }
 

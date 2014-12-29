@@ -38,6 +38,11 @@ class MockFileDelegate implements FileDelegate {
 
   private final MockFile root;
 
+  // Required for subclasses.
+  MockFileDelegate() {
+    this.root = null;
+  }
+
   MockFileDelegate(MockFile root) {
     Preconditions.checkNotNull(root, "root cannot be null");
     this.root = root;

@@ -76,14 +76,26 @@ filesystemadaptor.src=<b>\\\\host\\share</b>
 </pre>
   <p> Note: Backslashes are entered as double backslashes. In order
       to represent a single '\' you need to enter '\\'.
+  <p> Note: DFS namespaces can be given as 
+      filesystemadaptor.src: <b>\\\\host\\dfsnamespace</b>
   <p> Note: DFS links can be given as 
       filesystemadaptor.src: <b>\\\\host\\dfsnamespace\\link</b>
   <p> Note: UNICODE, as well as non-ASCII, characters can be used in
       filesystemadaptor.src. Including these characters will require
       the <code>adaptor-config.properties</code> file to be saved
       using UTF-8 encoding.
+  <p> Note: Multpile file systems may be specified as a semicolon
+      separated list of paths. The multiple sources may be a combination
+      of file shares, DFS namespaces, or DFS links.  For instance:<br>
+      filesystemadaptor.src=<b>\\\\host\\share;\\\\host\\dfsnamespace1;
+      \\\\host\\dfsnamespace2</b><br>
+      Consider using property file multi-line value support (using '\'
+      at end of line to indicate line-continuation) for a  more
+      readable specification of multiple sources.<br>
+      The delimiter character is configurable (see below) in case your
+      pathnames actually contain semicolons.
   <br>
-
+  
   <li> Create file named <code>logging.properties</code> in the same directory
   that contains adaptor binary:
   <pre>
@@ -130,6 +142,26 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   and diagnostics.  Defaults to "5679".
   </dd>
   <br>
+  <dt>
+  <code>filesystemadaptor.src.separator</code>
+  </dt>
+  <dd>
+  Multiple source file sytems may be specified for the
+  <code>filesystemadaptor.src</code> property by suppling
+  a list of UNC sources, separated by the delimiter configured
+  by <code>filesystemadaptor.src.separator</code>.  The default
+  separator is ";" (similar to how one would set the PATH or
+  CLASS_PATH environment variable).  However, if your specified
+  source paths contain semicolons, you can configure a different
+  delimiter that does not conflict with characters in your paths,
+  and is not reserved by property file syntax itself.
+  <p>If the <code>filesystemadaptor.src.separator</code> is set
+  to the empty string, then the <code>filesystemadaptor.src</code>
+  value is considered to be a single pathname.
+  <pre>
+  BUILTIN\\
+  </pre>
+  </dd>
   <dt>
   <code>filesystemadaptor.supportedAccounts</code>
   </dt>
