@@ -716,10 +716,25 @@ public class FsAdaptor extends AbstractAdaptor {
     log.exiting("FsAdaptor", "getDocContent");
   }
 
-  /* Returns the parent of a Path, or its root if it has no parent. */
+  /**
+   * Returns the parent of a Path, or its root if it has no parent,
+   * or null if already at root.
+   *
+   * UNC paths to DFS namespaces and DFS links behave somewhat oddly.
+   * A DFS namespace contains one or more DFS links with a path like
+   * \\host\namespace\link. However a call to Path.getParent() for
+   * \\host\namespace\link does not return \\host\namespace; instead
+   * it returns null. But, Path.getRoot() for \\host\namespace\link
+   * does return \\host\namespace, which is exactly what I need.
+   */
   private Path getParent(Path path) throws IOException {
     Path parent = path.getParent();
-    return (parent == null) ? path.getRoot() : parent;
+    if (parent != null) {
+      return parent;
+    } else {
+      Path root = path.getRoot();
+      return (path.equals(root)) ? null : root;
+    }
   }
 
   /* Populate the document ACL in the response. */
@@ -743,8 +758,8 @@ public class FsAdaptor extends AbstractAdaptor {
       // inherit directly from the share ACL. Crawl up to node with share ACL.
       for (inheritFrom = doc;
           !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
-          inheritFrom = inheritFrom.getParent())
-        ; // Empty body.
+          inheritFrom = getParent(inheritFrom))
+        ;	// Empty body.
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
