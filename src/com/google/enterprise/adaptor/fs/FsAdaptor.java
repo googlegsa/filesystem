@@ -721,7 +721,7 @@ public class FsAdaptor extends AbstractAdaptor {
       for (inheritFrom = doc;
           !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
           inheritFrom = inheritFrom.getParent())
-        ;	// Empty body.
+        ; // Empty body.
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
