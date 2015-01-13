@@ -369,7 +369,6 @@ public class FsAdaptorTest {
     assertFalse(adaptor.isVisibleDescendantOfRoot(getPath("dir1/hidden.pdf")));
     assertFalse(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir")));
     assertFalse(adaptor.isVisibleDescendantOfRoot(getPath("hidden.dir/baz")));
-    assertFalse(adaptor.isVisibleDescendantOfRoot(null));
   }
 
   @Test
