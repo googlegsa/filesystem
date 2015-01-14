@@ -40,7 +40,6 @@ import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.W32APIOptions;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -342,9 +341,8 @@ class WindowsFileDelegate extends NioFileDelegate {
 
   @Override
   public DocId newDocId(Path doc) throws IOException {
-    File file = doc.toFile().getCanonicalFile();
-    String id = file.getAbsolutePath().replace('\\', '/');
-    if (file.isDirectory() && !id.endsWith("/")) {
+    String id = doc.toFile().getCanonicalPath().replace('\\', '/');
+    if (Files.isDirectory(doc) && !id.endsWith("/")) {
       id += "/";
     }
     if (id.startsWith("//")) {

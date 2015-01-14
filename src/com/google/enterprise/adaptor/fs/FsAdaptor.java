@@ -17,6 +17,8 @@ package com.google.enterprise.adaptor.fs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.AbstractAdaptor;
@@ -55,6 +57,9 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -185,6 +190,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_CRAWL_HIDDEN_FILES =
       "filesystemadaptor.crawlHiddenFiles";    
 
+  /** The config parameter for the size of the isVisible directory cache. */
+  private static final String CONFIG_DIRECTORY_CACHE_SIZE =
+      "filesystemadaptor.directoryCacheSize";
+
   /** Relative config parameter name for earliest last accessed time allowed. */
   private static final String CONFIG_LAST_ACCESSED_DAYS =
       "filesystemadaptor.lastAccessedDays";
@@ -258,6 +267,10 @@ public class FsAdaptor extends AbstractAdaptor {
   /** If true, crawl hidden files and folders.  Default is false. */
   private boolean crawlHiddenFiles;
 
+  /** Cache of hidden and visible directories. */
+  // TODO(bmj): Cache docIds too, for ACL inheritance purposes.
+  private Cache<Path, Hidden> isVisibleCache;
+
   private AdaptorContext context;
   private FileDelegate delegate;
   private boolean skipShareAcl;
@@ -312,6 +325,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
+    config.addKey(CONFIG_DIRECTORY_CACHE_SIZE, "50000");
     config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
     config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
@@ -346,6 +360,15 @@ public class FsAdaptor extends AbstractAdaptor {
     crawlHiddenFiles = Boolean.parseBoolean(
         config.getValue(CONFIG_CRAWL_HIDDEN_FILES));
     log.log(Level.CONFIG, "crawlHiddenFiles: {0}", crawlHiddenFiles);
+
+    int directoryCacheSize =
+        Integer.parseInt(config.getValue(CONFIG_DIRECTORY_CACHE_SIZE));
+    log.log(Level.CONFIG, "directoryCacheSize: {0}", directoryCacheSize);
+    isVisibleCache = CacheBuilder.newBuilder()
+        .initialCapacity(directoryCacheSize/4)
+        .maximumSize(directoryCacheSize)
+        .expireAfterWrite(4, TimeUnit.HOURS) // Notice if someone hides a dir.
+        .build();
 
     // The Administrator may bypass Share access control.
     skipShareAcl = Boolean.parseBoolean(
@@ -693,10 +716,25 @@ public class FsAdaptor extends AbstractAdaptor {
     log.exiting("FsAdaptor", "getDocContent");
   }
 
-  /* Returns the parent of a Path, or its root if it has no parent. */
+  /**
+   * Returns the parent of a Path, or its root if it has no parent,
+   * or null if already at root.
+   *
+   * UNC paths to DFS namespaces and DFS links behave somewhat oddly.
+   * A DFS namespace contains one or more DFS links with a path like
+   * \\host\namespace\link. However a call to Path.getParent() for
+   * \\host\namespace\link does not return \\host\namespace; instead
+   * it returns null. But, Path.getRoot() for \\host\namespace\link
+   * does return \\host\namespace, which is exactly what I need.
+   */
   private Path getParent(Path path) throws IOException {
     Path parent = path.getParent();
-    return (parent == null) ? path.getRoot() : parent;
+    if (parent != null) {
+      return parent;
+    } else {
+      Path root = path.getRoot();
+      return (path.equals(root)) ? null : root;
+    }
   }
 
   /* Populate the document ACL in the response. */
@@ -720,8 +758,8 @@ public class FsAdaptor extends AbstractAdaptor {
       // inherit directly from the share ACL. Crawl up to node with share ACL.
       for (inheritFrom = doc;
           !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
-          inheritFrom = inheritFrom.getParent())
-        ; // Empty body.
+          inheritFrom = getParent(inheritFrom))
+        ;     // Empty body.
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
@@ -890,29 +928,86 @@ public class FsAdaptor extends AbstractAdaptor {
     return delegate.isRegularFile(p) || delegate.isDirectory(p);
   }
 
+  /** These are the cached entities in the isVisibleCache. */
+  private static enum HiddenType {
+      VISIBLE, HIDDEN, HIDDEN_UNDER, NOT_UNDER_STARTPATH
+    };
+
+  private static class Hidden {
+    public HiddenType type;
+    public Path hiddenBy;
+
+    public Hidden(HiddenType type) {
+      this.type = type;
+    }
+
+    public Hidden(HiddenType type, Path hiddenBy) {
+      this.type = type;
+      this.hiddenBy = hiddenBy;
+    }
+  }
+
   /**
    * Verifies that the file is a descendant of one of the startPaths,
    * and that it, nor none of its ancestors, is hidden.
    */
   @VisibleForTesting
   boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
-    for (Path file = doc; file != null; file = getParent(file)) {
-      if (!crawlHiddenFiles && delegate.isHidden(file)) {
-        if (doc.equals(file)) {
-          log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
-        } else {
-          log.log(Level.WARNING,
-              "Skipping {0} because it is hidden under {1}.",
-              new Object[] { doc, file });
-        }
+    final Path dir;
+    // I only want to cache directories, not regular files; so check
+    // for hidden files directly, but cache its parent.
+    if (delegate.isRegularFile(doc)) {
+      if (!crawlHiddenFiles && delegate.isHidden(doc)) {
+        log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
         return false;
       }
-      if (startPaths.contains(file)) {
-        return true;
+      dir = getParent(doc);
+    } else {
+      dir = doc;
+    }
+
+    // Cache isVisibleDecendantOfRoot results for directories.
+    Hidden hidden;
+    try {
+      hidden = isVisibleCache.get(dir, new Callable<Hidden>() {
+          @Override
+          public Hidden call() throws IOException {
+            for (Path file = dir ; file != null; file = getParent(file)) {
+              if (!crawlHiddenFiles && delegate.isHidden(file)) {
+                if (dir == file) {
+                  return new Hidden(HiddenType.HIDDEN);
+                } else {
+                  return new Hidden(HiddenType.HIDDEN_UNDER, file);
+                }
+              }
+              if (startPaths.contains(file)) {
+                return new Hidden(HiddenType.VISIBLE);
+              }
+            }
+            return new Hidden(HiddenType.NOT_UNDER_STARTPATH);
+          }
+        });
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof IOException) {
+        throw (IOException)(e.getCause());
+      } else {
+        throw new IOException(e);
       }
     }
-    log.log(Level.WARNING,
-        "Skipping {0} because it is not a descendant of a start path.", doc);
+
+    if (hidden.type == HiddenType.VISIBLE) {
+      return true;
+    } else if (hidden.type == HiddenType.HIDDEN) {
+      log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
+    } else if (hidden.type == HiddenType.HIDDEN_UNDER) {
+      log.log(Level.WARNING,
+              "Skipping {0} because it is hidden under {1}.",
+              new Object[] { doc, hidden.hiddenBy });
+    } else if (hidden.type == HiddenType.NOT_UNDER_STARTPATH) {
+      log.log(Level.WARNING,
+              "Skipping {0} because it is not a descendant of a start path.",
+              doc);
+    }
     return false;
   }
 
