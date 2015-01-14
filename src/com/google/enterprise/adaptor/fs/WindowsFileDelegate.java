@@ -372,19 +372,22 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     CountDownLatch startSignal;
     synchronized (monitors) {
+      log.log(Level.FINE, "Considering monitor for {0}", watchPath );
       MonitorThread monitorThread = monitors.get(watchPath);
       if (monitorThread != null) {
-        // Already monitoring this directory.
+        log.log(Level.FINE, "Already monitoring {0}", watchPath);
         return;
       }
       startSignal = new CountDownLatch(1);
       monitorThread = new MonitorThread(watchPath, pusher, startSignal);
       monitorThread.start();
       monitors.put(watchPath, monitorThread);
+      log.log(Level.FINE, "Number of monitors {0}", monitors.size());
     }
-    // Wait for the monitor thread to start watching filesystem.
     try {
+      log.log(Level.FINE, "Waiting for monitor start signal {0}", watchPath);
       startSignal.await();
+      log.log(Level.FINE, "Received monitor start signal {0}", watchPath);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
@@ -393,7 +396,9 @@ class WindowsFileDelegate extends NioFileDelegate {
   private void stopMonitorPaths() {
     synchronized (monitors) {
       for (MonitorThread monitorThread : monitors.values()) {
+        log.log(Level.FINE, "Asking for shutdown {0}", monitorThread.watchPath);
         monitorThread.shutdown();
+        log.log(Level.FINE, "After shutdown {0}", monitorThread.watchPath);
       }
       monitors.clear();
     }
@@ -422,7 +427,9 @@ class WindowsFileDelegate extends NioFileDelegate {
       boolean interrupt = false;
       while (true) {
         try {
+          log.log(Level.FINE, "Waiting for monitor to join {0}", watchPath);
           join();
+          log.log(Level.FINE, "Monitor joined {0}", watchPath);
           break;
         } catch (InterruptedException ex) {
           interrupt = true;
@@ -586,6 +593,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         // so in this case, feed it if the path does not exists.
         boolean deletedOrMoved = !Files.exists(doc);
         if (deletedOrMoved || isRegularFile(doc) || isDirectory(doc)) {
+          log.log(Level.FINE, "Pushing docid {0}", docid);
           pusher.pushRecord(new DocIdPusher.Record.Builder(docid)
               .setCrawlImmediately(true).build());
         } else {
