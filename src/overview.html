@@ -135,14 +135,6 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
 <h4>Optional <code>adaptor-config.properties</code> fields</h4>
 <dl>
   <dt>
-  <code>server.dashboardPort</code>
-  </dt>
-  <dd>
-  Port on which to view web page showing information
-  and diagnostics.  Defaults to "5679".
-  </dd>
-  <br>
-  <dt>
   <code>filesystemadaptor.src.separator</code>
   </dt>
   <dd>
@@ -158,9 +150,6 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   <p>If the <code>filesystemadaptor.src.separator</code> is set
   to the empty string, then the <code>filesystemadaptor.src</code>
   value is considered to be a single pathname.
-  <pre>
-  BUILTIN\\
-  </pre>
   </dd>
   <dt>
   <code>filesystemadaptor.supportedAccounts</code>
@@ -321,7 +310,6 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   Namespace used for ACLs sent to GSA.  Defaults to "Default".
   </dd>
   <br>
-
   <dt>
   <code>server.port</code>
   </dt>
@@ -331,7 +319,13 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   Defaults to 5678.
   </dd>
   <br>
-
+  <dt>
+  <code>server.dashboardPort</code>
+  </dt>
+  <dd>
+  Port on which to view web page showing information
+  and diagnostics.  Defaults to "5679".
+  </dd>
 </dl>
 
 <br>

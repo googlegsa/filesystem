@@ -62,6 +62,8 @@ public class AclFileAttributeViews {
    * The ACL contains directly applied as well as inherited permissions.
    *
    * @return AclFileAttributeView of ACL entries
+   * @throws IOException if fails to get either the direct or
+   *         inherited ACL.
    */
   public AclFileAttributeView getCombinedAclView() throws IOException {
     ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();

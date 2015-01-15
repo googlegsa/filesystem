@@ -1068,7 +1068,11 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /** Call default main for adaptors. */
+  /**
+   * Call default main for adaptors.
+   *
+   * @param args command line arguments
+   */
   public static void main(String[] args) {
     AbstractAdaptor.main(new FsAdaptor(), args);
   }
