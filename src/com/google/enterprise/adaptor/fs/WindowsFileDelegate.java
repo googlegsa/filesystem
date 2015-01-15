@@ -52,6 +52,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -63,22 +64,27 @@ class WindowsFileDelegate extends NioFileDelegate {
   private final Kernel32Ex kernel32;
   private final Netapi32Ex netapi32;
   private final WindowsAclFileAttributeViews aclViews;
+  private final long notificationPauseMillis;
 
   private HashMap<Path, MonitorThread>monitors =
       new HashMap<Path, MonitorThread>();
 
   public WindowsFileDelegate() {
     this(Advapi32.INSTANCE, Kernel32Ex.INSTANCE, Netapi32Ex.INSTANCE,
-         new WindowsAclFileAttributeViews());
+         new WindowsAclFileAttributeViews(), TimeUnit.MINUTES.toMillis(5));
   }
 
   @VisibleForTesting
   WindowsFileDelegate(Advapi32 advapi32, Kernel32Ex kernel32,
-      Netapi32Ex netapi32, WindowsAclFileAttributeViews aclViews) {
+      Netapi32Ex netapi32, WindowsAclFileAttributeViews aclViews,
+      long notificationPauseMillis) {
+    Preconditions.checkArgument((notificationPauseMillis >= 0),
+        "notificationPauseMillis must not be negative");
     this.advapi32 = advapi32;
     this.kernel32 = kernel32;
     this.netapi32 = netapi32;
     this.aclViews = aclViews;
+    this.notificationPauseMillis = notificationPauseMillis;
   }
 
   @Override
@@ -96,7 +102,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     // First check for explicit permissions on the DFS link.
     WinNT.ACL dacl = getDfsExplicitAcl(doc);
     if (dacl == null) {
-      // If no explicit permissions, use the permissions from the local 
+      // If no explicit permissions, use the permissions from the local
       // filesystem of the namespace server.
       dacl = getDfsNamespaceAcl(doc.getParent());
     }
@@ -116,7 +122,7 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   /*
-   * Returns the explicit ACL set on a DFS link, or null if no explicit 
+   * Returns the explicit ACL set on a DFS link, or null if no explicit
    * ACL is set.
    */
   private WinNT.ACL getDfsExplicitAcl(Path doc) throws Win32Exception {
@@ -309,14 +315,14 @@ class WindowsFileDelegate extends NioFileDelegate {
       throw new IOException("Unable to enumerate DFS links for " + doc
           + ". Code: " + rc);
     }
-    
+
     int numLinks = bufSize.getValue();
     ImmutableList.Builder<Path> builder = ImmutableList.builder();
     try {
       Pointer bufp = buf.getValue();
       for (int i = 0; i < numLinks; i++) {
         Netapi32Ex.DFS_INFO_1 info = new Netapi32Ex.DFS_INFO_1(bufp);
-        Path path = Paths.get(info.EntryPath.toString()); 
+        Path path = Paths.get(info.EntryPath.toString());
         // For some reason, NetDfsEnum includes the namespace itself in the
         // enumeration. The namespace has a nameCount of 0, the links have a
         // nameCount > 0.
@@ -414,6 +420,10 @@ class WindowsFileDelegate extends NioFileDelegate {
     private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
 
+    // We may temporarily stop accepting notifications if we receive a flood.
+    private boolean paused = false;
+    private long pauseExpires;
+
     public MonitorThread(Path watchPath, AsyncDocIdPusher pusher,
         CountDownLatch startSignal) {
       Preconditions.checkNotNull(watchPath, "the watchPath may not be null");
@@ -485,7 +495,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     private void runMonitorLoop(HANDLE handle) throws IOException {
       Kernel32.OVERLAPPED ol = new Kernel32.OVERLAPPED();
 
-      final FILE_NOTIFY_INFORMATION info = new FILE_NOTIFY_INFORMATION(4096);
+      final FILE_NOTIFY_INFORMATION info = new FILE_NOTIFY_INFORMATION(32768);
       int notifyFilter = Kernel32.FILE_NOTIFY_CHANGE_SECURITY
           | Kernel32.FILE_NOTIFY_CHANGE_CREATION
           | Kernel32.FILE_NOTIFY_CHANGE_LAST_WRITE
@@ -497,6 +507,9 @@ class WindowsFileDelegate extends NioFileDelegate {
           new Kernel32.OVERLAPPED_COMPLETION_ROUTINE() {
             public void callback(int errorCode, int nBytesTransferred,
                 Kernel32.OVERLAPPED ol) {
+              if (paused()) {
+                return;
+              }
               log.entering("WindowsFileDelegate", "changesCallback",
                   new Object[] { errorCode, nBytesTransferred });
               if (errorCode == W32Errors.ERROR_SUCCESS) {
@@ -508,12 +521,13 @@ class WindowsFileDelegate extends NioFileDelegate {
                 }
               } else if (errorCode == W32Errors.ERROR_NOTIFY_ENUM_DIR) {
                 // An error of ERROR_NOTIFY_ENUM_DIR means that there was
-                // a notification buffer overflows which can cause some 
+                // a notification buffer overflows which can cause some
                 // notifications to be lost.
                 log.log(Level.INFO,
                     "There was a buffer overflow during file monitoring for {0}"
                     + ". Some file update notifications may have been lost.",
                     watchPath);
+                pauseNotifications();
               } else {
                 log.log(Level.WARNING,
                     "Unable to read data notification data. errorCode: {0}",
@@ -533,12 +547,17 @@ class WindowsFileDelegate extends NioFileDelegate {
         // Signal any waiting threads that the monitor is now active.
         startSignal.countDown();
 
-        log.log(Level.FINER, "Waiting for notifications for {0}.", watchPath);
+        boolean logging = !paused();
+        if (logging) {
+          log.log(Level.FINER, "Waiting for notifications for {0}.", watchPath);
+        }
         int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
             Kernel32.INFINITE, true);
         if (waitResult == Kernel32Ex.WAIT_IO_COMPLETION) {
-          log.log(Level.FINER, "A notification was sent to the monitor "
-              + "callback for {0}.", watchPath);
+          if (logging) {
+            log.log(Level.FINER, "A notification was sent to the monitor "
+                + "callback for {0}.", watchPath);
+          }
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
           log.log(Level.FINE, "Terminate event has been set, ending file "
@@ -566,10 +585,12 @@ class WindowsFileDelegate extends NioFileDelegate {
       // within a single callback of notifications, while maintaining the
       // order of insertion.
       LinkedHashSet<Record> changes = new LinkedHashSet<Record>();
+      int count = 0;
       info.read();
       do {
         Path changePath = watchPath.resolve(info.getFilename());
         Record change;
+        count++;
         switch (info.Action) {
           case Kernel32.FILE_ACTION_MODIFIED:
             log.log(Level.FINEST, "Modified: {0}", changePath);
@@ -583,7 +604,7 @@ class WindowsFileDelegate extends NioFileDelegate {
           case Kernel32.FILE_ACTION_REMOVED:
           case Kernel32.FILE_ACTION_RENAMED_OLD_NAME:
             log.log(Level.FINEST, "Removed: {0}", changePath);
-            change = newChangeRecord(changePath, /* deleted = */ true);            
+            change = newChangeRecord(changePath, /* deleted = */ true);
             break;
           default:
             // Nothing to do here.
@@ -598,8 +619,14 @@ class WindowsFileDelegate extends NioFileDelegate {
 
       for (Record change : changes) {
         log.log(Level.FINE, "Pushing docid {0}", change.getDocId());
-        pusher.pushRecord(change);
+        if (!pusher.pushRecord(change)) {
+          pauseNotifications();
+          break;
+        }
       }
+
+      log.log(Level.FINER, "Processed {0} change notifications for {1}",
+          new Object[] { count, watchPath });
     }
 
     private Record newChangeRecord(Path doc, boolean deleted) {
@@ -627,6 +654,26 @@ class WindowsFileDelegate extends NioFileDelegate {
             + " to the GSA.", e);
       }
       return null;
+    }
+
+    private synchronized void pauseNotifications() {
+      log.log(Level.INFO, "Temporarily ignoring notifications for " + watchPath
+              + " after receiving too many notifications.");
+      paused = true;
+      pauseExpires = System.currentTimeMillis() + notificationPauseMillis;
+    }
+
+    private synchronized boolean paused() {
+      if (paused) {
+        if (System.currentTimeMillis() < pauseExpires) {
+          return true;
+        } else {
+          paused = false;
+          log.log(Level.INFO,
+                  "Resuming notification handling for " + watchPath);
+        }
+      }
+      return false;
     }
   }
 

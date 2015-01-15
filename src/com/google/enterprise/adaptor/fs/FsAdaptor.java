@@ -350,6 +350,10 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
     config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
+    // Increase the max feed size, which also increases the
+    // asyncDocIdSenderQueueSize to 40,000 entries. This would
+    // make a full queue about 10MB in size.
+    config.overrideKey("feed.maxUrls", "20000");
   }
 
   @Override
