@@ -632,11 +632,6 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
-    if (!isVisibleDescendantOfRoot(doc)) {
-      resp.respondNotFound();
-      return;
-    }
-
     BasicFileAttributes attrs;
     try {
       attrs = delegate.readBasicAttributes(doc);
@@ -653,6 +648,11 @@ public class FsAdaptor extends AbstractAdaptor {
     if (!isFileOrFolder(doc)) {
       log.log(Level.INFO, "The path {0} is not a regular file or directory.",
               doc);
+      resp.respondNotFound();
+      return;
+    }
+
+    if (!isVisibleDescendantOfRoot(doc)) {
       resp.respondNotFound();
       return;
     }
