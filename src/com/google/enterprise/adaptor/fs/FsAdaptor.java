@@ -46,6 +46,7 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
@@ -386,8 +387,17 @@ public class FsAdaptor extends AbstractAdaptor {
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
     // Verify that the startPaths are good.
+    int validStartPaths = 0;
     for (Path startPath : startPaths) {
-      validateStartPath(startPath);
+      try {
+        validateStartPath(startPath);
+        validStartPaths++;
+      } catch (IOException e) {
+        log.log(Level.WARNING, "Unable to validate start path " + startPath, e);
+      }
+    }
+    if (validStartPaths == 0) {
+      throw new IOException("All start paths failed validation.");
     }
   }
 
@@ -473,12 +483,6 @@ public class FsAdaptor extends AbstractAdaptor {
           + "on DFS links or active storage paths");
     }
 
-    if (!delegate.isDirectory(sharePath)) {
-      throw new IOException("The path " + sharePath + " is not accessible. "
-          + "The path does not exist, or it is not a directory, or it is not "
-          + "shared, or its hosting file server is currently unavailable.");
-    }
-
     // Verify that the adaptor has permission to read the contents of the root.
     try {
       delegate.newDirectoryStream(sharePath).close();
@@ -486,6 +490,21 @@ public class FsAdaptor extends AbstractAdaptor {
       throw new IOException("Unable to list the contents of " + sharePath
           + ". This can happen if the Windows account used to crawl "
           + "the path does not have sufficient permissions.", e);
+    } catch (NotDirectoryException e) {
+      throw new InvalidConfigurationException("The path " + sharePath
+          + " is not a directory. Acceptable paths need to be either "
+          + "\\\\host\\namespace or \\\\host\\namespace\\link or "
+          + "\\\\host\\shared directory.");
+    } catch (FileNotFoundException e) {
+      throw new InvalidConfigurationException("The path " + sharePath
+          + " was not found.");
+    } catch (NoSuchFileException e) {
+      throw new InvalidConfigurationException("The path " + sharePath
+          + " was not found.");
+    } catch (IOException e) {
+      throw new IOException("The path " + sharePath + " is not accessible. "
+          + "The path does not exist, or it is not shared, or its hosting "
+          + "file server is currently unavailable.", e);
     }
 
     // Verify that the adaptor has permission to read the Acl and share Acl.
