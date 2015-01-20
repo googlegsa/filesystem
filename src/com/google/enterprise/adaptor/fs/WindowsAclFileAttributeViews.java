@@ -15,6 +15,8 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
@@ -57,6 +59,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -144,6 +149,11 @@ class WindowsAclFileAttributeViews {
   private final Mpr mpr;
   private final Netapi32Ex netapi32;
   private final Shlwapi shlwapi;
+
+  /** Cache of AccountsBySid should max out at about 10-12 MB. */
+  private Cache<WinNT.PSID, Account> accountCache = CacheBuilder
+      .newBuilder().initialCapacity(10000).maximumSize(100000)
+      .expireAfterWrite(24, TimeUnit.HOURS).build();
 
   /** Constructor used for production. */
   public WindowsAclFileAttributeViews() {
@@ -386,8 +396,21 @@ class WindowsAclFileAttributeViews {
   }
 
   @VisibleForTesting
-  Account getAccountBySid(WinNT.PSID sid) throws Win32Exception {
-    return Advapi32Util.getAccountBySid(sid);
+  Account getAccountBySid(final WinNT.PSID sid) throws Win32Exception {
+    try {
+      return accountCache.get(sid, new Callable<Account>() {
+          @Override
+          public Account call() throws IOException {
+            return Advapi32Util.getAccountBySid(sid);
+          }
+        });
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof Win32Exception) {
+        throw (Win32Exception)(e.getCause());
+      } else {
+        throw new Win32Exception(kernel32.GetLastError());
+      }
+    }
   }
 
   // One-to-one corresponance to WinNT.SID_NAME_USE "enumeration".
