@@ -31,6 +31,9 @@ import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Mock of {@link AdaptorContext}.
  */
@@ -40,6 +43,8 @@ class MockAdaptorContext implements AdaptorContext {
   private final AsyncDocIdPusher asycDocIdPusher =
       new AccumulatingAsyncDocIdPusher();
   private final DocIdEncoder docIdEncoder = new MockDocIdCodec();
+  private final List<StatusSource> statusSources =
+      new ArrayList<StatusSource>();
 
   @Override
   public Config getConfig() {
@@ -63,7 +68,7 @@ class MockAdaptorContext implements AdaptorContext {
 
   @Override
   public void addStatusSource(StatusSource source) {
-    throw new UnsupportedOperationException();
+    statusSources.add(source);
   }
 
   @Override

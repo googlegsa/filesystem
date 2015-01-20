@@ -30,11 +30,12 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
-import com.google.enterprise.adaptor.PollingIncrementalLister;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
 import com.google.enterprise.adaptor.Response;
 import com.google.enterprise.adaptor.StartupException;
+import com.google.enterprise.adaptor.Status;
+import com.google.enterprise.adaptor.StatusSource;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -54,12 +55,17 @@ import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -224,6 +230,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
 
+  /** The config parameter for the Dashboard Status update interval. */
+  private static final String CONFIG_STATUS_UPDATE_INTERVAL_MINS =
+      "filesystemadaptor.statusUpdateIntervalMinutes";
+
   /** The config parameter name for the adaptor namespace. */
   private static final String CONFIG_NAMESPACE = "adaptor.namespace";
 
@@ -285,6 +295,11 @@ public class FsAdaptor extends AbstractAdaptor {
   private FileTimeFilter lastModifiedTimeFilter;
   private FileTimeFilter lastAccessTimeFilter;
 
+  /** Status of file systems we are traversing */
+  private Map<Path, FsStatus>fsStatus = new ConcurrentHashMap<Path, FsStatus>();
+  private Timer statusUpdateService = new Timer("Dashboard Status Update");
+  private long statusUpdateIntervalMillis;
+  
   public FsAdaptor() {
     // At the moment, we only support Windows.
     if (System.getProperty("os.name").startsWith("Windows")) {
@@ -333,6 +348,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_LAST_MODIFIED_DAYS, "");
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
+    config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
   }
 
   @Override
@@ -387,23 +403,51 @@ public class FsAdaptor extends AbstractAdaptor {
         config.getValue(CONFIG_MONITOR_UPDATES));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
+    // How often to update file systems Status for Dashboard, in minutes.
+    long minutes =
+        Integer.parseInt(config.getValue(CONFIG_STATUS_UPDATE_INTERVAL_MINS));
+    log.log(Level.CONFIG, "statusUpdateIntervalMinutes: {0}", minutes);
+    statusUpdateIntervalMillis = TimeUnit.MINUTES.toMillis(minutes);
+
     // Verify that the startPaths are good.
     int validStartPaths = 0;
     for (Path startPath : startPaths) {
       try {
-        validateStartPath(startPath);
+        validateStartPath(startPath, /* logging = */ true);
         validStartPaths++;
+        updateStatus(startPath, Status.Code.NORMAL);
       } catch (IOException e) {
         log.log(Level.WARNING, "Unable to validate start path " + startPath, e);
+        updateStatus(startPath, e);
       }
     }
     if (validStartPaths == 0) {
       throw new IOException("All start paths failed validation.");
     }
+
+    // Create StatusSources of the sorted start paths for the Dashboard.
+    Set<Path> statusSources = new TreeSet<Path>(new PathComparator());
+    statusSources.addAll(fsStatus.keySet());
+    for (Path source : statusSources) {
+      context.addStatusSource(new FsStatusSource(source));
+    }
+
+    // Kick off a scheduled task to regularly update the statuses.
+    statusUpdateService.schedule(new TimerTask() {
+        @Override
+        public void run() {
+          try {
+            updateAllStatus();
+          } catch (RuntimeException e) {
+            log.log(Level.WARNING, "Dashboard Status update interrupted.", e);
+          }
+        }
+      }, statusUpdateIntervalMillis, statusUpdateIntervalMillis);
   }
 
   @Override
   public void destroy() {
+    statusUpdateService.cancel();
     delegate.destroy();
   }
 
@@ -427,8 +471,8 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   /** Verify that a startPath is valid. */
-  private void validateStartPath(Path startPath) throws IOException,
-      InvalidConfigurationException {
+  private void validateStartPath(Path startPath, boolean logging)
+      throws IOException, InvalidConfigurationException {
     try {
       delegate.newDocId(startPath);
     } catch (IllegalArgumentException e) {
@@ -448,22 +492,37 @@ public class FsAdaptor extends AbstractAdaptor {
     // will throw an InvalidConfigurationException.
     if (delegate.isDfsLink(startPath)) {
       Path dfsActiveStorage = delegate.resolveDfsLink(startPath);
-      log.log(Level.INFO, "Using a DFS path resolved to {0}", dfsActiveStorage);
+      if (logging) {
+        log.log(Level.INFO, "Using a DFS path resolved to {0}",
+                dfsActiveStorage);
+      }
       validateShare(startPath);
     } else if (delegate.isDfsNamespace(startPath)) {
-      log.log(Level.INFO, "Using a DFS namespace." );
+      if (logging) {
+        log.log(Level.INFO, "Using a DFS namespace." );
+      }
       for (Path link : delegate.enumerateDfsLinks(startPath)) {
         // Postpone full validation until crawl time.
         try {
           Path dfsActiveStorage = delegate.resolveDfsLink(link);
-          log.log(Level.INFO, "DFS path {0} resolved to {1}",
-                  new Object[] {link, dfsActiveStorage});
+          if (logging) {
+            log.log(Level.INFO, "DFS path {0} resolved to {1}",
+                    new Object[] {link, dfsActiveStorage});
+            // When called from init(), set the initial status of enumerated 
+            // DFS links as unavailable, as we are not calling validateShare()
+            // at this time. The actual status will be set when this is
+            // called from the statusUpdateService or getDocContent().
+            updateStatus(link, Status.Code.UNAVAILABLE);
+          }
         } catch (IOException e) {
           log.log(Level.WARNING, "Unable to resolve DFS link", e);
+          updateStatus(link, e);
         }
       }
     } else if (startPath.equals(startPath.getRoot())) {
-      log.log(Level.INFO, "Using a non-DFS path.");
+      if (logging) {
+        log.log(Level.INFO, "Using a non-DFS path.");
+      }
       validateShare(startPath);
     } else {
       // We currently only support a config path that is a root.
@@ -688,14 +747,26 @@ public class FsAdaptor extends AbstractAdaptor {
     // TODO(mifern): Include extended attributes.
 
     if (delegate.isDfsNamespace(doc)) {
-      // Enumerate links in a namespace.
-      getDfsNamespaceContent(doc, id, resp);
+      try {      
+        // Enumerate links in a namespace.
+        getDfsNamespaceContent(doc, id, resp);
+        updateStatus(doc, Status.Code.NORMAL);
+      } catch (IOException e) {
+        updateStatus(doc, e);
+        throw e;
+      }
     } else {
       // If we are at the root of a filesystem or share point, supply the
       // SHARE ACL. If it is a DFS Link, also include the DFS SHARE ACL.
       if (startPaths.contains(doc) || delegate.isDfsLink(doc)) {
         // TODO(bmj): Maybe have validateShare return the share ACLs it read.
-        validateShare(doc);
+        try {
+          validateShare(doc);
+          updateStatus(doc, Status.Code.NORMAL);
+        } catch (IOException e) {
+          updateStatus(doc, e);
+          throw e;
+        }
         ShareAcls shareAcls = readShareAcls(doc);
         if (shareAcls.dfsShareAcl != null) {
           resp.putNamedResource(DFS_SHARE_ACL, shareAcls.dfsShareAcl);
@@ -1082,6 +1153,101 @@ public class FsAdaptor extends AbstractAdaptor {
       FileTime oldestAllowed =
           FileTime.fromMillis(System.currentTimeMillis() - relativeMillis);
       return fileTime.compareTo(oldestAllowed) < 0;
+    }
+  }
+
+  // Path instances from different FileSystem providers are not
+  // directly comparable, so use string compare on the pathnames.
+  // This is used to provide a sorted list of StatusSources.
+  private static class PathComparator implements Comparator<Path> {
+    @Override
+    public int compare(Path p1, Path p2) {
+      if (p1 == p2) {
+        return 0;
+      } else {
+        return (p1.toString().compareTo(p2.toString()));
+      }
+    }
+  }
+
+  private static class FsStatus implements Status {
+    private final Status.Code code;
+    private final String message;
+
+    FsStatus(Status.Code code) {
+      this(code, null);
+    }
+
+    FsStatus(Status.Code code, String message) {
+      this.code = code;
+      this.message = message;
+    }
+
+    FsStatus(Exception e) {
+      this(Status.Code.ERROR,
+           (e.getMessage() != null) ? e.getMessage() : e.toString());
+    }
+
+    @Override
+    public Status.Code getCode() {
+      return code;
+    }
+
+    @Override
+    public String getMessage(Locale locale) {
+      // TODO(bmj): These messages come from thrown Exceptions, many of which
+      // originate from outside of our code base. We could try to localize
+      // our own error messages used to form the Exception, but at the time
+      // it is thrown, we don't know this locale. And by the time we get here,
+      // many of our messages have had formatted parameter substitution.
+      return message;
+    }
+  }
+
+  private class FsStatusSource implements StatusSource {
+    private final Path source;
+
+    FsStatusSource(Path source) {
+      this.source = source;
+    }
+
+    @Override
+    public String getName(Locale locale) {
+      // Locale is ignored, because pathnames are not localized.
+      return source.toString();
+    }
+
+    @Override
+    public Status retrieveStatus() {
+      FsStatus status = fsStatus.get(source);
+      return (status != null) ? status : new FsStatus(Status.Code.UNAVAILABLE);
+    }
+  }
+
+  private void updateStatus(Path path, Status.Code code) {
+    fsStatus.put(path, new FsStatus(code));
+    log.log(Level.FINE, "Dashboard Status of {0} set to {1}",
+        new Object[] { path, code });
+  }
+
+  private void updateStatus(Path path, Exception e) {
+    FsStatus status = new FsStatus(e);
+    fsStatus.put(path, status);
+    log.log(Level.FINE, "Dashboard Status of {0} set to {1}: {2}", new Object[]
+        { path, status.getCode(), status.getMessage(Locale.ROOT) });
+  }
+
+  private void updateAllStatus() {
+    log.log(Level.FINE, "Updating Dashboard Status");
+    for (Path path : fsStatus.keySet()) {
+      try {
+        validateStartPath(path, /* logging = */ false);
+        updateStatus(path, Status.Code.NORMAL);
+      } catch (IOException e) {
+        updateStatus(path, e);
+      } catch (InvalidConfigurationException e) {
+        updateStatus(path, e);
+      }
     }
   }
 
