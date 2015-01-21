@@ -342,15 +342,16 @@ class WindowsFileDelegate extends NioFileDelegate {
   @Override
   public DocId newDocId(Path doc) throws IOException {
     String id = doc.toFile().getCanonicalPath().replace('\\', '/');
-    if (Files.isDirectory(doc) && !id.endsWith("/")) {
-      id += "/";
-    }
+    StringBuilder sb = new StringBuilder();
     if (id.startsWith("//")) {
-      // String.replaceFirst uses regular expression string and replacement
-      // so they need to be escaped appropriately. The above String.replace
-      // does NOT use expressions so regex escaping is not needed.
-      id = id.replaceFirst("//", "\\\\\\\\");
+      sb.append("\\\\").append(id.substring(2));
+    } else {
+      sb.append(id);
     }
+    if (!id.endsWith("/") && Files.isDirectory(doc)) {
+      sb.append("/");
+    }
+    id = sb.toString();
     // Windows has a maximum pathname length of 260 characters. This limit
     // can be worked around with some effort.  For details see:
     // http://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
