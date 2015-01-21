@@ -16,7 +16,6 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.enterprise.adaptor.DocId;
 
-import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -74,9 +73,7 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public InputStream newInputStream(Path doc) throws IOException {
-    // TODO(bmj): Maybe remove BufferedInputStream if IOHelper.copyStream()
-    // uses a bigger buffer.
-    return new BufferedInputStream(Files.newInputStream(doc));
+    return Files.newInputStream(doc);
   }
 
   @Override

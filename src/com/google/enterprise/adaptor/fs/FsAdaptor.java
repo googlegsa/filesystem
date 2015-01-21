@@ -39,6 +39,7 @@ import com.google.enterprise.adaptor.StartupException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
@@ -904,7 +905,7 @@ public class FsAdaptor extends AbstractAdaptor {
     resp.setContentType(delegate.probeContentType(doc));
     InputStream input = delegate.newInputStream(doc);
     try {
-      IOHelper.copyStream(input, resp.getOutputStream());
+      copyStream(input, resp.getOutputStream());
     } finally {
       try {
         input.close();
@@ -919,6 +920,19 @@ public class FsAdaptor extends AbstractAdaptor {
         }
       }
     }
+  }
+
+  /**
+   * Copy contents of {@code in} to {@code out}.
+   */
+  private static void copyStream(InputStream in, OutputStream out)
+      throws IOException {
+    byte[] buffer = new byte[32 * 1024];
+    int read;
+    while ((read = in.read(buffer)) != -1) {
+      out.write(buffer, 0, read);
+    }
+    out.flush();
   }
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
