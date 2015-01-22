@@ -58,7 +58,8 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public BasicFileAttributes readBasicAttributes(Path doc) throws IOException {
-    return Files.readAttributes(doc, BasicFileAttributes.class);
+    return Files.readAttributes(doc, BasicFileAttributes.class,
+                                LinkOption.NOFOLLOW_LINKS);
   }
 
   @Override
