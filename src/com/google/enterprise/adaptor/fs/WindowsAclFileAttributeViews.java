@@ -59,8 +59,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -151,7 +149,7 @@ class WindowsAclFileAttributeViews {
   private final Shlwapi shlwapi;
 
   /** Cache of AccountsBySid should max out at about 10-12 MB. */
-  private Cache<WinNT.PSID, Account> accountCache = CacheBuilder
+  private Cache<SidKey, Account> accountCache = CacheBuilder
       .newBuilder().initialCapacity(10000).maximumSize(100000)
       .expireAfterWrite(24, TimeUnit.HOURS).build();
 
@@ -395,22 +393,40 @@ class WindowsAclFileAttributeViews {
         .build();
   }
 
-  @VisibleForTesting
-  Account getAccountBySid(final WinNT.PSID sid) throws Win32Exception {
-    try {
-      return accountCache.get(sid, new Callable<Account>() {
-          @Override
-          public Account call() throws IOException {
-            return Advapi32Util.getAccountBySid(sid);
-          }
-        });
-    } catch (ExecutionException e) {
-      if (e.getCause() instanceof Win32Exception) {
-        throw (Win32Exception)(e.getCause());
+  private static class SidKey {
+    private byte[] sidBytes;
+
+    SidKey(byte[] sidBytes) {
+      this.sidBytes = sidBytes;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (other instanceof SidKey) {
+        return Arrays.equals(sidBytes, ((SidKey) other).sidBytes);
       } else {
-        throw new Win32Exception(kernel32.GetLastError());
+        return false;
       }
     }
+
+    @Override
+    public int hashCode() {
+      return Arrays.hashCode(sidBytes);
+    }
+  }
+
+  @VisibleForTesting
+  Account getAccountBySid(final WinNT.PSID sid) throws Win32Exception {
+    // PSID made a poor cache key, but the raw bytes work much better.
+    Account account = accountCache.getIfPresent(new SidKey(sid.getBytes()));
+    if (account == null) {
+      account = Advapi32Util.getAccountBySid(sid);
+      SidKey key = new SidKey(Arrays.copyOf(account.sid, account.sid.length));
+      account.sid = null;       // Reduce cache memory usage by dropping the
+      account.sidString = null; // unused sid bytes and sidString.
+      accountCache.put(key, account);
+    }
+    return account;
   }
 
   // One-to-one corresponance to WinNT.SID_NAME_USE "enumeration".
