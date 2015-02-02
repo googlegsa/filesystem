@@ -381,6 +381,7 @@ class WindowsFileDelegate extends NioFileDelegate {
       }
       startSignal = new CountDownLatch(1);
       monitorThread = new MonitorThread(watchPath, pusher, startSignal);
+      monitorThread.setName("Monitor " + watchPath);
       monitorThread.start();
       monitors.put(watchPath, monitorThread);
       log.log(Level.FINE, "Number of monitors {0}", monitors.size());
@@ -508,8 +509,9 @@ class WindowsFileDelegate extends NioFileDelegate {
                 // a notification buffer overflows which can cause some 
                 // notifications to be lost.
                 log.log(Level.INFO,
-                    "There was a buffer overflow during file monitoring. "
-                    + "Some file update notifications may have been lost.");
+                    "There was a buffer overflow during file monitoring for {0}"
+                    + ". Some file update notifications may have been lost.",
+                    watchPath);
               } else {
                 log.log(Level.WARNING,
                     "Unable to read data notification data. errorCode: {0}",
@@ -529,24 +531,22 @@ class WindowsFileDelegate extends NioFileDelegate {
         // Signal any waiting threads that the monitor is now active.
         startSignal.countDown();
 
-        log.log(Level.FINER, "Waiting for notifications.");
+        log.log(Level.FINER, "Waiting for notifications for {0}.", watchPath);
         int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
             Kernel32.INFINITE, true);
-        log.log(Level.FINER, "Got notification. waitResult: {0}", waitResult);
-
         if (waitResult == Kernel32Ex.WAIT_IO_COMPLETION) {
-          log.log(Level.FINEST,
-              "WaitForSingleObjectEx returned WAIT_IO_COMPLETION. "
-              + "A notification was sent to the monitor callback.");
+          log.log(Level.FINER, "A notification was sent to the monitor "
+              + "callback for {0}.", watchPath);
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
-          log.log(Level.FINE,
-              "Terminate event has been set, ending file monitor.");
+          log.log(Level.FINE, "Terminate event has been set, ending file "
+              + "monitor for {0}.", watchPath);
           return;
         } else {
           throw new IOException(
               "Unexpected result from WaitForSingleObjectEx: " + waitResult
-              + ". GetLastError: " + kernel32.GetLastError());
+              + ". GetLastError: " + kernel32.GetLastError() + ". WatchPath: "
+              + watchPath);
         }
       }
     }
