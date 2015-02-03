@@ -212,6 +212,17 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   typically consume 10-15 megabytes of RAM.
   </dd>
   <dt>
+  <code>filesystemadaptor.statusUpdateIntervalMinutes</code>
+  </dt>
+  <dd>
+  The adaptor periodically checks the availability of the file
+  systems being crawled and updates their status displayed on
+  the Dashboard.
+  <p/>
+  This configuration property sets interval, in minutes, between
+  status checks. The default status update interval is 15 minutes.
+  </dd>
+  <dt>
   <code>filesystemadaptor.skipShareAccessControl</code>
   </dt>
   <dd>
