@@ -28,6 +28,7 @@ import com.google.enterprise.adaptor.AdaptorContext;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
+import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.Principal;
@@ -669,13 +670,13 @@ public class FsAdaptor extends AbstractAdaptor {
   public void getDocIds(DocIdPusher pusher) throws InterruptedException,
       IOException {
     log.entering("FsAdaptor", "getDocIds", new Object[] {pusher});
-    ImmutableList.Builder<DocId> builder = ImmutableList.builder();
+    ImmutableList.Builder<Record> builder = ImmutableList.builder();
     for (Path startPath : startPaths) {
       DocId docid = delegate.newDocId(startPath);
       log.log(Level.FINE, "Pushing docid {0}", docid);
-      builder.add(docid);
+      builder.add(new Record.Builder(docid).setCrawlImmediately(true).build());
     }
-    pusher.pushDocIds(builder.build());
+    pusher.pushRecords(builder.build());
     log.exiting("FsAdaptor", "getDocIds", pusher);
   }
 
