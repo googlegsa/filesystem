@@ -30,30 +30,33 @@ class AccumulatingAsyncDocIdPusher extends AccumulatingDocIdPusher
       = Logger.getLogger(AccumulatingAsyncDocIdPusher.class.getName());
 
   @Override
-  public void pushDocId(DocId docId) {
+  public boolean pushDocId(DocId docId) {
     try {
-      pushDocIds(Collections.singleton(docId));
+      return pushDocIds(Collections.singleton(docId)) == null;
     } catch (InterruptedException e) {
       log.warning("Interrupted. Aborted getDocIds");
       Thread.currentThread().interrupt();
     }
+    return false;
   }
   @Override
-  public void pushRecord(DocIdPusher.Record record) {
+  public boolean pushRecord(DocIdPusher.Record record) {
     try {
-      pushRecords(Collections.singleton(record));
+      return pushRecords(Collections.singleton(record)) == null;
     } catch (InterruptedException e) {
       log.warning("Interrupted. Aborted getDocIds");
       Thread.currentThread().interrupt();
     }
+    return false;
   }
   @Override
-  public void pushNamedResource(DocId docId, Acl acl) {
+  public boolean pushNamedResource(DocId docId, Acl acl) {
     try {
-      pushNamedResources(ImmutableSortedMap.of(docId, acl));
+      return pushNamedResources(ImmutableSortedMap.of(docId, acl)) == null;
     } catch (InterruptedException e) {
       log.warning("Interrupted. Aborted getDocIds");
       Thread.currentThread().interrupt();
     }
+    return false;
   }
 }
