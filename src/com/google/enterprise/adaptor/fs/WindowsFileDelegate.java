@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
+import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
@@ -48,6 +49,7 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
@@ -553,34 +555,54 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     private void handleChanges(FILE_NOTIFY_INFORMATION info)
         throws IOException {
+      // TODO(bmj): If we set noIndex on directories, and we have a separate
+      // monitor for ACL changes, we could ignore MODIFIED notifications on
+      // directories (which we get when a file is added, renamed, or removed).
+
+      // We often get multiple notifications for the same file. For instance,
+      // when adding a file, we get an ADDED notification, followed by three
+      // MODIFIED notifications as the metadata and ACLs are set.
+      // The LinkedHashSet will at least remove the redundancies contained
+      // within a single callback of notifications, while maintaining the
+      // order of insertion.
+      LinkedHashSet<Record> changes = new LinkedHashSet<Record>();
       info.read();
       do {
         Path changePath = watchPath.resolve(info.getFilename());
+        Record change;
         switch (info.Action) {
           case Kernel32.FILE_ACTION_MODIFIED:
             log.log(Level.FINEST, "Modified: {0}", changePath);
-            pushPath(changePath);
+            change = newChangeRecord(changePath, /* deleted = */ false);
             break;
           case Kernel32.FILE_ACTION_ADDED:
           case Kernel32.FILE_ACTION_RENAMED_NEW_NAME:
             log.log(Level.FINEST, "Added: {0}", changePath);
-            pushPath(changePath.getParent());
+            change = newChangeRecord(changePath, /* deleted = */ false);
             break;
           case Kernel32.FILE_ACTION_REMOVED:
           case Kernel32.FILE_ACTION_RENAMED_OLD_NAME:
             log.log(Level.FINEST, "Removed: {0}", changePath);
-            pushPath(changePath);
-            pushPath(changePath.getParent());
+            change = newChangeRecord(changePath, /* deleted = */ true);            
             break;
           default:
             // Nothing to do here.
+            change = null;
             break;
+        }
+        if (change != null) {
+          changes.add(change);
         }
         info = info.next();
       } while (info != null);
+
+      for (Record change : changes) {
+        log.log(Level.FINE, "Pushing docid {0}", change.getDocId());
+        pusher.pushRecord(change);
+      }
     }
 
-    private void pushPath(Path doc) {
+    private Record newChangeRecord(Path doc, boolean deleted) {
       try {
         DocId docid;
         try {
@@ -588,23 +610,23 @@ class WindowsFileDelegate extends NioFileDelegate {
         } catch (IllegalArgumentException e) {
           log.log(Level.WARNING, "Skipping {0} because {1}.",
                   new Object[] { doc, e.getMessage() });
-          return;
+          return null;
         }
-        // For deleted, moved or renamed files we want to push the old name
-        // so in this case, feed it if the path does not exists.
-        boolean deletedOrMoved = !Files.exists(doc);
-        if (deletedOrMoved || isRegularFile(doc) || isDirectory(doc)) {
-          log.log(Level.FINE, "Pushing docid {0}", docid);
-          pusher.pushRecord(new DocIdPusher.Record.Builder(docid)
-              .setCrawlImmediately(true).build());
+        if (deleted) {
+          return new DocIdPusher.Record.Builder(docid)
+              .setDeleteFromIndex(true).build();
+        } else if (isRegularFile(doc) || isDirectory(doc)) {
+          return new DocIdPusher.Record.Builder(docid)
+              .setCrawlImmediately(true).build();
         } else {
-          log.log(Level.INFO,
+          log.log(Level.FINEST,
               "Skipping {0}. It is not a regular file or directory.", doc);
         }
       } catch (IOException e) {
         log.log(Level.WARNING, "Unable to push the path " + doc
             + " to the GSA.", e);
       }
+      return null;
     }
   }
 

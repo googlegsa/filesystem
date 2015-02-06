@@ -771,8 +771,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     newTempFile("existingFile");
     delegate.startMonitorPath(tempRoot, pusher);
     Path file = newTempFile("test.txt");
-    // Adding a file shows up as a change to its parent.
-    checkForChanges(Collections.singleton(newRecord(tempRoot)));
+    checkForChanges(Collections.singleton(newRecord(file)));
   }
 
   @Test
@@ -780,8 +779,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Path file = newTempFile("test.txt");
     delegate.startMonitorPath(tempRoot, pusher);
     Files.delete(file);
-    // Deleting a file shows up as a change to itself and its parent.
-    checkForChanges(Sets.newHashSet(newRecord(tempRoot), newRecord(file)));
+    checkForChanges(Collections.singleton(newDeleteRecord(file)));
   }
 
   @Test
@@ -790,9 +788,8 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Path newFile = file.resolveSibling("newName.txt");
     delegate.startMonitorPath(tempRoot, pusher);
     Files.move(file, newFile, StandardCopyOption.ATOMIC_MOVE);
-    // Renaming a file shows up as a change to its old name, its new name,
-    // and its parent.
-    checkForChanges(Sets.newHashSet(newRecord(tempRoot), newRecord(file),
+    // Renaming a file shows up as a change to its old name, its new name.
+    checkForChanges(Sets.newHashSet(newDeleteRecord(file),
         newRecord(newFile)));
   }
 
@@ -806,7 +803,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Files.move(file1, file2);
     // Moving a file shows up as a change to its old name, its new name,
     // its old parent, and its new parent.
-    checkForChanges(Sets.newHashSet(newRecord(file1), newRecord(file2),
+    checkForChanges(Sets.newHashSet(newDeleteRecord(file1), newRecord(file2),
         newRecord(dir1), newRecord(dir2)));
   }
 
@@ -836,9 +833,8 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Path newDir = dir.resolveSibling("newName.dir");
     delegate.startMonitorPath(tempRoot, pusher);
     Files.move(dir, newDir, StandardCopyOption.ATOMIC_MOVE);
-    // Renaming a directory shows up as a change to its old name, its new name,
-    // and its parent.
-    checkForChanges(Sets.newHashSet(newRecord(tempRoot), newRecord(dir)));
+    // Renaming a directory shows up as a change to its old name, its new name.
+    checkForChanges(Sets.newHashSet(newDeleteRecord(dir), newRecord(newDir)));
   }
 
   @Test
@@ -849,9 +845,9 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     delegate.startMonitorPath(tempRoot, pusher);
     Files.move(dir2, dir1dir2);
     // Moving a file shows up as a change to its old name, its new name,
-    // its old parent, and its new parent.
-    checkForChanges(Sets.newHashSet(newRecord(tempRoot), newRecord(dir1),
-        newRecord(dir2)));
+    // and its new parent.
+    checkForChanges(Sets.newHashSet(newRecord(dir1), newDeleteRecord(dir2),
+                                    newRecord(dir1dir2)));
   }
 
   @Test
@@ -903,6 +899,11 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private DocIdPusher.Record newRecord(Path path) throws Exception {
     return new DocIdPusher.Record.Builder(delegate.newDocId(path))
         .setCrawlImmediately(true).build();
+  }
+
+  private DocIdPusher.Record newDeleteRecord(Path path) throws Exception {
+    return new DocIdPusher.Record.Builder(delegate.newDocId(path))
+        .setDeleteFromIndex(true).build();
   }
 
   private static Memory newDfsInfo1(String... entries) {
