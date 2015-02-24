@@ -500,7 +500,7 @@ public class FsAdaptor extends AbstractAdaptor {
       validateShare(startPath);
     } else if (delegate.isDfsNamespace(startPath)) {
       if (logging) {
-        log.log(Level.INFO, "Using a DFS namespace." );
+        log.log(Level.INFO, "Using a DFS namespace {0}.", startPath);
       }
       for (Path link : delegate.enumerateDfsLinks(startPath)) {
         // Postpone full validation until crawl time.
@@ -516,13 +516,13 @@ public class FsAdaptor extends AbstractAdaptor {
             updateStatus(link, Status.Code.UNAVAILABLE);
           }
         } catch (IOException e) {
-          log.log(Level.WARNING, "Unable to resolve DFS link", e);
+          log.log(Level.WARNING, "Unable to resolve DFS link " + startPath, e);
           updateStatus(link, e);
         }
       }
     } else if (startPath.equals(startPath.getRoot())) {
       if (logging) {
-        log.log(Level.INFO, "Using a non-DFS path.");
+        log.log(Level.INFO, "Using a non-DFS path {0}", startPath);
       }
       validateShare(startPath);
     } else {
@@ -531,7 +531,7 @@ public class FsAdaptor extends AbstractAdaptor {
       // to the root from the configured path, so we limit configuration
       // only to root paths.
       throw new InvalidConfigurationException(
-          "Invalid " + CONFIG_SRC + " . Acceptable paths need to be"
+          "Invalid path " + startPath + ". Acceptable paths need to be"
           + " either \\\\host\\namespace or \\\\host\\namespace\\link"
           + " or \\\\host\\share.");
     }
