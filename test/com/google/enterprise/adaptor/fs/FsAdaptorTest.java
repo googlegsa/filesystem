@@ -259,6 +259,19 @@ public class FsAdaptorTest {
     assertEquals(expected, adaptor.getStartPaths(dir, ""));
   }
 
+
+  @Test
+  public void testValidateStartPathsWithException()  {
+    Path dir = getPath("\\\\blubb\\gibtsnicht");
+    try {
+      adaptor.validateStartPath(dir, false);
+    } catch (IOException e) {
+      fail("validation failed");
+    } catch (com.google.enterprise.adaptor.InvalidConfigurationException e) {
+      // no problem
+    }
+  }
+
   @Test
   public void testGetStartPathsDefaultSeparator() throws Exception {
     String dir1 = getPath("dir1").toString();
