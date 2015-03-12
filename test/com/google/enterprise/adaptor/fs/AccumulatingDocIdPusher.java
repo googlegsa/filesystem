@@ -17,11 +17,8 @@ package com.google.enterprise.adaptor.fs;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.ExceptionHandler;
-import com.google.enterprise.adaptor.GroupPrincipal;
-import com.google.enterprise.adaptor.Principal;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;

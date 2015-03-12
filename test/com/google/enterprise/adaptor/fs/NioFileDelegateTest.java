@@ -14,13 +14,13 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import static org.junit.Assert.*;
+
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
-
-import static org.junit.Assert.*;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;
@@ -38,7 +38,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 
 /** Tests for {@link NioFileDelegate} */
 public class NioFileDelegateTest {

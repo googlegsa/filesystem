@@ -14,23 +14,18 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 import com.google.enterprise.adaptor.fs.WindowsAclFileAttributeViews.Mpr;
-
-import org.junit.*;
-import org.junit.rules.ExpectedException;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Pointer;
@@ -46,13 +41,15 @@ import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
-import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.UserPrincipal;

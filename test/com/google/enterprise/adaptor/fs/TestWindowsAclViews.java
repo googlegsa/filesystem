@@ -21,9 +21,6 @@ import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 import com.google.enterprise.adaptor.fs.WindowsAclFileAttributeViews.Mpr;
 
-import org.junit.*;
-import org.junit.rules.TemporaryFolder;
-
 import com.sun.jna.Memory;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
@@ -34,6 +31,9 @@ import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
+
+import org.junit.*;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -149,7 +149,7 @@ public class TestWindowsAclViews {
       ace.AceType = type;
       ace.AceFlags = flags;
       ace.Mask = perms;
-      ace.AceSize = (short)(ace.size() + Pointer.SIZE);
+      ace.AceSize = (short) (ace.size() + Pointer.SIZE);
       ace.write();
       byte[] buffer = new byte[ace.AceSize];
       ace.getPointer().read(0, buffer, 0, ace.size());
@@ -198,7 +198,7 @@ public class TestWindowsAclViews {
     }
 
     @Override
-    protected List getFieldOrder() {
+    protected List<String> getFieldOrder() {
       return Arrays.asList(new String[] { "type", "name", "domain" });
     }
 

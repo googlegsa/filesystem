@@ -14,19 +14,16 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
@@ -35,8 +32,6 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
-import com.google.enterprise.adaptor.StartupException;
-import com.google.enterprise.adaptor.UnsupportedPlatformException;
 import com.google.enterprise.adaptor.UserPrincipal;
 
 import org.junit.*;
@@ -59,7 +54,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 
 /** Test cases for {@link FsAdaptor}. */
 public class FsAdaptorTest {

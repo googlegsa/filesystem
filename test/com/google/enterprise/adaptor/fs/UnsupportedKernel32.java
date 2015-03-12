@@ -16,7 +16,6 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 
-import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Tlhelp32.PROCESSENTRY32;

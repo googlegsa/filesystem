@@ -14,15 +14,13 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -30,13 +28,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.GroupPrincipal;
-import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.UserPrincipal;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;

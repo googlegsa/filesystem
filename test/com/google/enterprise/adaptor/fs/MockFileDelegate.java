@@ -23,14 +23,13 @@ import com.google.enterprise.adaptor.DocId;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.DirectoryStream;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.BlockingQueue;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.Iterator;
 import java.util.List;
 

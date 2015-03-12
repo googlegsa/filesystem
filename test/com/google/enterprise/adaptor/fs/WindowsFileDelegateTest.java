@@ -14,59 +14,47 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 
-import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import com.google.common.io.CharStreams;
-import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
-
-import org.junit.*;
-import org.junit.rules.ExpectedException;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Advapi32;
-import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
+import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
-import com.sun.jna.platform.win32.WinDef.DWORD;
-import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -630,7 +618,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           if (infos != null) {
             int sizeofInfo = new Netapi32Ex.DFS_INFO_1().size();
             bufptr.setValue(infos.share(0));
-            entriesRead.setValue((int)(infos.size() / sizeofInfo));
+            entriesRead.setValue((int) (infos.size() / sizeofInfo));
             return LMErr.NERR_Success;
           } else {
             return WinError.ERROR_NOT_FOUND;
@@ -649,21 +637,20 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
   @Test
   public void testPreserveOriginalNamespace() throws Exception {
-    WindowsFileDelegate delegate = new WindowsFileDelegate();
     Path original = Paths.get("\\\\server\\namespace");
     Path expected = Paths.get("\\\\server\\namespace", "link");
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\server\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\SERVER\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\ALIAS\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\server.example.com\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\server\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\SERVER\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\ALIAS\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\server.example.com\\namespace\\link")));
 
     expected = Paths.get("\\\\server\\namespace", "folder", "link");
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\SERVER\\namespace\\folder\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\SERVER\\namespace\\folder\\link")));
   }
 
   private String makeLongPath() {

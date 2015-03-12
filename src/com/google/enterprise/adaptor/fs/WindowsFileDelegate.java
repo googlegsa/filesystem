@@ -25,7 +25,6 @@ import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
 import com.sun.jna.Memory;
-import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Advapi32;
@@ -39,7 +38,6 @@ import com.sun.jna.platform.win32.WinNT.FILE_NOTIFY_INFORMATION;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
-import com.sun.jna.win32.W32APIOptions;
 
 import java.io.IOException;
 import java.nio.file.Files;

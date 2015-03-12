@@ -16,17 +16,14 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 
-import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
-import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.DsGetDC.PDOMAIN_CONTROLLER_INFO;
 import com.sun.jna.platform.win32.Guid.GUID;
 import com.sun.jna.platform.win32.NTSecApi.PLSA_FOREST_TRUST_INFORMATION;
+import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
-import com.sun.jna.win32.StdCallLibrary;
-import com.sun.jna.win32.W32APIOptions;
 
 /**
  * An implementation of the Netapi32 Interface that throws
