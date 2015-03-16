@@ -195,7 +195,11 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /** The config parameter name for turning on/off hidden file indexing. */
   private static final String CONFIG_CRAWL_HIDDEN_FILES =
-      "filesystemadaptor.crawlHiddenFiles";    
+      "filesystemadaptor.crawlHiddenFiles";
+
+  /** The config parameter name for turning on/off folder indexing. */
+  private static final String CONFIG_INDEX_FOLDERS =
+      "filesystemadaptor.indexFolders";
 
   /** The config parameter for the size of the isVisible directory cache. */
   private static final String CONFIG_DIRECTORY_CACHE_SIZE =
@@ -278,6 +282,9 @@ public class FsAdaptor extends AbstractAdaptor {
   /** If true, crawl hidden files and folders.  Default is false. */
   private boolean crawlHiddenFiles;
 
+  /** If true, index the generated documents of links to folder's contents. */
+  private boolean indexFolders;
+
   /** Cache of hidden and visible directories. */
   // TODO(bmj): Cache docIds too, for ACL inheritance purposes.
   private Cache<Path, Hidden> isVisibleCache;
@@ -341,6 +348,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
+    config.addKey(CONFIG_INDEX_FOLDERS, "false");
     config.addKey(CONFIG_DIRECTORY_CACHE_SIZE, "50000");
     config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
@@ -381,6 +389,9 @@ public class FsAdaptor extends AbstractAdaptor {
     crawlHiddenFiles = Boolean.parseBoolean(
         config.getValue(CONFIG_CRAWL_HIDDEN_FILES));
     log.log(Level.CONFIG, "crawlHiddenFiles: {0}", crawlHiddenFiles);
+
+    indexFolders = Boolean.parseBoolean(config.getValue(CONFIG_INDEX_FOLDERS));
+    log.log(Level.CONFIG, "indexFolders: {0}", indexFolders);
 
     int directoryCacheSize =
         Integer.parseInt(config.getValue(CONFIG_DIRECTORY_CACHE_SIZE));
@@ -859,9 +870,14 @@ public class FsAdaptor extends AbstractAdaptor {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       if (isDirectory) {
-        acl = builder.getAcl()
-            .setInheritFrom(inheritFromDocId, CHILD_FOLDER_INHERIT_ACL)
-            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+        if (indexFolders) {
+          acl = builder.getAcl()
+              .setInheritFrom(inheritFromDocId, CHILD_FOLDER_INHERIT_ACL)
+              .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+        } else {
+          // ACLs on noIndex documents are ignored, so don't supply one.
+          acl = null;
+        }
       } else {
         acl = builder.getAcl()
             .setInheritFrom(inheritFromDocId, CHILD_FILE_INHERIT_ACL)
@@ -915,6 +931,7 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Makes HTML document with web links to namespace's DFS links. */
   private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
       throws IOException {
+    resp.setNoIndex(!indexFolders);
     HtmlResponseWriter writer = createHtmlResponseWriter(resp);
     writer.start(docid, getFileName(doc));
     for (Path link : delegate.enumerateDfsLinks(doc)) {
@@ -934,6 +951,7 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Makes HTML document with links this directory's files and folder. */
   private void getDirectoryContent(Path doc, DocId docid, Response resp)
       throws IOException {
+    resp.setNoIndex(!indexFolders);
     HtmlResponseWriter writer = createHtmlResponseWriter(resp);
     writer.start(docid, getFileName(doc));
     DirectoryStream<Path> files = delegate.newDirectoryStream(doc);

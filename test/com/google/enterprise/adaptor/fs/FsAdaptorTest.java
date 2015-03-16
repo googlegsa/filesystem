@@ -572,17 +572,30 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentRegularFile() throws Exception {
+    testGetDocContentRegularFile(true /* indexFolders */);
+  }
+
+  @Test
+  public void testGetDocContentRegularFileNoIndex() throws Exception {
+    testGetDocContentRegularFile(false /* indexFolders */);
+  }
+
+  private void testGetDocContentRegularFile(boolean indexFolders)
+      throws Exception {
     String fname = "test.html";
     Date modifyDate = new Date(30000);
     FileTime modifyTime = FileTime.fromMillis(modifyDate.getTime());
     String content = "<html><title>Hello World</title></html>";
     root.addChildren(new MockFile(fname).setLastModifiedTime(modifyTime)
         .setFileContents(content).setContentType("text/html"));
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
 
     MockResponse response = new MockResponse();
     adaptor.getDocContent(new MockRequest(getDocId(fname)), response);
     assertFalse(response.notFound);
+    assertFalse(response.noIndex);  // indexFolders should have no effect.
     assertEquals(modifyDate, response.lastModified);
     assertEquals(getPath(fname).toUri(), response.displayUrl);
     assertEquals("text/html", response.contentType);
@@ -594,14 +607,27 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentDfsNamespace() throws Exception {
+    testGetDocContentDfsNamespace(true /* indexFolders */);
+  }
+
+  @Test
+  public void testGetDocContentDfsNamespaceNoIndex() throws Exception {
+    testGetDocContentDfsNamespace(false /* indexFolders */);
+  }
+
+  private void testGetDocContentDfsNamespace(boolean indexFolders)
+      throws Exception {
     makeDfsNamespace(root);
     FileTime modifyTime = root.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(rootPath));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
     assertFalse(response.notFound);
+    assertEquals(!indexFolders, response.noIndex);
     assertEquals(modifyDate, response.lastModified);
     assertEquals(rootPath.toUri(), response.displayUrl);
     assertEquals("text/html; charset=UTF-8", response.contentType);
@@ -790,7 +816,15 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentRoot() throws Exception {
-    testGetDocContentDirectory(rootPath, rootPath.toString());
+    testGetDocContentDirectory(rootPath, rootPath.toString(),
+                               true /* indexFolders */);
+    // ACLs checked in other tests.
+  }
+
+  @Test
+  public void testGetDocContentRootNoIndex() throws Exception {
+    testGetDocContentDirectory(rootPath, rootPath.toString(),
+                               false /* indexFolders */);
     // ACLs checked in other tests.
   }
 
@@ -798,21 +832,32 @@ public class FsAdaptorTest {
   public void testGetDocContentDirectory() throws Exception {
     String fname = "test.dir";
     root.addChildren(new MockFile(fname, true));
-    testGetDocContentDirectory(getPath(fname), fname);
+    testGetDocContentDirectory(getPath(fname), fname, true /* indexFolders */);
     // ACLs checked in other tests.
   }
 
-  private void testGetDocContentDirectory(Path path, String label)
-      throws Exception {
+  @Test
+  public void testGetDocContentDirectoryNoIndex() throws Exception {
+    String fname = "test.dir";
+    root.addChildren(new MockFile(fname, true));
+    testGetDocContentDirectory(getPath(fname), fname, false /* indexFolders */);
+    // ACLs checked in other tests.
+  }
+
+  private void testGetDocContentDirectory(Path path, String label,
+      boolean indexFolders) throws Exception {
     MockFile dir = delegate.getFile(path);
     FileTime modifyTime = dir.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
     dir.addChildren(new MockFile("test.txt"), new MockFile("subdir", true));
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(path));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
     assertFalse(response.notFound);
+    assertEquals(!indexFolders, response.noIndex);
     assertEquals(modifyDate, response.lastModified);
     assertEquals(path.toUri(), response.displayUrl);
     assertEquals("text/html; charset=UTF-8", response.contentType);
@@ -1226,6 +1271,8 @@ public class FsAdaptorTest {
 
   private void testGetDocContentAcls(Path path, Acl expectedAcl,
       Map<String, Acl> expectedAclResources) throws Exception {
+    // Force folders to be indexed, so that we can verify its ACL is correct.
+    config.overrideKey("filesystemadaptor.indexFolders", "true");
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(path));
     MockResponse response = new MockResponse();

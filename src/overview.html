@@ -198,6 +198,25 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </pre>
   </dd>
   <dt>
+  <code>filesystemadaptor.indexFolders</code>
+  </dt>
+  <dd>
+  This boolean configuration property allows or disallows indexing
+  of crawled folder listings and DFS Namespace enumerations. When
+  a folder or DFS Namespace is crawled, the adaptor generates an
+  HTML document consisting of links the the folder's contents or
+  the Namespace's links. Since these generated documents tend to be
+  uninteresting as search results, the adaptor sets the 'noindex'
+  flag in the crawl response by default.
+  <p/>
+  Setting <code>filesystemadaptor.indexFolders</code> to <code>true</code>
+  will allow these generated documents of links to be indexed by the
+  Search Appliance. The default value is:
+  <pre>
+  false
+  </pre>
+  </dd>
+  <dt>
   <code>filesystemadaptor.directoryCacheSize</code>
   </dt>
   <dd>
