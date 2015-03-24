@@ -55,8 +55,10 @@ import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -201,6 +203,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_INDEX_FOLDERS =
       "filesystemadaptor.indexFolders";
 
+  /** The config parameter for strategy of preserving last access time. */
+  private static final String CONFIG_PRESERVE_LAST_ACCESS_TIME =
+      "filesystemadaptor.preserveLastAccessTime";
+
   /** The config parameter for the size of the isVisible directory cache. */
   private static final String CONFIG_DIRECTORY_CACHE_SIZE =
       "filesystemadaptor.directoryCacheSize";
@@ -285,6 +291,10 @@ public class FsAdaptor extends AbstractAdaptor {
   /** If true, index the generated documents of links to folder's contents. */
   private boolean indexFolders;
 
+  /** How to enforce preservation of last access time of files and folders. */
+  private enum PreserveLastAccessTime { NEVER, IF_ALLOWED, ALWAYS };
+  private PreserveLastAccessTime preserveLastAccessTime;
+
   /** Cache of hidden and visible directories. */
   // TODO(bmj): Cache docIds too, for ACL inheritance purposes.
   private Cache<Path, Hidden> isVisibleCache;
@@ -296,6 +306,11 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /** The set of file systems we will be traversing. */
   private Set<Path> startPaths;
+
+  /** The set of file systems currently blocked from traversing. */
+  private Set<Path> blockedPaths =
+      // TODO(bmj): Use Sets.newConcurrentHashSet() from guava r15.
+      Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
 
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
@@ -349,6 +364,8 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
     config.addKey(CONFIG_INDEX_FOLDERS, "false");
+    config.addKey(CONFIG_PRESERVE_LAST_ACCESS_TIME, 
+        PreserveLastAccessTime.ALWAYS.toString());
     config.addKey(CONFIG_DIRECTORY_CACHE_SIZE, "50000");
     config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
@@ -392,6 +409,17 @@ public class FsAdaptor extends AbstractAdaptor {
 
     indexFolders = Boolean.parseBoolean(config.getValue(CONFIG_INDEX_FOLDERS));
     log.log(Level.CONFIG, "indexFolders: {0}", indexFolders);
+
+    try {
+      preserveLastAccessTime = Enum.valueOf(PreserveLastAccessTime.class,
+          config.getValue(CONFIG_PRESERVE_LAST_ACCESS_TIME).toUpperCase());
+    } catch (IllegalArgumentException e) {
+      throw new InvalidConfigurationException("The value of "
+          + CONFIG_PRESERVE_LAST_ACCESS_TIME + " must be one of "
+          + EnumSet.allOf(PreserveLastAccessTime.class) + ".", e);
+    }
+    log.log(Level.CONFIG, "preserveLastAccessTime: {0}",
+        preserveLastAccessTime);
 
     int directoryCacheSize =
         Integer.parseInt(config.getValue(CONFIG_DIRECTORY_CACHE_SIZE));
@@ -734,6 +762,12 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }
 
+    // Check isEmpty first (nearly always true) to avoid calling getStartPath().
+    if (!blockedPaths.isEmpty() && blockedPaths.contains(getStartPath(doc))) {
+      throw new IllegalStateException("Skipping " + doc
+          + " because its start path is blocked.");
+    }
+
     final boolean docIsDirectory = attrs.isDirectory();
     final FileTime lastAccessTime = attrs.lastAccessTime();
 
@@ -797,7 +831,7 @@ public class FsAdaptor extends AbstractAdaptor {
 
       // Populate the document content.
       if (docIsDirectory) {
-        getDirectoryContent(doc, id, resp);
+        getDirectoryContent(doc, id, lastAccessTime, resp);
       } else {
         getFileContent(doc, lastAccessTime, resp);
       }
@@ -949,13 +983,12 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   /* Makes HTML document with links this directory's files and folder. */
-  private void getDirectoryContent(Path doc, DocId docid, Response resp)
-      throws IOException {
+  private void getDirectoryContent(Path doc, DocId docid,
+      FileTime lastAccessTime, Response resp) throws IOException {
     resp.setNoIndex(!indexFolders);
     HtmlResponseWriter writer = createHtmlResponseWriter(resp);
     writer.start(docid, getFileName(doc));
-    DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
-    try {
+    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc)) {
       for (Path file : files) {
         if (isFileOrFolder(file)) {
           DocId docId;
@@ -970,7 +1003,7 @@ public class FsAdaptor extends AbstractAdaptor {
         }
       }
     } finally {
-      files.close();
+      setLastAccessTime(doc, lastAccessTime);
     }
     writer.finish();
   }
@@ -979,22 +1012,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private void getFileContent(Path doc, FileTime lastAccessTime, Response resp)
       throws IOException {
     resp.setContentType(delegate.probeContentType(doc));
-    InputStream input = delegate.newInputStream(doc);
-    try {
+    try (InputStream input = delegate.newInputStream(doc)) {
       copyStream(input, resp.getOutputStream());
     } finally {
-      try {
-        input.close();
-      } finally {
-        try {
-          delegate.setLastAccessTime(doc, lastAccessTime);
-        } catch (IOException e) {
-          // This failure can be expected. We can have full permissions
-          // to read but not write/update permissions.
-          log.log(Level.CONFIG,
-                  "Unable to restore last access time for {0}.", doc);
-        }
-      }
+      setLastAccessTime(doc, lastAccessTime);      
     }
   }
 
@@ -1009,6 +1030,61 @@ public class FsAdaptor extends AbstractAdaptor {
       out.write(buffer, 0, read);
     }
     out.flush();
+  }
+
+  /**
+   * Sets the last access time for the file to the supplied {@code FileTime}.
+   * Failure to preserve last access times can fool backup and archive systems
+   * into thinking the file or folder has been recently accessed by a human,
+   * preventing the movement of least recently used items to secondary storage.
+   * </p>
+   * If the adaptor is unable to restore the last access time for the file,
+   * it is likely the traversal user does not have sufficient privileges to
+   * write the file's attributes.  We therefore halt crawls on this volume
+   * unless the administrator allows us to proceed even if file timestamps
+   * might not be preserved.
+   */
+  private void setLastAccessTime(Path doc, FileTime lastAccessTime)
+      throws IOException {
+    if (preserveLastAccessTime == PreserveLastAccessTime.NEVER) {
+      return;
+    }
+    try {
+      delegate.setLastAccessTime(doc, lastAccessTime);
+    } catch (AccessDeniedException e) {
+      if (preserveLastAccessTime == PreserveLastAccessTime.ALWAYS) {
+        // TODO(bmj): Make this message a localizable resource?
+        String message = String.format("Unable to restore the last access time "
+            + "for %1$s. This can happen if the Windows account used to crawl "
+            + "the path does not have sufficient permissions to write file "
+            + "attributes. If you do not wish to enforce preservation of the "
+            + "last access time for files and folders as they are crawled, "
+            + "please set the '%2$s' configuration property to '%3$s' or "
+            + "'%4$s'.",
+            new Object[] { doc.toString(), CONFIG_PRESERVE_LAST_ACCESS_TIME,
+                PreserveLastAccessTime.IF_ALLOWED,
+                PreserveLastAccessTime.NEVER } );
+        log.log(Level.WARNING, message, e);
+        Path startPath = getStartPath(doc);
+        updateStatus(startPath, Status.Code.ERROR, message);
+        blockedPaths.add(startPath);
+      } else {
+        // This failure can be expected. We can have full permissions
+        // to read but not write/update permissions.
+        log.log(Level.FINER, "Unable to restore the last access time for {0}.",
+                doc);
+      }
+    }
+  }
+    
+  /** Returns the startPath that {@code doc} resides under. */
+  private Path getStartPath(Path doc) throws IOException {
+    for (Path startPath : startPaths) {
+      if (doc.startsWith(startPath)) {
+        return startPath;
+      }
+    }
+    throw new IOException("Unable to determine the start path for " + doc);
   }
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
@@ -1251,6 +1327,12 @@ public class FsAdaptor extends AbstractAdaptor {
         new Object[] { path, code });
   }
 
+  private void updateStatus(Path path, Status.Code code, String message) {
+    fsStatus.put(path, new FsStatus(code, message));
+    log.log(Level.FINE, "Dashboard Status of {0} set to {1}: {2}",
+        new Object[] { path, code, message });
+  }
+
   private void updateStatus(Path path, Exception e) {
     FsStatus status = new FsStatus(e);
     fsStatus.put(path, status);
@@ -1261,6 +1343,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private void updateAllStatus() {
     log.log(Level.FINE, "Updating Dashboard Status");
     for (Path path : fsStatus.keySet()) {
+      if (blockedPaths.contains(path)) {
+        // Leave the current status as is.
+        continue;
+      }
       try {
         validateStartPath(path, /* logging = */ false);
         updateStatus(path, Status.Code.NORMAL);

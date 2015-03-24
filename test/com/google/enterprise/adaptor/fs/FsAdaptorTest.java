@@ -211,6 +211,13 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testAdaptorInitBadPreserveLastAccessTime() throws Exception {
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime", "true");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
   public void testAdaptorInitMultipleStartPaths() throws Exception {
     MultiRootMockFileDelegate delegate = getMultiRootFileDelegate();
     AdaptorContext context = new MockAdaptorContext();
@@ -764,27 +771,102 @@ public class FsAdaptorTest {
       });
   }
 
-  /** Test that failure to restore LastAccessTime is not fatal. */
+  /**
+   * Test that failure to restore LastAccessTime is not fatal, but blocks
+   * subsequent crawl requests.
+   */
   @Test
   public void testPreserveFileLastAccessTimeException4() throws Exception {
+    root.addChildren(new MockFile("test1").setFileContents("test1"));
+
     testNoPreserveFileLastAccessTime(new MockFile("test") {
         @Override
         InputStream newInputStream() throws IOException {
-          setLastAccessTime(FileTime.fromMillis(
+          super.setLastAccessTime(FileTime.fromMillis(
               getLastAccessTime().toMillis() + 1000));
           return super.newInputStream();
         }
         @Override
         MockFile setLastAccessTime(FileTime accessTime) throws IOException {
-          if (MockFile.DEFAULT_FILETIME.equals(getLastAccessTime())) {
-            // Let the above setting from newInputStream go through.
-            return super.setLastAccessTime(accessTime);
-          } else {
-            // But fail the attempt to restore from FsAdaptor.
-            throw new IOException("Restore LastAccessTime");
-          }
+          throw new AccessDeniedException("Restore LastAccessTime");
         }
       });
+
+    // The failure to reset the last access time should block further
+    // crawl requests.
+    MockResponse response = new MockResponse();
+    thrown.expect(IllegalStateException.class);
+    adaptor.getDocContent(new MockRequest(getDocId("test1")), response);
+  }
+
+  /**
+   * Test that failure to restore LastAccessTime is not fatal, and disabling
+   * enforcement of last access time preservation allows subsequent crawling.
+   */
+  @Test
+  public void testPreserveFileLastAccessTimeException5() throws Exception {
+    root.addChildren(new MockFile("test1").setFileContents("test1"));
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime",
+        "IF_ALLOWED");
+
+    testNoPreserveFileLastAccessTime(new MockFile("test") {
+        @Override
+        InputStream newInputStream() throws IOException {
+          super.setLastAccessTime(FileTime.fromMillis(
+              getLastAccessTime().toMillis() + 1000));
+          return super.newInputStream();
+        }
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          throw new AccessDeniedException("Restore LastAccessTime");
+        }
+      });
+
+    // The failure to reset the last access time should not block further
+    // crawl requests.
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(getDocId("test1")), response);
+    assertFalse(response.notFound);
+    assertEquals("test1", response.content.toString("UTF-8"));
+  }
+
+  /** Test we make no attempt to restore last access time if so configured. */
+  @Test
+  public void testPreserveFileLastAccessTimeException6() throws Exception {
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime", "NEVER");
+
+    testNoPreserveFileLastAccessTime(new MockFile("test") {
+        @Override
+        InputStream newInputStream() throws IOException {
+          super.setLastAccessTime(FileTime.fromMillis(
+              getLastAccessTime().toMillis() + 1000));
+          return super.newInputStream();
+        }
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          fail("setLastAccessTime called");
+          return this;
+        }
+      });
+  }
+
+  /**
+   * Test that a non-permissions based failure to restore LastAccessTime is
+   * is treated a any other IOException accessing the file.
+   */
+  @Test
+  public void testPreserveFileLastAccessTimeException7() throws Exception {
+    MockFile test = new MockFile("test") {
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          throw new IOException("Disk crash!");
+        }
+      };
+    root.addChildren(test);
+    adaptor.init(context);
+    thrown.expect(IOException.class);
+    adaptor.getDocContent(new MockRequest(getDocId(test.getName())),
+        new MockResponse());
   }
 
   private void testPreserveFileLastAccessTime(MockFile file) throws Exception {
