@@ -966,29 +966,30 @@ public class FsAdaptor extends AbstractAdaptor {
   private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
       throws IOException {
     resp.setNoIndex(!indexFolders);
-    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-    writer.start(docid, getFileName(doc));
-    for (Path link : delegate.enumerateDfsLinks(doc)) {
-      DocId docId;
-      try {
-        docId = delegate.newDocId(link);
-      } catch (IllegalArgumentException e) {
-        log.log(Level.WARNING, "Skipping {0} because {1}.",
-                new Object[] { doc, e.getMessage() });
-        continue;
+    try (HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
+      writer.start(docid, getFileName(doc));
+      for (Path link : delegate.enumerateDfsLinks(doc)) {
+        DocId docId;
+        try {
+          docId = delegate.newDocId(link);
+        } catch (IllegalArgumentException e) {
+          log.log(Level.WARNING, "Skipping {0} because {1}.",
+                  new Object[] { doc, e.getMessage() });
+          continue;
+        }
+        writer.addLink(docId, getFileName(link));
       }
-      writer.addLink(docId, getFileName(link));
+      writer.finish();
     }
-    writer.finish();
   }
 
   /* Makes HTML document with links this directory's files and folder. */
   private void getDirectoryContent(Path doc, DocId docid,
       FileTime lastAccessTime, Response resp) throws IOException {
     resp.setNoIndex(!indexFolders);
-    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-    writer.start(docid, getFileName(doc));
-    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc)) {
+    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+         HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
+      writer.start(docid, getFileName(doc));
       for (Path file : files) {
         if (isFileOrFolder(file)) {
           DocId docId;
@@ -1002,10 +1003,10 @@ public class FsAdaptor extends AbstractAdaptor {
           writer.addLink(docId, getFileName(file));
         }
       }
+      writer.finish();
     } finally {
       setLastAccessTime(doc, lastAccessTime);
     }
-    writer.finish();
   }
 
   /* Adds the file's content to the response. */
