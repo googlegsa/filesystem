@@ -16,6 +16,7 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.Principal;
@@ -132,6 +133,10 @@ public class AclBuilder {
 
   public Acl.Builder getInheritableByChildFilesOnlyAcl() throws IOException {
     return getAcl(isInheritableByChildFilesOnlyEntry);
+  }
+
+  Acl.Builder getFlattenedAcl() throws IOException {
+    return getAcl(Predicates.<Set<AclEntryFlag>>alwaysTrue());
   }
 
   private Acl.Builder getAcl(Predicate<Set<AclEntryFlag>> predicate)

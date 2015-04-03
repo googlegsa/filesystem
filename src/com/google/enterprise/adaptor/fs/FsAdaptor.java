@@ -20,11 +20,15 @@ import com.google.common.base.Splitter;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
+import com.google.enterprise.adaptor.AuthnIdentity;
+import com.google.enterprise.adaptor.AuthzAuthority;
+import com.google.enterprise.adaptor.AuthzStatus;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
@@ -54,11 +58,16 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -246,6 +255,11 @@ public class FsAdaptor extends AbstractAdaptor {
   /** The config parameter name for the adaptor namespace. */
   private static final String CONFIG_NAMESPACE = "adaptor.namespace";
 
+  /** Config parameter that determins whether search results link to
+   *  file system repository or instead to this adaptor. */
+  private static final String CONFIG_SEARCH_RESULTS_GO_TO_REPO
+       = "filesystemadaptor.searchResultsLinkToRepository";
+
   /** Fragements used for creating the inherited ACL named resources. */
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
   private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
@@ -320,6 +334,8 @@ public class FsAdaptor extends AbstractAdaptor {
   private Map<Path, FsStatus>fsStatus = new ConcurrentHashMap<Path, FsStatus>();
   private Timer statusUpdateService = new Timer("Dashboard Status Update");
   private long statusUpdateIntervalMillis;
+
+  private boolean resultLinksToShare;
   
   public FsAdaptor() {
     // At the moment, we only support Windows.
@@ -373,6 +389,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
     config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
+    config.addKey(CONFIG_SEARCH_RESULTS_GO_TO_REPO, "true");
     // Increase the max feed size, which also increases the
     // asyncDocIdSenderQueueSize to 40,000 entries. This would
     // make a full queue about 10MB in size.
@@ -409,6 +426,14 @@ public class FsAdaptor extends AbstractAdaptor {
 
     indexFolders = Boolean.parseBoolean(config.getValue(CONFIG_INDEX_FOLDERS));
     log.log(Level.CONFIG, "indexFolders: {0}", indexFolders);
+
+    resultLinksToShare = Boolean.parseBoolean(
+        config.getValue(CONFIG_SEARCH_RESULTS_GO_TO_REPO));
+    log.log(Level.CONFIG, "searchResultsLinkToRepository: {0}",
+        resultLinksToShare);
+    if (!resultLinksToShare) {
+      context.setAuthzAuthority(new AccessChecker());
+    }
 
     try {
       preserveLastAccessTime = Enum.valueOf(PreserveLastAccessTime.class,
@@ -787,7 +812,9 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
 
-    resp.setDisplayUrl(doc.toUri());
+    if (resultLinksToShare) {
+      resp.setDisplayUrl(doc.toUri());
+    }
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
@@ -1356,6 +1383,79 @@ public class FsAdaptor extends AbstractAdaptor {
       } catch (InvalidConfigurationException e) {
         updateStatus(path, e);
       }
+    }
+  }
+
+  private static final DocId FOR_ACL_IS_AUTHORIZED = new DocId("whatever");
+  // Used to get around pre-condition requiring all parts of chain other
+  // than root to have inheritFrom be set.
+
+  private class AccessChecker implements AuthzAuthority {
+    public Map<DocId, AuthzStatus> isUserAuthorized(AuthnIdentity userIdentity,
+        Collection<DocId> ids) throws IOException {
+      ImmutableMap.Builder<DocId, AuthzStatus> result
+          = ImmutableMap.<DocId, AuthzStatus>builder();
+      for (DocId id : ids) {
+        try {
+          List<Acl> aclChain = makeAclChain(delegate.getPath(id.getUniqueId()));
+          AuthzStatus decision = Acl.isAuthorized(userIdentity, aclChain);
+          result.put(id, decision);
+        } catch (IOException ioe) {
+          log.log(Level.WARNING, "could not get ACL", ioe);
+          result.put(id, AuthzStatus.INDETERMINATE);
+        }
+      }
+      return result.build();
+    }
+
+    /** Our chain will consist of (1) DFS-link ACL, (2) active-storage ACL,
+     *  and (3) combined ACL of entire file system folder hiearachy with leaf
+     *  ACL. If there is no DFS-link in chain then we skip that ACL.
+     */
+    private List<Acl> makeAclChain(final Path leaf) throws IOException {
+      if (delegate.isDfsLink(leaf)) {
+        String emsg = "late-binding for DFS-link not supported: " + leaf;
+        throw new IllegalStateException(emsg);
+      }
+      if (startPaths.contains(leaf)) {
+        String emsg = "late-binding for start path not supported: " + leaf;
+        throw new IllegalStateException(emsg);
+      }
+      List<Acl> aclChain = new ArrayList<Acl>(3);
+      final Path aclRoot = getAclRoot(leaf);
+      ShareAcls shareAcls = readShareAcls(aclRoot); // blows up on DFS namespace
+      if (shareAcls.dfsShareAcl != null) {
+        aclChain.add(shareAcls.dfsShareAcl);
+      }
+      aclChain.add(shareAcls.shareAcl);
+      aclChain.add(makeLeafAcl(leaf));
+      return aclChain;
+    }
+  
+    private Path getAclRoot(final Path leaf) throws IOException {
+      Path current = leaf;
+      while (null != current) {
+        if (startPaths.contains(current) || delegate.isDfsLink(current)) {
+          break;  // we found root of access control chain
+        } 
+        current = getParent(current);
+      }
+      if (null == current) {
+        throw new AssertionError("got past ACL root for: " + leaf);
+      }
+      return current;
+    }
+  
+    private Acl makeLeafAcl(final Path leaf) throws IOException {
+      AclFileAttributeViews aclViews = delegate.getAclViews(leaf);
+      AclBuilder builder = new AclBuilder(leaf, aclViews.getCombinedAclView(),
+          supportedWindowsAccounts, builtinPrefix, namespace);
+      Acl leafAcl = builder.getFlattenedAcl()
+          .setInheritFrom(FOR_ACL_IS_AUTHORIZED)
+          .setInheritanceType(InheritanceType.LEAF_NODE)
+          .setEverythingCaseInsensitive()
+          .build();
+      return leafAcl;
     }
   }
 

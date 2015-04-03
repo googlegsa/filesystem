@@ -197,6 +197,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   false
   </pre>
   </dd>
+
   <dt>
   <code>filesystemadaptor.indexFolders</code>
   </dt>
@@ -217,8 +218,17 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   </pre>
   </dd>
   <dt>
-  <code>filesystemadaptor.directoryCacheSize</code>
+  <code>filesystemadaptor.searchResultsLinkToRepository</code>
   </dt>
+  <dd>
+  This boolean configuration property controls whether search results
+  link to the repository where content is stored, or whether they link
+  to this adaptor. This adaptor can serve the content while obeying
+  access controls. The default value is:
+  <pre>
+  true
+  </pre>
+  </dd>
   <dt>
   <code>filesystemadaptor.preserveLastAccessTime</code>
   </dt>
