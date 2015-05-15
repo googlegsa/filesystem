@@ -59,8 +59,9 @@ class MockFileDelegate implements FileDelegate {
       // Using startsWith because Path adds a trailing backslash to
       // UNC roots.  The second check accounts for Windows Path
       // implementation flipping slashes on Unix paths.
-      if (!(doc.getRoot().toString().startsWith(root.getPath()) ||
-          root.getPath().equals(doc.getRoot().toString().replace('\\', '/')))) {
+      String rootStr = "" + doc.getRoot();
+      if (!(rootStr.startsWith(root.getPath())
+          || root.getPath().equals(rootStr.replace('\\', '/')))) {
         throw new FileNotFoundException("not found: " + doc.toString());
       }
     } else if (iter.hasNext()) {

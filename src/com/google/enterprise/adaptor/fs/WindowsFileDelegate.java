@@ -268,8 +268,8 @@ class WindowsFileDelegate extends NioFileDelegate {
   @Override
   public Path resolveDfsLink(Path doc) throws IOException {
     Netapi32Ex.DFS_INFO_3 info = getDfsInfo(doc);
-    if (info == null ||
-        (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) != 0) {
+    if (info == null
+        || (info.State.intValue() & Netapi32Ex.DFS_ROOT_FLAVOR_MASK) != 0) {
       return null;
     }
 
@@ -379,7 +379,7 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     CountDownLatch startSignal;
     synchronized (monitors) {
-      log.log(Level.FINE, "Considering monitor for {0}", watchPath );
+      log.log(Level.FINE, "Considering monitor for {0}", watchPath);
       MonitorThread monitorThread = monitors.get(watchPath);
       if (monitorThread != null) {
         log.log(Level.FINE, "Already monitoring {0}", watchPath);

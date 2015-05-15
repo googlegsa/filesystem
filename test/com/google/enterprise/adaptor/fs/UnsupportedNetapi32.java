@@ -123,8 +123,8 @@ public class UnsupportedNetapi32 implements Netapi32, Netapi32Ex {
   }
 
   @Override
-  public int NetUserGetInfo( String serverName, String userName,
-      int level, PointerByReference bufptr ) {
+  public int NetUserGetInfo(String serverName, String userName,
+      int level, PointerByReference bufptr) {
     throw new UnsupportedOperationException();
   }
 

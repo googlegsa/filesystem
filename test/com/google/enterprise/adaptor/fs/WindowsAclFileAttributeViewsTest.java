@@ -34,7 +34,6 @@ import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
-import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
@@ -229,9 +228,9 @@ public class WindowsAclFileAttributeViewsTest extends TestWindowsAclViews {
 
   @Test
   public void testNewAclEntryMultipleFlags() throws Exception {
-    testNewAclEntryFlags((byte) (WinNT.OBJECT_INHERIT_ACE |
-        WinNT.CONTAINER_INHERIT_ACE | WinNT.INHERIT_ONLY_ACE |
-        WinNT.NO_PROPAGATE_INHERIT_ACE), AclEntryFlag.values());
+    testNewAclEntryFlags((byte) (WinNT.OBJECT_INHERIT_ACE
+        | WinNT.CONTAINER_INHERIT_ACE | WinNT.INHERIT_ONLY_ACE
+        | WinNT.NO_PROPAGATE_INHERIT_ACE), AclEntryFlag.values());
   }
 
   private void testNewAclEntryFlags(byte aceFlags,

@@ -66,8 +66,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -451,7 +449,7 @@ public class FsAdaptor extends AbstractAdaptor {
         Integer.parseInt(config.getValue(CONFIG_DIRECTORY_CACHE_SIZE));
     log.log(Level.CONFIG, "directoryCacheSize: {0}", directoryCacheSize);
     isVisibleCache = CacheBuilder.newBuilder()
-        .initialCapacity(directoryCacheSize/4)
+        .initialCapacity(directoryCacheSize / 4)
         .maximumSize(directoryCacheSize)
         .expireAfterWrite(4, TimeUnit.HOURS) // Notice if someone hides a dir.
         .build();
@@ -909,8 +907,9 @@ public class FsAdaptor extends AbstractAdaptor {
       // inherit directly from the share ACL. Crawl up to node with share ACL.
       for (inheritFrom = doc;
           !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
-          inheritFrom = getParent(inheritFrom))
-        ;     // Empty body.
+          inheritFrom = getParent(inheritFrom)) {
+        // Empty body.
+      }
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
@@ -1092,7 +1091,7 @@ public class FsAdaptor extends AbstractAdaptor {
             + "'%4$s'.",
             new Object[] { doc.toString(), CONFIG_PRESERVE_LAST_ACCESS_TIME,
                 PreserveLastAccessTime.IF_ALLOWED,
-                PreserveLastAccessTime.NEVER } );
+                PreserveLastAccessTime.NEVER });
         log.log(Level.WARNING, message, e);
         Path startPath = getStartPath(doc);
         updateStatus(startPath, Status.Code.ERROR, message);
@@ -1186,7 +1185,7 @@ public class FsAdaptor extends AbstractAdaptor {
       hidden = isVisibleCache.get(dir, new Callable<Hidden>() {
           @Override
           public Hidden call() throws IOException {
-            for (Path file = dir ; file != null; file = getParent(file)) {
+            for (Path file = dir; file != null; file = getParent(file)) {
               if (!crawlHiddenFiles && delegate.isHidden(file)) {
                 if (dir == file) {
                   return new Hidden(HiddenType.HIDDEN);
@@ -1203,7 +1202,7 @@ public class FsAdaptor extends AbstractAdaptor {
         });
     } catch (ExecutionException e) {
       if (e.getCause() instanceof IOException) {
-        throw (IOException)(e.getCause());
+        throw (IOException) (e.getCause());
       } else {
         throw new IOException(e);
       }
