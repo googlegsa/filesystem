@@ -40,6 +40,7 @@ import com.google.enterprise.adaptor.Response;
 import com.google.enterprise.adaptor.StartupException;
 import com.google.enterprise.adaptor.Status;
 import com.google.enterprise.adaptor.StatusSource;
+import com.google.enterprise.adaptor.UserPrincipal;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -1386,6 +1387,15 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
+  private static Map<DocId, AuthzStatus> allDeny(Collection<DocId> ids) {
+    ImmutableMap.Builder<DocId, AuthzStatus> result
+        = ImmutableMap.<DocId, AuthzStatus>builder();
+    for (DocId id : ids) {
+      result.put(id, AuthzStatus.DENY); 
+    }
+    return result.build();  
+  }
+
   private static final DocId FOR_ACL_IS_AUTHORIZED = new DocId("whatever");
   // Used to get around pre-condition requiring all parts of chain other
   // than root to have inheritFrom be set.
@@ -1393,18 +1403,34 @@ public class FsAdaptor extends AbstractAdaptor {
   private class AccessChecker implements AuthzAuthority {
     public Map<DocId, AuthzStatus> isUserAuthorized(AuthnIdentity userIdentity,
         Collection<DocId> ids) throws IOException {
+      if (null == userIdentity) {
+        log.info("null identity to authorize");
+        return allDeny(ids);  // TODO: consider way to permit public
+      }
+      UserPrincipal user = userIdentity.getUser();
+      if (null == user) {
+        log.info("null user to authorize");
+        return allDeny(ids);  // TODO: consider way to permit public
+      }
+      log.log(Level.INFO, "about to authorize {0}", user);
       ImmutableMap.Builder<DocId, AuthzStatus> result
           = ImmutableMap.<DocId, AuthzStatus>builder();
       for (DocId id : ids) {
         try {
+          log.log(Level.FINE, "about to authorize {0} for {1}",
+              new Object[]{user, id});
           List<Acl> aclChain = makeAclChain(delegate.getPath(id.getUniqueId()));
           AuthzStatus decision = Acl.isAuthorized(userIdentity, aclChain);
+          log.log(Level.FINE,
+              "authorization decision {0} for user {1} and doc {2}",
+              new Object[]{decision, user, id});
           result.put(id, decision);
         } catch (IOException ioe) {
           log.log(Level.WARNING, "could not get ACL", ioe);
           result.put(id, AuthzStatus.INDETERMINATE);
         }
       }
+      log.log(Level.FINEST, "done with authorizing {0}", user);
       return result.build();
     }
 
@@ -1423,12 +1449,16 @@ public class FsAdaptor extends AbstractAdaptor {
       }
       List<Acl> aclChain = new ArrayList<Acl>(3);
       final Path aclRoot = getAclRoot(leaf);
+      log.log(Level.FINEST, "ACL root of {0} is {1}",
+          new Object[]{leaf, aclRoot});
       ShareAcls shareAcls = readShareAcls(aclRoot); // blows up on DFS namespace
       if (shareAcls.dfsShareAcl != null) {
         aclChain.add(shareAcls.dfsShareAcl);
       }
       aclChain.add(shareAcls.shareAcl);
       aclChain.add(makeLeafAcl(leaf));
+      log.log(Level.FINEST, "ACL chain for {0} is {1}",
+          new Object[]{leaf, aclChain});
       return aclChain;
     }
   
