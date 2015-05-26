@@ -122,4 +122,9 @@ class MockResponse implements Response {
   public void setLock(boolean lock) {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public void respondNoContent() {
+    throw new UnsupportedOperationException();
+  }
 }
