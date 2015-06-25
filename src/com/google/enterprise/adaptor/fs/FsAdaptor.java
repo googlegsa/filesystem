@@ -1440,16 +1440,20 @@ public class FsAdaptor extends AbstractAdaptor {
     private List<Acl> makeAclChain(final Path leaf) throws IOException {
       if (delegate.isDfsLink(leaf)) {
         String emsg = "late-binding for DFS-link not supported: " + leaf;
-        throw new IllegalStateException(emsg);
+        throw new IOException(emsg);
       }
       if (startPaths.contains(leaf)) {
         String emsg = "late-binding for start path not supported: " + leaf;
-        throw new IllegalStateException(emsg);
+        throw new IOException(emsg);
       }
-      List<Acl> aclChain = new ArrayList<Acl>(3);
       final Path aclRoot = getAclRoot(leaf);
       log.log(Level.FINEST, "ACL root of {0} is {1}",
           new Object[]{leaf, aclRoot});
+      // Check exists after getAclRoot determines if leaf is under a startpath.
+      if (!isFileOrFolder(leaf)) {
+        throw new IOException("Not a file or folder: " + leaf);
+      }
+      List<Acl> aclChain = new ArrayList<Acl>(3);
       ShareAcls shareAcls = readShareAcls(aclRoot); // blows up on DFS namespace
       if (shareAcls.dfsShareAcl != null) {
         aclChain.add(shareAcls.dfsShareAcl);
@@ -1462,17 +1466,12 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   
     private Path getAclRoot(final Path leaf) throws IOException {
-      Path current = leaf;
-      while (null != current) {
+      for (Path current = leaf; current != null; current = getParent(current)) {
         if (startPaths.contains(current) || delegate.isDfsLink(current)) {
-          break;  // we found root of access control chain
+          return current;  // We found root of the access control chain.
         } 
-        current = getParent(current);
       }
-      if (null == current) {
-        throw new AssertionError("got past ACL root for: " + leaf);
-      }
-      return current;
+      throw new IOException("Not under a start path: " + leaf);
     }
   
     private Acl makeLeafAcl(final Path leaf) throws IOException {
