@@ -1438,12 +1438,8 @@ public class FsAdaptor extends AbstractAdaptor {
      *  ACL. If there is no DFS-link in chain then we skip that ACL.
      */
     private List<Acl> makeAclChain(final Path leaf) throws IOException {
-      if (delegate.isDfsLink(leaf)) {
-        String emsg = "late-binding for DFS-link not supported: " + leaf;
-        throw new IOException(emsg);
-      }
-      if (startPaths.contains(leaf)) {
-        String emsg = "late-binding for start path not supported: " + leaf;
+      if (delegate.isDfsNamespace(leaf)) {
+        String emsg = "late-binding for DFS Namespace not supported: " + leaf;
         throw new IOException(emsg);
       }
       final Path aclRoot = getAclRoot(leaf);
