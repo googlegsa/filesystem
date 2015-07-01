@@ -633,7 +633,7 @@ class WindowsFileDelegate extends NioFileDelegate {
         try {
           docid = newDocId(doc);
         } catch (IllegalArgumentException e) {
-          log.log(Level.WARNING, "Skipping {0} because {1}.",
+          log.log(Level.WARNING, "Skipping changed {0} because {1}.",
                   new Object[] { doc, e.getMessage() });
           return null;
         }

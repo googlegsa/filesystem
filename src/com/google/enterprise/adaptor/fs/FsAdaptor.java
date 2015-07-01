@@ -483,7 +483,8 @@ public class FsAdaptor extends AbstractAdaptor {
         validStartPaths++;
         updateStatus(startPath, Status.Code.NORMAL);
       } catch (IOException e) {
-        log.log(Level.WARNING, "Unable to validate start path " + startPath, e);
+        log.log(Level.WARNING, "Unable to validate start path: " + startPath,
+                e);
         updateStatus(startPath, e);
       }
     }
@@ -565,7 +566,7 @@ public class FsAdaptor extends AbstractAdaptor {
       validateShare(startPath);
     } else if (delegate.isDfsNamespace(startPath)) {
       if (logging) {
-        log.log(Level.INFO, "Using a DFS namespace {0}.", startPath);
+        log.log(Level.INFO, "Using a DFS namespace {0}", startPath);
       }
       for (Path link : delegate.enumerateDfsLinks(startPath)) {
         // Postpone full validation until crawl time.
@@ -605,8 +606,8 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Verify the path is available and we have access to it. */
   private void validateShare(Path sharePath) throws IOException {
     if (delegate.isDfsNamespace(sharePath)) {
-      throw new AssertionError("validateShare can only be called "
-          + "on DFS links or active storage paths");
+      throw new AssertionError("validateShare may only be called "
+          + "on DFS links or active storage paths.");
     }
 
     // Verify that the adaptor has permission to read the contents of the root.
@@ -694,8 +695,8 @@ public class FsAdaptor extends AbstractAdaptor {
       shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
           .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
     } else if (delegate.isDfsNamespace(share)) {
-      throw new AssertionError("readShareAcls can only be called "
-          + "on DFS links or active storage paths");
+      throw new AssertionError("readShareAcls may only be called "
+          + "on DFS links or active storage paths.");
     } else if (delegate.isDfsLink(share)) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
@@ -764,11 +765,7 @@ public class FsAdaptor extends AbstractAdaptor {
     BasicFileAttributes attrs;
     try {
       attrs = delegate.readBasicAttributes(doc);
-    } catch (FileNotFoundException e) {
-      log.log(Level.INFO, "Not found: {0}", doc);
-      resp.respondNotFound();
-      return;
-    } catch (NoSuchFileException e) {
+    } catch (FileNotFoundException | NoSuchFileException e) {
       log.log(Level.INFO, "Not found: {0}", doc);
       resp.respondNotFound();
       return;
@@ -889,8 +886,8 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Populate the document ACL in the response. */
   private void getFileAcls(Path doc, Response resp) throws IOException {
     if (delegate.isDfsNamespace(doc)) {
-      throw new AssertionError("getFileAcls can not be called on "
-          + "DFS namespace paths");
+      throw new AssertionError("getFileAcls may not be called on "
+          + "DFS namespace paths.");
       }
     final boolean isRoot = startPaths.contains(doc) || delegate.isDfsLink(doc);
     final boolean isDirectory = delegate.isDirectory(doc);
@@ -1000,7 +997,7 @@ public class FsAdaptor extends AbstractAdaptor {
         try {
           docId = delegate.newDocId(link);
         } catch (IllegalArgumentException e) {
-          log.log(Level.WARNING, "Skipping {0} because {1}.",
+          log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
                   new Object[] { doc, e.getMessage() });
           continue;
         }
@@ -1099,7 +1096,7 @@ public class FsAdaptor extends AbstractAdaptor {
       } else {
         // This failure can be expected. We can have full permissions
         // to read but not write/update permissions.
-        log.log(Level.FINER, "Unable to restore the last access time for {0}.",
+        log.log(Level.FINER, "Unable to restore the last access time for {0}",
                 doc);
       }
     }
@@ -1171,7 +1168,7 @@ public class FsAdaptor extends AbstractAdaptor {
     // for hidden files directly, but cache its parent.
     if (delegate.isRegularFile(doc)) {
       if (!crawlHiddenFiles && delegate.isHidden(doc)) {
-        log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
+        log.log(Level.WARNING, "Skipping file {0} because it is hidden.", doc);
         return false;
       }
       dir = getParent(doc);
@@ -1229,7 +1226,7 @@ public class FsAdaptor extends AbstractAdaptor {
     private final Acl dfsShareAcl;
 
     public ShareAcls(Acl shareAcl, Acl dfsShareAcl) {
-      Preconditions.checkNotNull(shareAcl, "the share Acl may not be null");
+      Preconditions.checkNotNull(shareAcl, "The share Acl may not be null.");
       this.shareAcl = shareAcl;
       this.dfsShareAcl = dfsShareAcl;
     }
@@ -1403,33 +1400,33 @@ public class FsAdaptor extends AbstractAdaptor {
     public Map<DocId, AuthzStatus> isUserAuthorized(AuthnIdentity userIdentity,
         Collection<DocId> ids) throws IOException {
       if (null == userIdentity) {
-        log.info("null identity to authorize");
+        log.info("The identity to authorize is null.");
         return allDeny(ids);  // TODO: consider way to permit public
       }
       UserPrincipal user = userIdentity.getUser();
       if (null == user) {
-        log.info("null user to authorize");
+        log.info("The user to authorize is null.");
         return allDeny(ids);  // TODO: consider way to permit public
       }
-      log.log(Level.INFO, "about to authorize {0}", user);
+      log.log(Level.INFO, "About to authorize {0}.", user);
       ImmutableMap.Builder<DocId, AuthzStatus> result
           = ImmutableMap.<DocId, AuthzStatus>builder();
       for (DocId id : ids) {
         try {
-          log.log(Level.FINE, "about to authorize {0} for {1}",
+          log.log(Level.FINE, "About to authorize {0} for {1}.",
               new Object[]{user, id});
           List<Acl> aclChain = makeAclChain(delegate.getPath(id.getUniqueId()));
           AuthzStatus decision = Acl.isAuthorized(userIdentity, aclChain);
           log.log(Level.FINE,
-              "authorization decision {0} for user {1} and doc {2}",
+              "Authorization decision {0} for user {1} and doc {2}.",
               new Object[]{decision, user, id});
           result.put(id, decision);
         } catch (IOException ioe) {
-          log.log(Level.WARNING, "could not get ACL", ioe);
+          log.log(Level.WARNING, "Could not get ACL.", ioe);
           result.put(id, AuthzStatus.INDETERMINATE);
         }
       }
-      log.log(Level.FINEST, "done with authorizing {0}", user);
+      log.log(Level.FINEST, "Done with authorizing {0}.", user);
       return result.build();
     }
 
@@ -1439,8 +1436,8 @@ public class FsAdaptor extends AbstractAdaptor {
      */
     private List<Acl> makeAclChain(final Path leaf) throws IOException {
       if (delegate.isDfsNamespace(leaf)) {
-        String emsg = "late-binding for DFS Namespace not supported: " + leaf;
-        throw new IOException(emsg);
+        String msg = "Late-binding for DFS Namespace is not supported: " + leaf;
+        throw new IOException(msg);
       }
       final Path aclRoot = getAclRoot(leaf);
       log.log(Level.FINEST, "ACL root of {0} is {1}",
@@ -1450,7 +1447,7 @@ public class FsAdaptor extends AbstractAdaptor {
         throw new IOException("Not a file or folder: " + leaf);
       }
       List<Acl> aclChain = new ArrayList<Acl>(3);
-      ShareAcls shareAcls = readShareAcls(aclRoot); // blows up on DFS namespace
+      ShareAcls shareAcls = readShareAcls(aclRoot);
       if (shareAcls.dfsShareAcl != null) {
         aclChain.add(shareAcls.dfsShareAcl);
       }
