@@ -1165,7 +1165,7 @@ public class FsAdaptor extends AbstractAdaptor {
    * and that it, nor none of its ancestors, is hidden.
    */
   @VisibleForTesting
-  boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
+  boolean isVisibleDescendantOfRoot(final Path doc) throws IOException {
     final Path dir;
     // I only want to cache directories, not regular files; so check
     // for hidden files directly, but cache its parent.
@@ -1187,7 +1187,7 @@ public class FsAdaptor extends AbstractAdaptor {
           public Hidden call() throws IOException {
             for (Path file = dir; file != null; file = getParent(file)) {
               if (!crawlHiddenFiles && delegate.isHidden(file)) {
-                if (dir == file) {
+                if (doc == file) {
                   return new Hidden(HiddenType.HIDDEN);
                 } else {
                   return new Hidden(HiddenType.HIDDEN_UNDER, file);
