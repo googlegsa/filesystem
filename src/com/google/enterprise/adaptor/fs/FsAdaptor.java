@@ -998,7 +998,7 @@ public class FsAdaptor extends AbstractAdaptor {
           docId = delegate.newDocId(link);
         } catch (IllegalArgumentException e) {
           log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
-                  new Object[] { doc, e.getMessage() });
+                  new Object[] { link, e.getMessage() });
           continue;
         }
         writer.addLink(docId, getFileName(link));
@@ -1021,7 +1021,7 @@ public class FsAdaptor extends AbstractAdaptor {
             docId = delegate.newDocId(file);
           } catch (IllegalArgumentException e) {
             log.log(Level.WARNING, "Skipping {0} because {1}.",
-                    new Object[] { doc, e.getMessage() });
+                    new Object[] { file, e.getMessage() });
             continue;
           }
           writer.addLink(docId, getFileName(file));
