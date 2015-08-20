@@ -853,10 +853,17 @@ public class FsAdaptor extends AbstractAdaptor {
       getFileAcls(doc, resp);
 
       // Populate the document content.
-      if (docIsDirectory) {
-        getDirectoryContent(doc, id, lastAccessTime, resp);
-      } else {
-        getFileContent(doc, lastAccessTime, resp);
+      // Some filesystem let us read the metadata and ACL, but throws
+      // NoSuchFileException when trying to read directory contents.
+      try {
+        if (docIsDirectory) {
+          getDirectoryContent(doc, id, lastAccessTime, resp);
+        } else {
+          getFileContent(doc, lastAccessTime, resp);
+        }
+      } catch (FileNotFoundException | NoSuchFileException e) {
+        log.log(Level.INFO, "File or directory not found: {0}", doc);
+        resp.respondNotFound();
       }
     }
     log.exiting("FsAdaptor", "getDocContent");
