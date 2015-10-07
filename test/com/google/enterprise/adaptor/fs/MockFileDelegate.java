@@ -75,19 +75,6 @@ class MockFileDelegate implements FileDelegate {
     return file;
   }
 
-  /**
-   * Returns the {@link MockFile} identified by the supplied {@link Path},
-   * or the root if the file is not found.  This is a hack to allow paths
-   * like \\server\namespace to actually resolve to the root as a convenience.
-   */
-  MockFile getFileOrRoot(Path doc) {
-    try {
-      return getFile(doc);
-    } catch (FileNotFoundException e) {
-      return root;
-    }
-  }
-
   @Override
   public Path getPath(String pathname) throws IOException {
     if (Strings.isNullOrEmpty(pathname)) {
@@ -173,32 +160,32 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public AclFileAttributeView getShareAclView(Path doc) throws IOException {
-    return getFileOrRoot(doc).getShareAclView();
+    return getFile(doc).getShareAclView();
   }
 
   @Override
   public AclFileAttributeView getDfsShareAclView(Path doc) throws IOException {
-    return getFileOrRoot(doc).getDfsShareAclView();
+    return getFile(doc).getDfsShareAclView();
   }
 
   @Override
   public boolean isDfsNamespace(Path doc) throws IOException {
-    return getFileOrRoot(doc).isDfsNamespace();
+    return getFile(doc).isDfsNamespace();
   }
 
   @Override
   public boolean isDfsLink(Path doc) throws IOException {
-    return getFileOrRoot(doc).isDfsLink();
+    return getFile(doc).isDfsLink();
   }
 
   @Override
   public Path resolveDfsLink(Path doc) throws IOException {
-    return getFileOrRoot(doc).getDfsActiveStorage();
+    return getFile(doc).getDfsActiveStorage();
   }
 
   @Override
   public List<Path> enumerateDfsLinks(Path doc) throws IOException {
-    MockFile file = getFileOrRoot(doc);
+    MockFile file = getFile(doc);
     if (file.isDfsNamespace()) {
       return ImmutableList.copyOf(file.newDirectoryStream());
     } else {

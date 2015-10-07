@@ -79,14 +79,19 @@ public class FsAdaptorTest {
   private AccumulatingDocIdPusher pusher =
       (AccumulatingDocIdPusher) context.getDocIdPusher();
   private Config config = context.getConfig();
+  // Set up a target for DFS Links.
+  private Path dfsTargetPath = Paths.get("\\\\host\\share");
+  private MockFile dfsTarget = new MockFile(dfsTargetPath.toString(), true);
   private MockFile root = new MockFile(ROOT, true);
-  private MockFileDelegate delegate = new MockFileDelegate(root);
+  private MockFileDelegate delegate =
+      new MultiRootMockFileDelegate(root, dfsTarget);
   private FsAdaptor adaptor = new FsAdaptor(delegate);
   private DocId rootDocId;
 
   @Before
   public void setUp() throws Exception {
     rootDocId = delegate.newDocId(rootPath);
+    dfsTarget.setShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.initConfig(config);
     config.overrideKey("filesystemadaptor.src", root.getPath());
     config.overrideKey("adaptor.incrementalPollPeriodSecs", "0");
@@ -125,17 +130,28 @@ public class FsAdaptorTest {
 
   @Test
   public void testAdaptorInitNonRootSourcePath() throws Exception {
-    root.addChildren(new MockFile("subdir", true));
-    config.overrideKey("filesystemadaptor.src", getPath("subdir").toString());
-    thrown.expect(InvalidConfigurationException.class);
+    MockFile dir = new MockFile("subdir", true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
     adaptor.init(context);
   }
 
   @Test
   public void testAdaptorInitDfsLink() throws Exception {
     root.setIsDfsLink(true);
-    root.setDfsActiveStorage(Paths.get("\\\\dfshost\\share"));
+    root.setDfsActiveStorage(dfsTargetPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitDfsPath() throws Exception {
+    root.setIsDfsLink(true);
+    root.setDfsActiveStorage(dfsTargetPath);
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    MockFile dir = new MockFile("subdir", true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
     adaptor.init(context);
   }
 
@@ -409,6 +425,20 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testGetDocIdsNonRootStartPath() throws Exception {
+    root.addChildren(new MockFile("subdir", true));
+    config.overrideKey("filesystemadaptor.src", getPath("subdir").toString());
+    adaptor.init(context);
+    adaptor.getDocIds(pusher);
+
+    // We should just push the startpath docid.
+    List<Record> records = pusher.getRecords();
+    assertEquals(1, records.size());
+    assertEquals(delegate.newDocId(getPath("subdir")),
+                 records.get(0).getDocId());
+  }
+
+  @Test
   public void testGetDocIdsDfsNamespace() throws Exception {
     makeDfsNamespace(root);
     adaptor.init(context);
@@ -426,9 +456,8 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocIdsDfsLink() throws Exception {
-    Path uncPath = Paths.get("\\\\dfshost\\share");
     root.setIsDfsLink(true);
-    root.setDfsActiveStorage(uncPath);
+    root.setDfsActiveStorage(dfsTargetPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
     adaptor.getDocIds(pusher);
@@ -441,6 +470,24 @@ public class FsAdaptorTest {
     // We no longer push the share ACLs in getDocIds.
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
     assertEquals(0, namedResources.size());
+  }
+
+  @Test
+  public void testGetDocIdsDfsPath() throws Exception {
+    root.setIsDfsLink(true);
+    root.setDfsActiveStorage(dfsTargetPath);
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
+    MockFile dir = new MockFile("subdir", true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
+    adaptor.init(context);
+    adaptor.getDocIds(pusher);
+
+    // We should just push the startPath docid.
+    List<Record> records = pusher.getRecords();
+    assertEquals(1, records.size());
+    assertEquals(delegate.newDocId(getPath("subdir")),
+                 records.get(0).getDocId());
   }
 
   @Test
@@ -501,7 +548,7 @@ public class FsAdaptorTest {
   @Test
   public void testGetDocContentBrokenDfsLink() throws Exception {
     root.setIsDfsLink(true);
-    root.setDfsActiveStorage(Paths.get("\\\\host\\share"));
+    root.setDfsActiveStorage(dfsTargetPath);
     root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     adaptor.init(context);
 
@@ -580,32 +627,50 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentRegularFile() throws Exception {
-    testGetDocContentRegularFile(true /* indexFolders */);
+    testGetDocContentRegularFile(root, true /* indexFolders */);
   }
 
   @Test
   public void testGetDocContentRegularFileNoIndex() throws Exception {
-    testGetDocContentRegularFile(false /* indexFolders */);
+    testGetDocContentRegularFile(root, false /* indexFolders */);
   }
 
-  private void testGetDocContentRegularFile(boolean indexFolders)
+  @Test
+  public void testGetDocContentRegularFileInSubdir() throws Exception {
+    MockFile dir = new MockFile("subdir", true);
+    root.addChildren(dir);
+    testGetDocContentRegularFile(dir, false /* indexFolders */);
+  }
+
+  @Test
+  public void testGetDocContentRegularFileNonRootStartPath() throws Exception {
+    MockFile dir = new MockFile("subdir", true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
+    testGetDocContentRegularFile(dir, false /* indexFolders */);
+  }
+
+  private void testGetDocContentRegularFile(MockFile dir, boolean indexFolders)
       throws Exception {
     String fname = "test.html";
     Date modifyDate = new Date(30000);
     FileTime modifyTime = FileTime.fromMillis(modifyDate.getTime());
     String content = "<html><title>Hello World</title></html>";
-    root.addChildren(new MockFile(fname).setLastModifiedTime(modifyTime)
-        .setFileContents(content).setContentType("text/html"));
+    MockFile file = new MockFile(fname).setLastModifiedTime(modifyTime)
+        .setFileContents(content).setContentType("text/html");
+    dir.addChildren(file);
     config.overrideKey("filesystemadaptor.indexFolders",
                        Boolean.toString(indexFolders));
     adaptor.init(context);
 
+    Path path = Paths.get(file.getPath());
+    DocId docId = delegate.newDocId(path);
     MockResponse response = new MockResponse();
-    adaptor.getDocContent(new MockRequest(getDocId(fname)), response);
+    adaptor.getDocContent(new MockRequest(docId), response);
     assertFalse(response.notFound);
     assertFalse(response.noIndex);  // indexFolders should have no effect.
     assertEquals(modifyDate, response.lastModified);
-    assertEquals(getPath(fname).toUri(), response.displayUrl);
+    assertEquals(path.toUri(), response.displayUrl);
     assertEquals("text/html", response.contentType);
     assertEquals(content, response.content.toString("UTF-8"));
     // TODO: check metadata.
@@ -927,6 +992,16 @@ public class FsAdaptorTest {
     // ACLs checked in other tests.
   }
 
+  @Test
+  public void testGetDocContentDirectoryNonRootStartPath() throws Exception {
+    String fname = "test.dir";
+    MockFile dir = new MockFile(fname, true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
+    testGetDocContentDirectory(getPath(fname), fname, false /* indexFolders */);
+    // ACLs checked in other tests.
+  }
+
   private void testGetDocContentDirectory(Path path, String label,
       boolean indexFolders) throws Exception {
     testGetDocContentDirectory(path, label, indexFolders, 1000);
@@ -1001,59 +1076,135 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentDefaultRootAcls() throws Exception {
+    testGetDocContentDefaultStartPathAcls(rootPath);
+  }
+
+  @Test
+  public void testGetDocContentDefaultNonRootStartPathAcls() throws Exception {
+    String fname = "test.dir";
+    MockFile dir = new MockFile(fname, true);
+    root.addChildren(dir);
+    config.overrideKey("filesystemadaptor.src", dir.getPath());
+    testGetDocContentDefaultStartPathAcls(getPath(fname));
+  }
+
+  private void testGetDocContentDefaultStartPathAcls(Path startPath)
+      throws Exception {
+    DocId docId = delegate.newDocId(startPath);
     Acl expectedAcl = new Acl.Builder().setEverythingCaseInsensitive()
         .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
         .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
-        .setInheritFrom(rootDocId, SHARE_ACL).build();
+        .setInheritFrom(docId, SHARE_ACL).build();
     Map<String, Acl> expectedResources = ImmutableMap.of(
         SHARE_ACL, defaultShareAcl,
         "allFoldersAcl", expectedAcl,
         "allFilesAcl", expectedAcl,
         "childFoldersAcl", expectedAcl,
         "childFilesAcl", expectedAcl);
-    testGetDocContentAcls(rootPath, expectedAcl, expectedResources);
+    testGetDocContentAcls(startPath, expectedAcl, expectedResources);
   }
 
   @Test
   public void testGetDocContentDfsLinkStartPointAcls() throws Exception {
-    testGetDocContentDfsLinkAcls(root);
+    String groupName = "FsRootGroup";
+    root.setAclView(new AclView(
+        group(groupName).type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
+    testGetDocContentDfsLinkAcls(root,
+        Collections.singleton(new GroupPrincipal(groupName)),
+        root.getPath());
   }
 
   @Test
-  public void testGetDocContentDfsLinkNonStartPointAcls() throws Exception {
+  public void testGetDocContentDfsLinkInNamespaceAcls() throws Exception {
+    MockFile dfsLink = new MockFile("dfsLink", true);
+    String groupName = "FsRootGroup";
+    dfsLink.setAclView(new AclView(
+        group(groupName).type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
+    root.addChildren(dfsLink);
+    root.setIsDfsNamespace(true);
+    root.setAclView(MockFile.EMPTY_ACLVIEW);
+    testGetDocContentDfsLinkAcls(dfsLink,
+        Collections.singleton(new GroupPrincipal(groupName)),
+        dfsLink.getPath());
+  }
+
+  @Test
+  public void testGetDocContentNonRootStartPointAcls() throws Exception {
     MockFile dfsLink = new MockFile("dfsLink", true);
     root.addChildren(dfsLink);
     root.setIsDfsNamespace(true);
-    testGetDocContentDfsLinkAcls(dfsLink);
+    root.setAclView(MockFile.EMPTY_ACLVIEW);
+    MockFile nonRoot = new MockFile("subdir", true);
+    dfsLink.addChildren(nonRoot);
+    String groupName = "FsNonRootGroup";
+    nonRoot.setAclView(new AclView(
+        group(groupName).type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
+
+    config.overrideKey("filesystemadaptor.src", nonRoot.getPath());
+    testGetDocContentDfsLinkAcls(dfsLink,
+        Collections.singleton(new GroupPrincipal(groupName)),
+        nonRoot.getPath());
   }
 
-  private void testGetDocContentDfsLinkAcls(MockFile dfsLink) throws Exception {
+  @Test
+  public void testGetDocContentNonRootStartPointWithInheritedAcls()
+      throws Exception {
+    MockFile dfsLink = new MockFile("dfsLink", true);
+    root.addChildren(dfsLink);
+    root.setIsDfsNamespace(true);
+    root.setAclView(MockFile.EMPTY_ACLVIEW);
+    MockFile nonRoot = new MockFile("subdir", true);
+    dfsLink.addChildren(nonRoot);
+    String rootGroupName = "FsRootGroup";
+    String nonRootGroupName = "FsNonRootGroup";
+    nonRoot.setInheritedAclView(new AclView(
+        group(rootGroupName).type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
+    nonRoot.setAclView(new AclView(
+        group(nonRootGroupName).type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
+
+    config.overrideKey("filesystemadaptor.src", nonRoot.getPath());
+    testGetDocContentDfsLinkAcls(dfsLink,
+        ImmutableSet.<GroupPrincipal>of(new GroupPrincipal(rootGroupName),
+                                        new GroupPrincipal(nonRootGroupName)),
+        nonRoot.getPath());
+  }
+
+  private void testGetDocContentDfsLinkAcls(MockFile dfsLink,
+      Set<GroupPrincipal> permitGroups, String startPath) throws Exception {
     AclFileAttributeView dfsAclView = new AclView(
-        group("EVERYBODY").type(ALLOW).perms(GENERIC_READ)
+        group("DfsGroup").type(ALLOW).perms(GENERIC_READ)
         .flags(FILE_INHERIT, DIRECTORY_INHERIT));
     AclFileAttributeView shareAclView = new AclView(
-        group("Everyone").type(ALLOW).perms(GENERIC_READ)
+        group("ShareGroup").type(ALLOW).perms(GENERIC_READ)
         .flags(FILE_INHERIT, DIRECTORY_INHERIT));
     dfsLink.setIsDfsLink(true);
-    dfsLink.setDfsActiveStorage(Paths.get("\\\\host\\share"));
+    dfsLink.setDfsActiveStorage(dfsTargetPath);
     dfsLink.setDfsShareAclView(dfsAclView);
-    dfsLink.setShareAclView(shareAclView);
-    DocId dfsLinkDocId = delegate.newDocId(Paths.get(dfsLink.getPath()));
+    // We only read the Share ACL from the active storage.  All other
+    // ACLs are read using the DFS path to the file/directory.
+    MockFile targetShare = delegate.getFile(dfsTargetPath);
+    targetShare.setShareAclView(shareAclView);
 
+    DocId dfsLinkDocId = delegate.newDocId(delegate.getPath(dfsLink.getPath()));
+    Path crawlPath = delegate.getPath(startPath);
     Acl expectedDfsShareAcl = new Acl.Builder()
        .setEverythingCaseInsensitive()
-       .setPermitGroups(Collections.singleton(new GroupPrincipal("EVERYBODY")))
+       .setPermitGroups(Collections.singleton(new GroupPrincipal("DfsGroup")))
        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
     Acl expectedShareAcl = new Acl.Builder()
        .setEverythingCaseInsensitive()
-       .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+       .setPermitGroups(Collections.singleton(new GroupPrincipal("ShareGroup")))
        .setInheritFrom(dfsLinkDocId, DFS_SHARE_ACL)
        .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
-
     Acl expectedAcl = new Acl.Builder().setEverythingCaseInsensitive()
-        .setPermitGroups(Collections.singleton(new GroupPrincipal("Everyone")))
+        .setPermitGroups(permitGroups)
         .setInheritanceType(InheritanceType.CHILD_OVERRIDES)
-        .setInheritFrom(dfsLinkDocId, SHARE_ACL).build();
+        .setInheritFrom(delegate.newDocId(crawlPath), SHARE_ACL).build();
     Map<String, Acl> expectedResources = new ImmutableMap.Builder<String, Acl>()
         .put(DFS_SHARE_ACL, expectedDfsShareAcl)
         .put(SHARE_ACL, expectedShareAcl)
@@ -1061,8 +1212,8 @@ public class FsAdaptorTest {
         .put("allFilesAcl", expectedAcl)
         .put("childFoldersAcl", expectedAcl)
         .put("childFilesAcl", expectedAcl).build();
-    Path path = delegate.getPath(dfsLink.getPath());
-    testGetDocContentAcls(path, expectedAcl, expectedResources);
+
+    testGetDocContentAcls(crawlPath, expectedAcl, expectedResources);
   }
 
   @Test

@@ -75,7 +75,7 @@ class WindowsAclFileAttributeViews {
 
   /** This pattern parses a UNC path to get the host and share details. */
   private static final Pattern UNC_PATTERN =
-      Pattern.compile("^\\\\\\\\([^\\\\]+)\\\\([^\\\\]+)");
+      Pattern.compile("^\\\\\\\\([^\\\\]+)\\\\([^\\\\]+).*");
 
   /** The set of SID_NAME_USE which are groups and not users. */
   private static final Set<Integer> GROUP_SID_TYPES =

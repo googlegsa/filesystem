@@ -56,16 +56,4 @@ class MultiRootMockFileDelegate extends MockFileDelegate {
     }
     throw new FileNotFoundException("not found: " + doc.toString());
   }
-
-  /**
-   * Returns the {@link MockFile} identified by the supplied {@link Path}.
-   */
-  @Override
-  MockFile getFileOrRoot(Path doc) {
-    try {
-      return getFile(doc);
-    } catch (FileNotFoundException e) {
-      throw new AssertionError("Not found, but should have been: " + doc);
-    }
-  }
 }

@@ -599,7 +599,7 @@ public class FsAdaptor extends AbstractAdaptor {
           if (logging) {
             log.log(Level.INFO, "DFS path {0} resolved to {1}",
                     new Object[] {link, dfsActiveStorage});
-            // When called from init(), set the initial status of enumerated 
+            // When called from init(), set the initial status of enumerated
             // DFS links as unavailable, as we are not calling validateShare()
             // at this time. The actual status will be set when this is
             // called from the statusUpdateService or getDocContent().
@@ -610,21 +610,23 @@ public class FsAdaptor extends AbstractAdaptor {
           updateStatus(link, e);
         }
       }
-    } else if (startPath.equals(startPath.getRoot())) {
+    } else {
       if (logging) {
-        log.log(Level.INFO, "Using a non-DFS path {0}", startPath);
+        log.log(Level.INFO, "Using a {0}DFS path {1}", new Object[] {
+            ((getDfsRoot(startPath) == null) ? "non-" : ""), startPath });
       }
       validateShare(startPath);
-    } else {
-      // We currently only support a config path that is a root.
-      // Non-root paths will fail to produce Acls for all the folders up
-      // to the root from the configured path, so we limit configuration
-      // only to root paths.
-      throw new InvalidConfigurationException(
-          "Invalid path " + startPath + ". Acceptable paths need to be"
-          + " either \\\\host\\namespace or \\\\host\\namespace\\link"
-          + " or \\\\host\\share.");
     }
+  }
+
+  /** Returns the DFS Link or Namespace for a path; or null if not DFS. */
+  private Path getDfsRoot(Path path) throws IOException {
+    for (Path file = path; file != null; file = getParent(file)) {
+      if (delegate.isDfsNamespace(file) || delegate.isDfsLink(file)) {
+        return file;
+      }
+    }
+    return null;
   }
 
   /** Verify the path is available and we have access to it. */
@@ -712,6 +714,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private ShareAcls readShareAcls(Path share) throws IOException {
     Acl shareAcl;
     Acl dfsShareAcl;
+    Path dfsRoot = getDfsRoot(share);
 
     if (skipShareAcl) {
       // Ignore the Share ACL, but create a benign placeholder.
@@ -721,17 +724,17 @@ public class FsAdaptor extends AbstractAdaptor {
     } else if (delegate.isDfsNamespace(share)) {
       throw new AssertionError("readShareAcls may only be called "
           + "on DFS links or active storage paths.");
-    } else if (delegate.isDfsLink(share)) {
+    } else if (dfsRoot != null && delegate.isDfsLink(dfsRoot)) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
       AclBuilder builder = new AclBuilder(share,
-          delegate.getDfsShareAclView(share),
+          delegate.getDfsShareAclView(dfsRoot),
           supportedWindowsAccounts, builtinPrefix, namespace);
       dfsShareAcl = builder.getAcl().setInheritanceType(
           InheritanceType.AND_BOTH_PERMIT).build();
 
       // Push the Acl for the active storage UNC path.
-      Path activeStorage = delegate.resolveDfsLink(share);
+      Path activeStorage = delegate.resolveDfsLink(dfsRoot);
       if (activeStorage == null) {
         throw new IOException("The DFS path " + share
             + " does not have an active storage.");
@@ -741,7 +744,7 @@ public class FsAdaptor extends AbstractAdaptor {
           delegate.getShareAclView(activeStorage),
           supportedWindowsAccounts, builtinPrefix, namespace);
       shareAcl = builder.getAcl()
-          .setInheritFrom(delegate.newDocId(share), DFS_SHARE_ACL)
+          .setInheritFrom(delegate.newDocId(dfsRoot), DFS_SHARE_ACL)
           .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
     } else {
       // For a non-DFS UNC we have only have a share Acl to push.
