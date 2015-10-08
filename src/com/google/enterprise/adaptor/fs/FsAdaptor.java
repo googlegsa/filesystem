@@ -31,6 +31,7 @@ import com.google.enterprise.adaptor.AuthzAuthority;
 import com.google.enterprise.adaptor.AuthzStatus;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
+import com.google.enterprise.adaptor.DocIdEncoder;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
@@ -42,6 +43,8 @@ import com.google.enterprise.adaptor.Status;
 import com.google.enterprise.adaptor.StatusSource;
 import com.google.enterprise.adaptor.UserPrincipal;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -211,6 +214,14 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_INDEX_FOLDERS =
       "filesystemadaptor.indexFolders";
 
+  /**
+   * The config parameter name for maximum number of HTML links to return
+   * when listing folder contents. Contents in excess of this value will be
+   * supplied as external anchors.
+   */
+  private static final String CONFIG_MAX_HTML_LINKS =
+      "filesystemadaptor.maxHtmlSize";
+
   /** The config parameter for strategy of preserving last access time. */
   private static final String CONFIG_PRESERVE_LAST_ACCESS_TIME =
       "filesystemadaptor.preserveLastAccessTime";
@@ -222,7 +233,7 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Relative config parameter name for earliest last accessed time allowed. */
   private static final String CONFIG_LAST_ACCESSED_DAYS =
       "filesystemadaptor.lastAccessedDays";
- 
+
   /** Absolute config parameter name for earliest last accessed time allowed. */
   private static final String CONFIG_LAST_ACCESSED_DATE =
       "filesystemadaptor.lastAccessedDate";
@@ -304,6 +315,9 @@ public class FsAdaptor extends AbstractAdaptor {
   /** If true, index the generated documents of links to folder's contents. */
   private boolean indexFolders;
 
+  /** Maximum number of HTML links to return in a folder listing. */
+  private int maxHtmlLinks;
+
   /** How to enforce preservation of last access time of files and folders. */
   private enum PreserveLastAccessTime { NEVER, IF_ALLOWED, ALWAYS };
   private PreserveLastAccessTime preserveLastAccessTime;
@@ -335,7 +349,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private long statusUpdateIntervalMillis;
 
   private boolean resultLinksToShare;
-  
+
   public FsAdaptor() {
     // At the moment, we only support Windows.
     if (System.getProperty("os.name").startsWith("Windows")) {
@@ -379,6 +393,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
     config.addKey(CONFIG_INDEX_FOLDERS, "false");
+    config.addKey(CONFIG_MAX_HTML_LINKS, "1000");
     config.addKey(CONFIG_PRESERVE_LAST_ACCESS_TIME, 
         PreserveLastAccessTime.ALWAYS.toString());
     config.addKey(CONFIG_DIRECTORY_CACHE_SIZE, "50000");
@@ -425,6 +440,15 @@ public class FsAdaptor extends AbstractAdaptor {
 
     indexFolders = Boolean.parseBoolean(config.getValue(CONFIG_INDEX_FOLDERS));
     log.log(Level.CONFIG, "indexFolders: {0}", indexFolders);
+
+    try {
+      maxHtmlLinks = Math.max(0,
+          Integer.parseInt(config.getValue(CONFIG_MAX_HTML_LINKS)));
+      log.log(Level.CONFIG, "maxHtmlSize: {0}", maxHtmlLinks);
+    } catch (NumberFormatException e) {
+      throw new InvalidConfigurationException(CONFIG_MAX_HTML_LINKS
+          + " must be a positive integer.", e);
+    }
 
     resultLinksToShare = Boolean.parseBoolean(
         config.getValue(CONFIG_SEARCH_RESULTS_GO_TO_REPO));
@@ -1018,23 +1042,85 @@ public class FsAdaptor extends AbstractAdaptor {
   private void getDirectoryContent(Path doc, DocId docid,
       FileTime lastAccessTime, Response resp) throws IOException {
     resp.setNoIndex(!indexFolders);
-    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
-         HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
-      writer.start(docid, getFileName(doc));
-      for (Path file : files) {
-        DocId docId;
-        try {
-          docId = delegate.newDocId(file);
-        } catch (IllegalArgumentException e) {
-          log.log(Level.WARNING, "Skipping {0} because {1}.",
-                  new Object[] { file, e.getMessage() });
-          continue;
+    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc)) {
+      // Large directories can have tens or hundreds of thousands of files.
+      // The GSA truncates large HTML documents at 2.5MB, so return
+      // the first maxHtmlLinks worth as HTML content and the rest as external
+      // anchors. But we cannot start writing the HTML content to the response
+      // until after we add all the external anchor metadata. So spool the HTML
+      // for now and copy it to the response later.
+      SharedByteArrayOutputStream htmlOut = new SharedByteArrayOutputStream();
+      Writer writer = new OutputStreamWriter(htmlOut, CHARSET);
+      DocIdEncoder docIdEncoder = context.getDocIdEncoder();
+      try (HtmlResponseWriter htmlWriter =
+           new HtmlResponseWriter(writer, docIdEncoder, Locale.ENGLISH)) {
+        htmlWriter.start(docid, getFileName(doc));
+        int htmlLinks = 0;
+        for (Path file : files) {
+          DocId docId;
+          try {
+            docId = delegate.newDocId(file);
+          } catch (IllegalArgumentException e) {
+            log.log(Level.WARNING, "Skipping {0} because {1}.",
+                    new Object[] { file, e.getMessage() });
+            continue;
+          }
+          if (htmlLinks++ < maxHtmlLinks) {
+            // Add an HTML link.
+            htmlWriter.addLink(docId, getFileName(file));
+          } else {
+            // Add an external anchor.
+            resp.addAnchor(docIdEncoder.encodeDocId(docId),
+                           getFileName(file));
+          }
         }
-        writer.addLink(docId, file.getFileName().toString());
+        htmlWriter.finish();
       }
-      writer.finish();
+      // Finally, write out the generated HTML links as content.
+      resp.setContentType("text/html; charset=" + CHARSET.name());
+      copyStream(htmlOut.getInputStream(), resp.getOutputStream());
     } finally {
       setLastAccessTime(doc, lastAccessTime);
+    }
+  }
+
+  /**
+   * This implementation adds a {@link #getInputStream} method that
+   * shares the buffer with this output stream. The input stream
+   * cannot be obtained until the output stream is closed.
+   */
+  private static class SharedByteArrayOutputStream
+      extends ByteArrayOutputStream {
+    public SharedByteArrayOutputStream() {
+      super();
+    }
+
+    public SharedByteArrayOutputStream(int size) {
+      super(size);
+    }
+
+    /** Is this output stream open? */
+    private boolean isOpen = true;
+
+    /** Marks this output stream as closed. */
+    @Override
+    public void close() throws IOException {
+      isOpen = false;
+      super.close();
+    }
+
+    /**
+     * Gets a <code>ByteArrayInputStream</code> that shares the
+     * output buffer, without copying it.
+     *
+     * @return a <code>ByteArrayInputStream</code>
+     * @throws IOException if the output stream is open
+     */
+    public ByteArrayInputStream getInputStream() throws IOException {
+      if (isOpen) {
+        throw new IOException("Output stream is open.");
+      }
+      return new ByteArrayInputStream(buf, 0, count);
     }
   }
 
@@ -1106,7 +1192,7 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
   }
-    
+
   /** Returns the startPath that {@code doc} resides under. */
   private Path getStartPath(Path doc) throws IOException {
     for (Path startPath : startPaths) {
@@ -1462,7 +1548,7 @@ public class FsAdaptor extends AbstractAdaptor {
           new Object[]{leaf, aclChain});
       return aclChain;
     }
-  
+
     private Path getAclRoot(final Path leaf) throws IOException {
       for (Path current = leaf; current != null; current = getParent(current)) {
         if (startPaths.contains(current) || delegate.isDfsLink(current)) {
@@ -1471,7 +1557,7 @@ public class FsAdaptor extends AbstractAdaptor {
       }
       throw new IOException("Not under a start path: " + leaf);
     }
-  
+
     private Acl makeLeafAcl(final Path leaf) throws IOException {
       AclFileAttributeViews aclViews = delegate.getAclViews(leaf);
       AclBuilder builder = new AclBuilder(leaf, aclViews.getCombinedAclView(),

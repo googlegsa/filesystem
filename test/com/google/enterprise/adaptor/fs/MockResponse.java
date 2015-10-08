@@ -40,6 +40,7 @@ class MockResponse implements Response {
   Acl acl;
   Map<String, String> metadata = new HashMap<String, String>();
   Map<String, Acl> namedResources = new HashMap<String, Acl>();
+  Map<String, URI> anchors = new HashMap<String, URI>();
   ByteArrayOutputStream content;
 
   @Override
@@ -95,7 +96,7 @@ class MockResponse implements Response {
 
   @Override
   public void addAnchor(URI uri, String text) {
-    throw new UnsupportedOperationException();
+    anchors.put(text, uri);
   }
 
   @Override

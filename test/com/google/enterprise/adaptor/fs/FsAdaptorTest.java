@@ -41,6 +41,7 @@ import java.io.File;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
@@ -401,7 +402,7 @@ public class FsAdaptorTest {
     List<Record> records = pusher.getRecords();
     assertEquals(1, records.size());
     assertEquals(delegate.newDocId(rootPath), records.get(0).getDocId());
-    
+
     // We no longer push the share ACL in getDocIds.
     List<Map<DocId, Acl>> namedResources = pusher.getNamedResources();
     assertEquals(0, namedResources.size());
@@ -928,12 +929,42 @@ public class FsAdaptorTest {
 
   private void testGetDocContentDirectory(Path path, String label,
       boolean indexFolders) throws Exception {
+    testGetDocContentDirectory(path, label, indexFolders, 1000);
+  }
+
+  @Test
+  public void testGetDocContentDirectoryHtmlLinksOnly() throws Exception {
+    testMaxHtmlLinks(4);
+  }
+
+  @Test
+  public void testGetDocContentDirectoryExternalAnchorsOnly() throws Exception {
+    testMaxHtmlLinks(0);
+  }
+
+  @Test
+  public void testGetDocContentDirectoryHtmlLinksAndAnchors() throws Exception {
+    testMaxHtmlLinks(2);
+  }
+
+  private void testMaxHtmlLinks(int maxHtmlLinks) throws Exception {
+    testGetDocContentDirectory(rootPath, rootPath.toString(), false,
+        maxHtmlLinks);
+  }
+
+  private void testGetDocContentDirectory(Path path, String label,
+      boolean indexFolders, int maxHtmlLinks) throws Exception {
     MockFile dir = delegate.getFile(path);
     FileTime modifyTime = dir.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
-    dir.addChildren(new MockFile("test.txt"), new MockFile("subdir", true));
+    String[] files = { "subdir1", "subdir2", "test1.txt", "test2.txt" };
+    for (String file : files) {
+      dir.addChildren(new MockFile(file, file.contains("dir")));
+    }
     config.overrideKey("filesystemadaptor.indexFolders",
                        Boolean.toString(indexFolders));
+    config.overrideKey("filesystemadaptor.maxHtmlSize",
+                       Integer.toString(maxHtmlLinks));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(path));
     MockResponse response = new MockResponse();
@@ -943,12 +974,29 @@ public class FsAdaptorTest {
     assertEquals(modifyDate, response.lastModified);
     assertEquals(path.toUri(), response.displayUrl);
     assertEquals("text/html; charset=UTF-8", response.contentType);
-    String expectedContent = "<!DOCTYPE html>\n<html><head><title>Folder "
-        + label + "</title></head><body><h1>Folder " + label + "</h1>"
-        + "<li><a href=\"subdir/\">subdir</a></li>"
-        + "<li><a href=\"test.txt\">test.txt</a></li></body></html>";
-    assertEquals(expectedContent, response.content.toString("UTF-8"));
     assertNotNull(response.metadata.get("Creation Time"));
+    String html = response.content.toString("UTF-8");
+    assertTrue(html, html.startsWith("<!DOCTYPE html>\n<html><head><title>"
+        + "Folder " + label + "</title></head><body><h1>Folder " + label
+        + "</h1>"));
+
+    // Verify the links and anchors.
+    int i;
+    for (i = 0; i < files.length && i < maxHtmlLinks; i++) {
+      String file = files[i];
+      String expectedLink = "<li><a href=\"" + file
+          + (file.contains("dir") ? "/" : "") + "\">" + file + "</a></li>";
+      assertTrue(html, html.contains(expectedLink));
+    }
+    for (; i < files.length; i++) {
+      String file = files[i];
+      URI uri = context.getDocIdEncoder().encodeDocId(new DocId(
+          (file.contains("dir") ? file + "/" : file)));
+      URI anchor = response.anchors.get(file);
+      assertNotNull("File " + file + " with URI " + uri + " is missing"
+          + " from response:/n" + html + "/n" + response.anchors, anchor);
+      assertEquals(uri, anchor);
+    }
   }
 
   @Test

@@ -95,7 +95,7 @@ filesystemadaptor.src=<b>\\\\host\\share</b>
       The delimiter character is configurable (see below) in case your
       pathnames actually contain semicolons.
   <br>
-  
+
   <li> Create file named <code>logging.properties</code> in the same directory
   that contains adaptor binary:
   <pre>
@@ -197,7 +197,6 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   false
   </pre>
   </dd>
-
   <dt>
   <code>filesystemadaptor.indexFolders</code>
   </dt>
@@ -205,7 +204,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   This boolean configuration property allows or disallows indexing
   of crawled folder listings and DFS Namespace enumerations. When
   a folder or DFS Namespace is crawled, the adaptor generates an
-  HTML document consisting of links the the folder's contents or
+  HTML document consisting of links to the folder's contents or
   the Namespace's links. Since these generated documents tend to be
   uninteresting as search results, the adaptor sets the 'noindex'
   flag in the crawl response by default.
@@ -215,6 +214,25 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   Search Appliance. The default value is:
   <pre>
   false
+  </pre>
+  </dd>
+  <dt>
+  <code>filesystemadaptor.maxHtmlSize</code>
+  </dt>
+  <dd>
+  When listing folder contents, the adaptor generates an HTML
+  document consisting of links to the folder's contents.
+  However, if folders contain tens or even hundreds of thousands
+  of files, the generated HTML could exceed the GSA's maximum
+  document size to index.
+  <p/>
+  This configuration property sets the maximum number of links
+  that the generated HTML listing will contain. Folder contents
+  in excess of that value will be supplied as external anchors,
+  as "X-Gsa-External-Anchor" headers. The default value for
+  <code>filesystemadaptor.maxHtmlSize</code> is:
+  <pre>
+  1000
   </pre>
   </dd>
   <dt>
