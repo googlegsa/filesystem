@@ -1022,17 +1022,15 @@ public class FsAdaptor extends AbstractAdaptor {
          HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
       writer.start(docid, getFileName(doc));
       for (Path file : files) {
-        if (isFileOrFolder(file)) {
-          DocId docId;
-          try {
-            docId = delegate.newDocId(file);
-          } catch (IllegalArgumentException e) {
-            log.log(Level.WARNING, "Skipping {0} because {1}.",
-                    new Object[] { file, e.getMessage() });
-            continue;
-          }
-          writer.addLink(docId, getFileName(file));
+        DocId docId;
+        try {
+          docId = delegate.newDocId(file);
+        } catch (IllegalArgumentException e) {
+          log.log(Level.WARNING, "Skipping {0} because {1}.",
+                  new Object[] { file, e.getMessage() });
+          continue;
         }
+        writer.addLink(docId, file.getFileName().toString());
       }
       writer.finish();
     } finally {
