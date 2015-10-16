@@ -47,4 +47,9 @@ class MockRequest implements Request {
   public DocId getDocId() {
     return docid;
   }
+
+  @Override
+  public boolean canRespondWithNoContent(Date d) {
+    throw new UnsupportedOperationException();
+  }
 }

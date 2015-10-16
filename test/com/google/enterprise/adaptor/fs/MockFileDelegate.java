@@ -23,14 +23,13 @@ import com.google.enterprise.adaptor.DocId;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.DirectoryStream;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.BlockingQueue;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.Iterator;
 import java.util.List;
 
@@ -60,8 +59,9 @@ class MockFileDelegate implements FileDelegate {
       // Using startsWith because Path adds a trailing backslash to
       // UNC roots.  The second check accounts for Windows Path
       // implementation flipping slashes on Unix paths.
-      if (!(doc.getRoot().toString().startsWith(root.getPath()) ||
-          root.getPath().equals(doc.getRoot().toString().replace('\\', '/')))) {
+      String rootStr = "" + doc.getRoot();
+      if (!(rootStr.startsWith(root.getPath())
+          || root.getPath().equals(rootStr.replace('\\', '/')))) {
         throw new FileNotFoundException("not found: " + doc.toString());
       }
     } else if (iter.hasNext()) {

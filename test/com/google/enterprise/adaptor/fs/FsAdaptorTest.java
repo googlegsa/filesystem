@@ -14,19 +14,16 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
@@ -35,8 +32,6 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
-import com.google.enterprise.adaptor.StartupException;
-import com.google.enterprise.adaptor.UnsupportedPlatformException;
 import com.google.enterprise.adaptor.UserPrincipal;
 
 import org.junit.*;
@@ -59,7 +54,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 
 /** Test cases for {@link FsAdaptor}. */
 public class FsAdaptorTest {
@@ -213,6 +207,13 @@ public class FsAdaptorTest {
   public void testAdaptorInitCrawlHiddenRoot() throws Exception {
     root.setIsHidden(true);
     config.overrideKey("filesystemadaptor.crawlHiddenFiles", "true");
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitBadPreserveLastAccessTime() throws Exception {
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime", "true");
+    thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
 
@@ -591,17 +592,30 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentRegularFile() throws Exception {
+    testGetDocContentRegularFile(true /* indexFolders */);
+  }
+
+  @Test
+  public void testGetDocContentRegularFileNoIndex() throws Exception {
+    testGetDocContentRegularFile(false /* indexFolders */);
+  }
+
+  private void testGetDocContentRegularFile(boolean indexFolders)
+      throws Exception {
     String fname = "test.html";
     Date modifyDate = new Date(30000);
     FileTime modifyTime = FileTime.fromMillis(modifyDate.getTime());
     String content = "<html><title>Hello World</title></html>";
     root.addChildren(new MockFile(fname).setLastModifiedTime(modifyTime)
         .setFileContents(content).setContentType("text/html"));
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
 
     MockResponse response = new MockResponse();
     adaptor.getDocContent(new MockRequest(getDocId(fname)), response);
     assertFalse(response.notFound);
+    assertFalse(response.noIndex);  // indexFolders should have no effect.
     assertEquals(modifyDate, response.lastModified);
     assertEquals(getPath(fname).toUri(), response.displayUrl);
     assertEquals("text/html", response.contentType);
@@ -613,14 +627,27 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentDfsNamespace() throws Exception {
+    testGetDocContentDfsNamespace(true /* indexFolders */);
+  }
+
+  @Test
+  public void testGetDocContentDfsNamespaceNoIndex() throws Exception {
+    testGetDocContentDfsNamespace(false /* indexFolders */);
+  }
+
+  private void testGetDocContentDfsNamespace(boolean indexFolders)
+      throws Exception {
     makeDfsNamespace(root);
     FileTime modifyTime = root.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(rootPath));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
     assertFalse(response.notFound);
+    assertEquals(!indexFolders, response.noIndex);
     assertEquals(modifyDate, response.lastModified);
     assertEquals(rootPath.toUri(), response.displayUrl);
     assertEquals("text/html; charset=UTF-8", response.contentType);
@@ -757,27 +784,102 @@ public class FsAdaptorTest {
       });
   }
 
-  /** Test that failure to restore LastAccessTime is not fatal. */
+  /**
+   * Test that failure to restore LastAccessTime is not fatal, but blocks
+   * subsequent crawl requests.
+   */
   @Test
   public void testPreserveFileLastAccessTimeException4() throws Exception {
+    root.addChildren(new MockFile("test1").setFileContents("test1"));
+
     testNoPreserveFileLastAccessTime(new MockFile("test") {
         @Override
         InputStream newInputStream() throws IOException {
-          setLastAccessTime(FileTime.fromMillis(
+          super.setLastAccessTime(FileTime.fromMillis(
               getLastAccessTime().toMillis() + 1000));
           return super.newInputStream();
         }
         @Override
         MockFile setLastAccessTime(FileTime accessTime) throws IOException {
-          if (MockFile.DEFAULT_FILETIME.equals(getLastAccessTime())) {
-            // Let the above setting from newInputStream go through.
-            return super.setLastAccessTime(accessTime);
-          } else {
-            // But fail the attempt to restore from FsAdaptor.
-            throw new IOException("Restore LastAccessTime");
-          }
+          throw new AccessDeniedException("Restore LastAccessTime");
         }
       });
+
+    // The failure to reset the last access time should block further
+    // crawl requests.
+    MockResponse response = new MockResponse();
+    thrown.expect(IllegalStateException.class);
+    adaptor.getDocContent(new MockRequest(getDocId("test1")), response);
+  }
+
+  /**
+   * Test that failure to restore LastAccessTime is not fatal, and disabling
+   * enforcement of last access time preservation allows subsequent crawling.
+   */
+  @Test
+  public void testPreserveFileLastAccessTimeException5() throws Exception {
+    root.addChildren(new MockFile("test1").setFileContents("test1"));
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime",
+        "IF_ALLOWED");
+
+    testNoPreserveFileLastAccessTime(new MockFile("test") {
+        @Override
+        InputStream newInputStream() throws IOException {
+          super.setLastAccessTime(FileTime.fromMillis(
+              getLastAccessTime().toMillis() + 1000));
+          return super.newInputStream();
+        }
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          throw new AccessDeniedException("Restore LastAccessTime");
+        }
+      });
+
+    // The failure to reset the last access time should not block further
+    // crawl requests.
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(getDocId("test1")), response);
+    assertFalse(response.notFound);
+    assertEquals("test1", response.content.toString("UTF-8"));
+  }
+
+  /** Test we make no attempt to restore last access time if so configured. */
+  @Test
+  public void testPreserveFileLastAccessTimeException6() throws Exception {
+    config.overrideKey("filesystemadaptor.preserveLastAccessTime", "NEVER");
+
+    testNoPreserveFileLastAccessTime(new MockFile("test") {
+        @Override
+        InputStream newInputStream() throws IOException {
+          super.setLastAccessTime(FileTime.fromMillis(
+              getLastAccessTime().toMillis() + 1000));
+          return super.newInputStream();
+        }
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          fail("setLastAccessTime called");
+          return this;
+        }
+      });
+  }
+
+  /**
+   * Test that a non-permissions based failure to restore LastAccessTime is
+   * is treated a any other IOException accessing the file.
+   */
+  @Test
+  public void testPreserveFileLastAccessTimeException7() throws Exception {
+    MockFile test = new MockFile("test") {
+        @Override
+        MockFile setLastAccessTime(FileTime accessTime) throws IOException {
+          throw new IOException("Disk crash!");
+        }
+      };
+    root.addChildren(test);
+    adaptor.init(context);
+    thrown.expect(IOException.class);
+    adaptor.getDocContent(new MockRequest(getDocId(test.getName())),
+        new MockResponse());
   }
 
   private void testPreserveFileLastAccessTime(MockFile file) throws Exception {
@@ -809,7 +911,15 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentRoot() throws Exception {
-    testGetDocContentDirectory(rootPath, rootPath.toString());
+    testGetDocContentDirectory(rootPath, rootPath.toString(),
+                               true /* indexFolders */);
+    // ACLs checked in other tests.
+  }
+
+  @Test
+  public void testGetDocContentRootNoIndex() throws Exception {
+    testGetDocContentDirectory(rootPath, rootPath.toString(),
+                               false /* indexFolders */);
     // ACLs checked in other tests.
   }
 
@@ -817,21 +927,32 @@ public class FsAdaptorTest {
   public void testGetDocContentDirectory() throws Exception {
     String fname = "test.dir";
     root.addChildren(new MockFile(fname, true));
-    testGetDocContentDirectory(getPath(fname), fname);
+    testGetDocContentDirectory(getPath(fname), fname, true /* indexFolders */);
     // ACLs checked in other tests.
   }
 
-  private void testGetDocContentDirectory(Path path, String label)
-      throws Exception {
+  @Test
+  public void testGetDocContentDirectoryNoIndex() throws Exception {
+    String fname = "test.dir";
+    root.addChildren(new MockFile(fname, true));
+    testGetDocContentDirectory(getPath(fname), fname, false /* indexFolders */);
+    // ACLs checked in other tests.
+  }
+
+  private void testGetDocContentDirectory(Path path, String label,
+      boolean indexFolders) throws Exception {
     MockFile dir = delegate.getFile(path);
     FileTime modifyTime = dir.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
     dir.addChildren(new MockFile("test.txt"), new MockFile("subdir", true));
+    config.overrideKey("filesystemadaptor.indexFolders",
+                       Boolean.toString(indexFolders));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(path));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
     assertFalse(response.notFound);
+    assertEquals(!indexFolders, response.noIndex);
     assertEquals(modifyDate, response.lastModified);
     assertEquals(path.toUri(), response.displayUrl);
     assertEquals("text/html; charset=UTF-8", response.contentType);
@@ -1245,6 +1366,8 @@ public class FsAdaptorTest {
 
   private void testGetDocContentAcls(Path path, Acl expectedAcl,
       Map<String, Acl> expectedAclResources) throws Exception {
+    // Force folders to be indexed, so that we can verify its ACL is correct.
+    config.overrideKey("filesystemadaptor.indexFolders", "true");
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(path));
     MockResponse response = new MockResponse();

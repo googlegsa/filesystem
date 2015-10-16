@@ -197,6 +197,77 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   false
   </pre>
   </dd>
+
+  <dt>
+  <code>filesystemadaptor.indexFolders</code>
+  </dt>
+  <dd>
+  This boolean configuration property allows or disallows indexing
+  of crawled folder listings and DFS Namespace enumerations. When
+  a folder or DFS Namespace is crawled, the adaptor generates an
+  HTML document consisting of links the the folder's contents or
+  the Namespace's links. Since these generated documents tend to be
+  uninteresting as search results, the adaptor sets the 'noindex'
+  flag in the crawl response by default.
+  <p/>
+  Setting <code>filesystemadaptor.indexFolders</code> to <code>true</code>
+  will allow these generated documents of links to be indexed by the
+  Search Appliance. The default value is:
+  <pre>
+  false
+  </pre>
+  </dd>
+  <dt>
+  <code>filesystemadaptor.searchResultsLinkToRepository</code>
+  </dt>
+  <dd>
+  This boolean configuration property controls whether search results
+  link to the repository where content is stored, or whether they link
+  to this adaptor. This adaptor can serve the content while obeying
+  access controls. The default value is:
+  <pre>
+  true
+  </pre>
+  </dd>
+  <dt>
+  <code>filesystemadaptor.preserveLastAccessTime</code>
+  </dt>
+  <dd>
+  This configuration property controls the level of enforcement of the
+  preservation of the last access timestamp of crawled files and folders.
+  Failure to preserve last access times can fool backup and archive systems
+  into thinking the file or folder has been recently accessed by a human,
+  preventing the movement of least recently used items to secondary storage.
+  </p>
+  If the adaptor is unable to restore the last access time for the file,
+  it is likely the traversal user does not have sufficient privileges to
+  write the file's attributes. As a precaution, the adaptor rejects crawl
+  requests for the filesystem to prevent altering the last access timestamps
+  for potentially thousands of files.
+  </p>
+  The <code>filesystemadaptor.preserveLastAccessTime</code> property
+  has three possible values: 
+  <ul>
+    <li> <code>ALWAYS</code>: The adaptor will attempt to preserve the last
+      access time for all files and folders crawled.  The first failure to
+      do so will force the adaptor to reject all subsequent crawl requests
+      for the filesystem to prevent altering the last access timestamps
+      for potentially thousands of files.
+    </li>
+    <li> <code>IF_ALLOWED</code>: The adaptor will attempt to preserve the
+      last access time for all files and folders crawled, even though some
+      timestamps might not be preserved.
+    </li>
+    <li> <code>NEVER</code>: The adaptor will make no attempt to preserve
+      the last access time for crawled files and folders.
+    </li>
+  </ul>
+  The default level of enforcement for preservation of last access
+  timestamps is:
+  <pre>
+  ALWAYS
+  </pre>
+  </dd>
   <dt>
   <code>filesystemadaptor.directoryCacheSize</code>
   </dt>

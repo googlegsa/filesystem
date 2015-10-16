@@ -21,7 +21,6 @@ import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 
 import java.util.Collections;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 class AccumulatingAsyncDocIdPusher extends AccumulatingDocIdPusher

@@ -14,56 +14,45 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 
-import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import com.google.common.io.CharStreams;
-import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
-
-import org.junit.*;
-import org.junit.rules.ExpectedException;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.WString;
 import com.sun.jna.platform.win32.Advapi32;
-import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
+import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
-import com.sun.jna.platform.win32.WinDef.DWORD;
-import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Collections;
 import java.util.List;
@@ -161,7 +150,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsAclFileAttributeViews wafav =
         new TestAclFileAttributeViews(null, null, null, netapi, null);
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, wafav);
+        new WindowsFileDelegate(null, null, netapi, wafav, 0);
 
     return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
   }
@@ -184,7 +173,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsAclFileAttributeViews wafav =
         new TestAclFileAttributeViews(null, null, null, netapi, null);
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, wafav);
+        new WindowsFileDelegate(null, null, netapi, wafav, 0);
 
     thrown.expect(Win32Exception.class);
     delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
@@ -286,7 +275,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsAclFileAttributeViews wafav =
         new TestAclFileAttributeViews(null, null, null, netapi, null);
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(advapi32, kernel32, netapi, wafav);
+        new WindowsFileDelegate(advapi32, kernel32, netapi, wafav, 0);
 
     return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
   }
@@ -329,7 +318,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsAclFileAttributeViews wafav =
         new TestAclFileAttributeViews(null, null, null, netapi, null);
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(advapi32, kernel32, netapi, wafav);
+        new WindowsFileDelegate(advapi32, kernel32, netapi, wafav, 0);
 
     thrown.expect(Win32Exception.class);
     delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
@@ -406,7 +395,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private static boolean isDfsNamespace(Path dfsPath, final Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, null);
+        new WindowsFileDelegate(null, null, netapi, null, 0);
     return delegate.isDfsNamespace(dfsPath);
   }
 
@@ -488,7 +477,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private static boolean isDfsLink(final Path dfsPath, final Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, null);
+        new WindowsFileDelegate(null, null, netapi, null, 0);
     return delegate.isDfsLink(dfsPath);
   }
 
@@ -574,7 +563,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   private static Path resolveDfsLink(Netapi32Ex netapi)
       throws Exception {
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, null);
+        new WindowsFileDelegate(null, null, netapi, null, 0);
     Path dfsPath = Paths.get("\\\\host\\namespace\\link");
     return delegate.resolveDfsLink(dfsPath);
   }
@@ -629,7 +618,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
           if (infos != null) {
             int sizeofInfo = new Netapi32Ex.DFS_INFO_1().size();
             bufptr.setValue(infos.share(0));
-            entriesRead.setValue((int)(infos.size() / sizeofInfo));
+            entriesRead.setValue((int) (infos.size() / sizeofInfo));
             return LMErr.NERR_Success;
           } else {
             return WinError.ERROR_NOT_FOUND;
@@ -642,27 +631,26 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
       };
 
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, null);
+        new WindowsFileDelegate(null, null, netapi, null, 0);
     return delegate.enumerateDfsLinks(Paths.get("\\\\host\\namespace"));
   }
 
   @Test
   public void testPreserveOriginalNamespace() throws Exception {
-    WindowsFileDelegate delegate = new WindowsFileDelegate();
     Path original = Paths.get("\\\\server\\namespace");
     Path expected = Paths.get("\\\\server\\namespace", "link");
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\server\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\SERVER\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\ALIAS\\namespace\\link")));
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\server.example.com\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\server\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\SERVER\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\ALIAS\\namespace\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\server.example.com\\namespace\\link")));
 
     expected = Paths.get("\\\\server\\namespace", "folder", "link");
-    assertEquals(expected, delegate.preserveOriginalNamespace(original,
-        Paths.get("\\\\SERVER\\namespace\\folder\\link")));
+    assertEquals(expected, WindowsFileDelegate.preserveOriginalNamespace(
+        original, Paths.get("\\\\SERVER\\namespace\\folder\\link")));
   }
 
   private String makeLongPath() {
@@ -860,8 +848,57 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     checkForChanges(Sets.newHashSet(newRecord(file), newRecord(dir)));
   }
 
+  @Test
+  public void testMonitorNotificationPauseAndResume() throws Exception {
+    Path file1 = newTempFile(tempRoot, "test1.txt");
+    Path file2 = newTempFile(tempRoot, "test2.txt");
+    Path file3 = newTempFile(tempRoot, "test3.txt");
+    Path file4 = newTempFile(tempRoot, "test4.txt");
+    Path file5 = newTempFile(tempRoot, "test5.txt");
+    byte[] contents = "Hello World".getBytes("UTF-8");
+
+    // Delegate with 2 second notification pause.
+    WindowsFileDelegate delegate =
+        new WindowsFileDelegate(null, Kernel32Ex.INSTANCE, null, null, 2000);
+
+    // Pusher that can hold, at most two unique items.
+    AccumulatingAsyncDocIdPusher pusher = new AccumulatingAsyncDocIdPusher() {
+        @Override
+        public boolean pushRecord(DocIdPusher.Record record) {
+          // Use a Set to eliminate duplicate notifications.
+          Set<DocIdPusher.Record> records = Sets.newHashSet(super.getRecords());
+          records.add(record);
+          return (records.size() > 2) ? false : super.pushRecord(record);
+        }
+      };
+    delegate.startMonitorPath(tempRoot, pusher);
+
+    Files.write(file1, contents);
+    Files.write(file2, contents);
+    Files.write(file3, contents);
+    // Should push the first two, but reject the third.
+    checkForChanges(pusher,
+                    Sets.newHashSet(newRecord(file1), newRecord(file2)));
+
+    // This one should be dropped by the notification pause.
+    Files.write(file4, contents);
+
+    // Wait for notification pause to expire.
+    Thread.sleep(2100);
+
+    // Notifications should be re-enabled, so this one should go through.
+    Files.write(file5, contents);
+    checkForChanges(pusher, Collections.singleton(newRecord(file5)));
+    delegate.destroy();
+  }
+
   private void checkForChanges(Set<DocIdPusher.Record> expected)
       throws Exception {
+    checkForChanges(pusher, expected);
+  }
+
+  private void checkForChanges(AccumulatingAsyncDocIdPusher pusher,
+      Set<DocIdPusher.Record> expected) throws Exception {
     // Collect up the changes.
     Set<DocIdPusher.Record> changes = Sets.newHashSet();
     final long maxLatencyMillis = 10000;

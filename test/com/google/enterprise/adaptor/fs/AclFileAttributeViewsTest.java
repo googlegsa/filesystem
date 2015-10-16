@@ -14,14 +14,12 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
 import static com.google.enterprise.adaptor.fs.AclView.group;
-
-import static org.junit.Assert.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
 
 import org.junit.*;
 import org.junit.rules.ExpectedException;

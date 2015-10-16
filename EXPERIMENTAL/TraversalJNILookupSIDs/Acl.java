@@ -1,7 +1,8 @@
+import jcifs.smb.*;
+
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
-import jcifs.smb.*;
-import java.io.*;
 
 public class Acl {
   public static final String NAME = "system.cifs_acl";

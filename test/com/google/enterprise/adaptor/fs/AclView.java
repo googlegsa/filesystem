@@ -186,6 +186,11 @@ class AclView extends SimpleAclFileAttributeView {
       }
       return getName().equals(((UserPrincipal) obj).getName());
     }
+
+    @Override
+    public int hashCode() {
+      return getName().hashCode();
+    }
   }
 
   private static class Group extends User implements GroupPrincipal {
@@ -204,6 +209,11 @@ class AclView extends SimpleAclFileAttributeView {
         return false;
       }
       return getName().equals(((GroupPrincipal) obj).getName());
+    }
+
+    @Override
+    public int hashCode() {
+      return getName().hashCode();
     }
   }
 }

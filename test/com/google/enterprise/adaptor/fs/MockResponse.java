@@ -33,6 +33,7 @@ class MockResponse implements Response {
 
   boolean notModified = false;
   boolean notFound = false;
+  boolean noIndex = false;
   String contentType;
   Date lastModified;
   URI displayUrl;
@@ -99,7 +100,7 @@ class MockResponse implements Response {
 
   @Override
   public void setNoIndex(boolean noIndex) {
-    throw new UnsupportedOperationException();
+    this.noIndex = noIndex;
   }
 
   @Override
@@ -119,6 +120,11 @@ class MockResponse implements Response {
 
   @Override
   public void setLock(boolean lock) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void respondNoContent() {
     throw new UnsupportedOperationException();
   }
 }

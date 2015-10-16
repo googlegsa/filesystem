@@ -20,16 +20,19 @@ import com.google.common.base.Splitter;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
 import com.google.enterprise.adaptor.AdaptorContext;
+import com.google.enterprise.adaptor.AuthnIdentity;
+import com.google.enterprise.adaptor.AuthzAuthority;
+import com.google.enterprise.adaptor.AuthzStatus;
 import com.google.enterprise.adaptor.Config;
 import com.google.enterprise.adaptor.DocId;
 import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
-import com.google.enterprise.adaptor.IOHelper;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.Principal;
 import com.google.enterprise.adaptor.Request;
@@ -37,6 +40,7 @@ import com.google.enterprise.adaptor.Response;
 import com.google.enterprise.adaptor.StartupException;
 import com.google.enterprise.adaptor.Status;
 import com.google.enterprise.adaptor.StatusSource;
+import com.google.enterprise.adaptor.UserPrincipal;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -55,10 +59,14 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -197,7 +205,15 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /** The config parameter name for turning on/off hidden file indexing. */
   private static final String CONFIG_CRAWL_HIDDEN_FILES =
-      "filesystemadaptor.crawlHiddenFiles";    
+      "filesystemadaptor.crawlHiddenFiles";
+
+  /** The config parameter name for turning on/off folder indexing. */
+  private static final String CONFIG_INDEX_FOLDERS =
+      "filesystemadaptor.indexFolders";
+
+  /** The config parameter for strategy of preserving last access time. */
+  private static final String CONFIG_PRESERVE_LAST_ACCESS_TIME =
+      "filesystemadaptor.preserveLastAccessTime";
 
   /** The config parameter for the size of the isVisible directory cache. */
   private static final String CONFIG_DIRECTORY_CACHE_SIZE =
@@ -241,6 +257,11 @@ public class FsAdaptor extends AbstractAdaptor {
   /** The config parameter name for the adaptor namespace. */
   private static final String CONFIG_NAMESPACE = "adaptor.namespace";
 
+  /** Config parameter that determins whether search results link to
+   *  file system repository or instead to this adaptor. */
+  private static final String CONFIG_SEARCH_RESULTS_GO_TO_REPO
+       = "filesystemadaptor.searchResultsLinkToRepository";
+
   /** Fragements used for creating the inherited ACL named resources. */
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
   private static final String ALL_FILE_INHERIT_ACL = "allFilesAcl";
@@ -283,6 +304,13 @@ public class FsAdaptor extends AbstractAdaptor {
   /** If true, crawl hidden files and folders.  Default is false. */
   private boolean crawlHiddenFiles;
 
+  /** If true, index the generated documents of links to folder's contents. */
+  private boolean indexFolders;
+
+  /** How to enforce preservation of last access time of files and folders. */
+  private enum PreserveLastAccessTime { NEVER, IF_ALLOWED, ALWAYS };
+  private PreserveLastAccessTime preserveLastAccessTime;
+
   /** Cache of hidden and visible directories. */
   // TODO(bmj): Cache docIds too, for ACL inheritance purposes.
   private Cache<Path, Hidden> isVisibleCache;
@@ -296,6 +324,11 @@ public class FsAdaptor extends AbstractAdaptor {
   /** The set of file systems we will be traversing. */
   private Set<Path> startPaths;
 
+  /** The set of file systems currently blocked from traversing. */
+  private Set<Path> blockedPaths =
+      // TODO(bmj): Use Sets.newConcurrentHashSet() from guava r15.
+      Collections.newSetFromMap(new ConcurrentHashMap<Path, Boolean>());
+
   /** Filter that may exclude files whose last modified time is too old. */
   private FileTimeFilter lastModifiedTimeFilter;
   private FileTimeFilter lastAccessTimeFilter;
@@ -304,6 +337,8 @@ public class FsAdaptor extends AbstractAdaptor {
   private Map<Path, FsStatus>fsStatus = new ConcurrentHashMap<Path, FsStatus>();
   private Timer statusUpdateService = new Timer("Dashboard Status Update");
   private long statusUpdateIntervalMillis;
+
+  private boolean resultLinksToShare;
   
   public FsAdaptor() {
     // At the moment, we only support Windows.
@@ -348,6 +383,9 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
     config.addKey(CONFIG_SKIP_SHARE_ACL_ON_ROOT_IF_ERROR, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
+    config.addKey(CONFIG_INDEX_FOLDERS, "false");
+    config.addKey(CONFIG_PRESERVE_LAST_ACCESS_TIME, 
+        PreserveLastAccessTime.ALWAYS.toString());
     config.addKey(CONFIG_DIRECTORY_CACHE_SIZE, "50000");
     config.addKey(CONFIG_LAST_ACCESSED_DAYS, "");
     config.addKey(CONFIG_LAST_ACCESSED_DATE, "");
@@ -355,6 +393,11 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_LAST_MODIFIED_DATE, "");
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
     config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
+    config.addKey(CONFIG_SEARCH_RESULTS_GO_TO_REPO, "true");
+    // Increase the max feed size, which also increases the
+    // asyncDocIdSenderQueueSize to 40,000 entries. This would
+    // make a full queue about 10MB in size.
+    config.overrideKey("feed.maxUrls", "20000");
   }
 
   @Override
@@ -385,11 +428,33 @@ public class FsAdaptor extends AbstractAdaptor {
         config.getValue(CONFIG_CRAWL_HIDDEN_FILES));
     log.log(Level.CONFIG, "crawlHiddenFiles: {0}", crawlHiddenFiles);
 
+    indexFolders = Boolean.parseBoolean(config.getValue(CONFIG_INDEX_FOLDERS));
+    log.log(Level.CONFIG, "indexFolders: {0}", indexFolders);
+
+    resultLinksToShare = Boolean.parseBoolean(
+        config.getValue(CONFIG_SEARCH_RESULTS_GO_TO_REPO));
+    log.log(Level.CONFIG, "searchResultsLinkToRepository: {0}",
+        resultLinksToShare);
+    if (!resultLinksToShare) {
+      context.setAuthzAuthority(new AccessChecker());
+    }
+
+    try {
+      preserveLastAccessTime = Enum.valueOf(PreserveLastAccessTime.class,
+          config.getValue(CONFIG_PRESERVE_LAST_ACCESS_TIME).toUpperCase());
+    } catch (IllegalArgumentException e) {
+      throw new InvalidConfigurationException("The value of "
+          + CONFIG_PRESERVE_LAST_ACCESS_TIME + " must be one of "
+          + EnumSet.allOf(PreserveLastAccessTime.class) + ".", e);
+    }
+    log.log(Level.CONFIG, "preserveLastAccessTime: {0}",
+        preserveLastAccessTime);
+
     int directoryCacheSize =
         Integer.parseInt(config.getValue(CONFIG_DIRECTORY_CACHE_SIZE));
     log.log(Level.CONFIG, "directoryCacheSize: {0}", directoryCacheSize);
     isVisibleCache = CacheBuilder.newBuilder()
-        .initialCapacity(directoryCacheSize/4)
+        .initialCapacity(directoryCacheSize / 4)
         .maximumSize(directoryCacheSize)
         .expireAfterWrite(4, TimeUnit.HOURS) // Notice if someone hides a dir.
         .build();
@@ -427,7 +492,8 @@ public class FsAdaptor extends AbstractAdaptor {
         validStartPaths++;
         updateStatus(startPath, Status.Code.NORMAL);
       } catch (IOException e) {
-        log.log(Level.WARNING, "Unable to validate start path " + startPath, e);
+        log.log(Level.WARNING, "Unable to validate start path: " + startPath,
+                e);
         updateStatus(startPath, e);
       }
     }
@@ -510,7 +576,7 @@ public class FsAdaptor extends AbstractAdaptor {
       validateShare(startPath);
     } else if (delegate.isDfsNamespace(startPath)) {
       if (logging) {
-        log.log(Level.INFO, "Using a DFS namespace {0}.", startPath);
+        log.log(Level.INFO, "Using a DFS namespace {0}", startPath);
       }
       for (Path link : delegate.enumerateDfsLinks(startPath)) {
         // Postpone full validation until crawl time.
@@ -550,8 +616,8 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Verify the path is available and we have access to it. */
   private void validateShare(Path sharePath) throws IOException {
     if (delegate.isDfsNamespace(sharePath)) {
-      throw new AssertionError("validateShare can only be called "
-          + "on DFS links or active storage paths");
+      throw new AssertionError("validateShare may only be called "
+          + "on DFS links or active storage paths.");
     }
 
     // Verify that the adaptor has permission to read the contents of the root.
@@ -644,8 +710,8 @@ public class FsAdaptor extends AbstractAdaptor {
       shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
           .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
     } else if (delegate.isDfsNamespace(share)) {
-      throw new AssertionError("readShareAcls can only be called "
-          + "on DFS links or active storage paths");
+      throw new AssertionError("readShareAcls may only be called "
+          + "on DFS links or active storage paths.");
     } else if (delegate.isDfsLink(share)) {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
@@ -714,11 +780,7 @@ public class FsAdaptor extends AbstractAdaptor {
     BasicFileAttributes attrs;
     try {
       attrs = delegate.readBasicAttributes(doc);
-    } catch (FileNotFoundException e) {
-      log.log(Level.INFO, "Not found: {0}", doc);
-      resp.respondNotFound();
-      return;
-    } catch (NoSuchFileException e) {
+    } catch (FileNotFoundException | NoSuchFileException e) {
       log.log(Level.INFO, "Not found: {0}", doc);
       resp.respondNotFound();
       return;
@@ -734,6 +796,12 @@ public class FsAdaptor extends AbstractAdaptor {
     if (!isVisibleDescendantOfRoot(doc)) {
       resp.respondNotFound();
       return;
+    }
+
+    // Check isEmpty first (nearly always true) to avoid calling getStartPath().
+    if (!blockedPaths.isEmpty() && blockedPaths.contains(getStartPath(doc))) {
+      throw new IllegalStateException("Skipping " + doc
+          + " because its start path is blocked.");
     }
 
     final boolean docIsDirectory = attrs.isDirectory();
@@ -755,7 +823,9 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
 
-    resp.setDisplayUrl(doc.toUri());
+    if (resultLinksToShare) {
+      resp.setDisplayUrl(doc.toUri());
+    }
     resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
@@ -798,10 +868,17 @@ public class FsAdaptor extends AbstractAdaptor {
       getFileAcls(doc, resp);
 
       // Populate the document content.
-      if (docIsDirectory) {
-        getDirectoryContent(doc, id, resp);
-      } else {
-        getFileContent(doc, lastAccessTime, resp);
+      // Some filesystem let us read the metadata and ACL, but throws
+      // NoSuchFileException when trying to read directory contents.
+      try {
+        if (docIsDirectory) {
+          getDirectoryContent(doc, id, lastAccessTime, resp);
+        } else {
+          getFileContent(doc, lastAccessTime, resp);
+        }
+      } catch (FileNotFoundException | NoSuchFileException e) {
+        log.log(Level.INFO, "File or directory not found: {0}", doc);
+        resp.respondNotFound();
       }
     }
     log.exiting("FsAdaptor", "getDocContent");
@@ -831,8 +908,8 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Populate the document ACL in the response. */
   private void getFileAcls(Path doc, Response resp) throws IOException {
     if (delegate.isDfsNamespace(doc)) {
-      throw new AssertionError("getFileAcls can not be called on "
-          + "DFS namespace paths");
+      throw new AssertionError("getFileAcls may not be called on "
+          + "DFS namespace paths.");
       }
     final boolean isRoot = startPaths.contains(doc) || delegate.isDfsLink(doc);
     final boolean isDirectory = delegate.isDirectory(doc);
@@ -849,8 +926,9 @@ public class FsAdaptor extends AbstractAdaptor {
       // inherit directly from the share ACL. Crawl up to node with share ACL.
       for (inheritFrom = doc;
           !startPaths.contains(inheritFrom) && !delegate.isDfsLink(inheritFrom);
-          inheritFrom = getParent(inheritFrom))
-        ;     // Empty body.
+          inheritFrom = getParent(inheritFrom)) {
+        // Empty body.
+      }
     } else {
       // All others inherit permissions from their parent.
       inheritFrom = getParent(doc);
@@ -872,9 +950,14 @@ public class FsAdaptor extends AbstractAdaptor {
       builder = new AclBuilder(doc, aclViews.getDirectAclView(),
           supportedWindowsAccounts, builtinPrefix, namespace);
       if (isDirectory) {
-        acl = builder.getAcl()
-            .setInheritFrom(inheritFromDocId, CHILD_FOLDER_INHERIT_ACL)
-            .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+        if (indexFolders) {
+          acl = builder.getAcl()
+              .setInheritFrom(inheritFromDocId, CHILD_FOLDER_INHERIT_ACL)
+              .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
+        } else {
+          // ACLs on noIndex documents are ignored, so don't supply one.
+          acl = null;
+        }
       } else {
         acl = builder.getAcl()
             .setInheritFrom(inheritFromDocId, CHILD_FILE_INHERIT_ACL)
@@ -928,68 +1011,56 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Makes HTML document with web links to namespace's DFS links. */
   private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
       throws IOException {
-    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-    writer.start(docid, getFileName(doc));
-    for (Path link : delegate.enumerateDfsLinks(doc)) {
-      DocId docId;
-      try {
-        docId = delegate.newDocId(link);
-      } catch (IllegalArgumentException e) {
-        log.log(Level.WARNING, "Skipping {0} because {1}.",
-                new Object[] { doc, e.getMessage() });
-        continue;
+    resp.setNoIndex(!indexFolders);
+    try (HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
+      writer.start(docid, getFileName(doc));
+      for (Path link : delegate.enumerateDfsLinks(doc)) {
+        DocId docId;
+        try {
+          docId = delegate.newDocId(link);
+        } catch (IllegalArgumentException e) {
+          log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
+                  new Object[] { link, e.getMessage() });
+          continue;
+        }
+        writer.addLink(docId, getFileName(link));
       }
-      writer.addLink(docId, getFileName(link));
+      writer.finish();
     }
-    writer.finish();
   }
 
   /* Makes HTML document with links this directory's files and folder. */
-  private void getDirectoryContent(Path doc, DocId docid, Response resp)
-      throws IOException {
-    HtmlResponseWriter writer = createHtmlResponseWriter(resp);
-    writer.start(docid, getFileName(doc));
-    DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
-    try {
+  private void getDirectoryContent(Path doc, DocId docid,
+      FileTime lastAccessTime, Response resp) throws IOException {
+    resp.setNoIndex(!indexFolders);
+    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+         HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
+      writer.start(docid, getFileName(doc));
       for (Path file : files) {
-        if (isFileOrFolder(file)) {
-          DocId docId;
-          try {
-            docId = delegate.newDocId(file);
-          } catch (IllegalArgumentException e) {
-            log.log(Level.WARNING, "Skipping {0} because {1}.",
-                    new Object[] { doc, e.getMessage() });
-            continue;
-          }
-          writer.addLink(docId, getFileName(file));
+        DocId docId;
+        try {
+          docId = delegate.newDocId(file);
+        } catch (IllegalArgumentException e) {
+          log.log(Level.WARNING, "Skipping {0} because {1}.",
+                  new Object[] { file, e.getMessage() });
+          continue;
         }
+        writer.addLink(docId, file.getFileName().toString());
       }
+      writer.finish();
     } finally {
-      files.close();
+      setLastAccessTime(doc, lastAccessTime);
     }
-    writer.finish();
   }
 
   /* Adds the file's content to the response. */
   private void getFileContent(Path doc, FileTime lastAccessTime, Response resp)
       throws IOException {
     resp.setContentType(delegate.probeContentType(doc));
-    InputStream input = delegate.newInputStream(doc);
-    try {
+    try (InputStream input = delegate.newInputStream(doc)) {
       copyStream(input, resp.getOutputStream());
     } finally {
-      try {
-        input.close();
-      } finally {
-        try {
-          delegate.setLastAccessTime(doc, lastAccessTime);
-        } catch (IOException e) {
-          // This failure can be expected. We can have full permissions
-          // to read but not write/update permissions.
-          log.log(Level.CONFIG,
-                  "Unable to restore last access time for {0}.", doc);
-        }
-      }
+      setLastAccessTime(doc, lastAccessTime);      
     }
   }
 
@@ -1004,6 +1075,61 @@ public class FsAdaptor extends AbstractAdaptor {
       out.write(buffer, 0, read);
     }
     out.flush();
+  }
+
+  /**
+   * Sets the last access time for the file to the supplied {@code FileTime}.
+   * Failure to preserve last access times can fool backup and archive systems
+   * into thinking the file or folder has been recently accessed by a human,
+   * preventing the movement of least recently used items to secondary storage.
+   * </p>
+   * If the adaptor is unable to restore the last access time for the file,
+   * it is likely the traversal user does not have sufficient privileges to
+   * write the file's attributes.  We therefore halt crawls on this volume
+   * unless the administrator allows us to proceed even if file timestamps
+   * might not be preserved.
+   */
+  private void setLastAccessTime(Path doc, FileTime lastAccessTime)
+      throws IOException {
+    if (preserveLastAccessTime == PreserveLastAccessTime.NEVER) {
+      return;
+    }
+    try {
+      delegate.setLastAccessTime(doc, lastAccessTime);
+    } catch (AccessDeniedException e) {
+      if (preserveLastAccessTime == PreserveLastAccessTime.ALWAYS) {
+        // TODO(bmj): Make this message a localizable resource?
+        String message = String.format("Unable to restore the last access time "
+            + "for %1$s. This can happen if the Windows account used to crawl "
+            + "the path does not have sufficient permissions to write file "
+            + "attributes. If you do not wish to enforce preservation of the "
+            + "last access time for files and folders as they are crawled, "
+            + "please set the '%2$s' configuration property to '%3$s' or "
+            + "'%4$s'.",
+            new Object[] { doc.toString(), CONFIG_PRESERVE_LAST_ACCESS_TIME,
+                PreserveLastAccessTime.IF_ALLOWED,
+                PreserveLastAccessTime.NEVER });
+        log.log(Level.WARNING, message, e);
+        Path startPath = getStartPath(doc);
+        updateStatus(startPath, Status.Code.ERROR, message);
+        blockedPaths.add(startPath);
+      } else {
+        // This failure can be expected. We can have full permissions
+        // to read but not write/update permissions.
+        log.log(Level.FINER, "Unable to restore the last access time for {0}",
+                doc);
+      }
+    }
+  }
+    
+  /** Returns the startPath that {@code doc} resides under. */
+  private Path getStartPath(Path doc) throws IOException {
+    for (Path startPath : startPaths) {
+      if (doc.startsWith(startPath)) {
+        return startPath;
+      }
+    }
+    throw new IOException("Unable to determine the start path for " + doc);
   }
 
   private HtmlResponseWriter createHtmlResponseWriter(Response response)
@@ -1056,13 +1182,13 @@ public class FsAdaptor extends AbstractAdaptor {
    * and that it, nor none of its ancestors, is hidden.
    */
   @VisibleForTesting
-  boolean isVisibleDescendantOfRoot(Path doc) throws IOException {
+  boolean isVisibleDescendantOfRoot(final Path doc) throws IOException {
     final Path dir;
     // I only want to cache directories, not regular files; so check
     // for hidden files directly, but cache its parent.
     if (delegate.isRegularFile(doc)) {
       if (!crawlHiddenFiles && delegate.isHidden(doc)) {
-        log.log(Level.WARNING, "Skipping {0} because it is hidden.", doc);
+        log.log(Level.WARNING, "Skipping file {0} because it is hidden.", doc);
         return false;
       }
       dir = getParent(doc);
@@ -1076,9 +1202,9 @@ public class FsAdaptor extends AbstractAdaptor {
       hidden = isVisibleCache.get(dir, new Callable<Hidden>() {
           @Override
           public Hidden call() throws IOException {
-            for (Path file = dir ; file != null; file = getParent(file)) {
+            for (Path file = dir; file != null; file = getParent(file)) {
               if (!crawlHiddenFiles && delegate.isHidden(file)) {
-                if (dir == file) {
+                if (doc == file) {
                   return new Hidden(HiddenType.HIDDEN);
                 } else {
                   return new Hidden(HiddenType.HIDDEN_UNDER, file);
@@ -1093,7 +1219,7 @@ public class FsAdaptor extends AbstractAdaptor {
         });
     } catch (ExecutionException e) {
       if (e.getCause() instanceof IOException) {
-        throw (IOException)(e.getCause());
+        throw (IOException) (e.getCause());
       } else {
         throw new IOException(e);
       }
@@ -1120,7 +1246,7 @@ public class FsAdaptor extends AbstractAdaptor {
     private final Acl dfsShareAcl;
 
     public ShareAcls(Acl shareAcl, Acl dfsShareAcl) {
-      Preconditions.checkNotNull(shareAcl, "the share Acl may not be null");
+      Preconditions.checkNotNull(shareAcl, "The share Acl may not be null.");
       this.shareAcl = shareAcl;
       this.dfsShareAcl = dfsShareAcl;
     }
@@ -1246,6 +1372,12 @@ public class FsAdaptor extends AbstractAdaptor {
         new Object[] { path, code });
   }
 
+  private void updateStatus(Path path, Status.Code code, String message) {
+    fsStatus.put(path, new FsStatus(code, message));
+    log.log(Level.FINE, "Dashboard Status of {0} set to {1}: {2}",
+        new Object[] { path, code, message });
+  }
+
   private void updateStatus(Path path, Exception e) {
     FsStatus status = new FsStatus(e);
     fsStatus.put(path, status);
@@ -1256,6 +1388,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private void updateAllStatus() {
     log.log(Level.FINE, "Updating Dashboard Status");
     for (Path path : fsStatus.keySet()) {
+      if (blockedPaths.contains(path)) {
+        // Leave the current status as is.
+        continue;
+      }
       try {
         validateStartPath(path, /* logging = */ false);
         updateStatus(path, Status.Code.NORMAL);
@@ -1264,6 +1400,103 @@ public class FsAdaptor extends AbstractAdaptor {
       } catch (InvalidConfigurationException e) {
         updateStatus(path, e);
       }
+    }
+  }
+
+  private static Map<DocId, AuthzStatus> allDeny(Collection<DocId> ids) {
+    ImmutableMap.Builder<DocId, AuthzStatus> result
+        = ImmutableMap.<DocId, AuthzStatus>builder();
+    for (DocId id : ids) {
+      result.put(id, AuthzStatus.DENY); 
+    }
+    return result.build();  
+  }
+
+  private static final DocId FOR_ACL_IS_AUTHORIZED = new DocId("whatever");
+  // Used to get around pre-condition requiring all parts of chain other
+  // than root to have inheritFrom be set.
+
+  private class AccessChecker implements AuthzAuthority {
+    public Map<DocId, AuthzStatus> isUserAuthorized(AuthnIdentity userIdentity,
+        Collection<DocId> ids) throws IOException {
+      if (null == userIdentity) {
+        log.info("The identity to authorize is null.");
+        return allDeny(ids);  // TODO: consider way to permit public
+      }
+      UserPrincipal user = userIdentity.getUser();
+      if (null == user) {
+        log.info("The user to authorize is null.");
+        return allDeny(ids);  // TODO: consider way to permit public
+      }
+      log.log(Level.INFO, "About to authorize {0}.", user);
+      ImmutableMap.Builder<DocId, AuthzStatus> result
+          = ImmutableMap.<DocId, AuthzStatus>builder();
+      for (DocId id : ids) {
+        try {
+          log.log(Level.FINE, "About to authorize {0} for {1}.",
+              new Object[]{user, id});
+          List<Acl> aclChain = makeAclChain(delegate.getPath(id.getUniqueId()));
+          AuthzStatus decision = Acl.isAuthorized(userIdentity, aclChain);
+          log.log(Level.FINE,
+              "Authorization decision {0} for user {1} and doc {2}.",
+              new Object[]{decision, user, id});
+          result.put(id, decision);
+        } catch (IOException ioe) {
+          log.log(Level.WARNING, "Could not get ACL.", ioe);
+          result.put(id, AuthzStatus.INDETERMINATE);
+        }
+      }
+      log.log(Level.FINEST, "Done with authorizing {0}.", user);
+      return result.build();
+    }
+
+    /** Our chain will consist of (1) DFS-link ACL, (2) active-storage ACL,
+     *  and (3) combined ACL of entire file system folder hiearachy with leaf
+     *  ACL. If there is no DFS-link in chain then we skip that ACL.
+     */
+    private List<Acl> makeAclChain(final Path leaf) throws IOException {
+      if (delegate.isDfsNamespace(leaf)) {
+        String msg = "Late-binding for DFS Namespace is not supported: " + leaf;
+        throw new IOException(msg);
+      }
+      final Path aclRoot = getAclRoot(leaf);
+      log.log(Level.FINEST, "ACL root of {0} is {1}",
+          new Object[]{leaf, aclRoot});
+      // Check exists after getAclRoot determines if leaf is under a startpath.
+      if (!isFileOrFolder(leaf)) {
+        throw new IOException("Not a file or folder: " + leaf);
+      }
+      List<Acl> aclChain = new ArrayList<Acl>(3);
+      ShareAcls shareAcls = readShareAcls(aclRoot);
+      if (shareAcls.dfsShareAcl != null) {
+        aclChain.add(shareAcls.dfsShareAcl);
+      }
+      aclChain.add(shareAcls.shareAcl);
+      aclChain.add(makeLeafAcl(leaf));
+      log.log(Level.FINEST, "ACL chain for {0} is {1}",
+          new Object[]{leaf, aclChain});
+      return aclChain;
+    }
+  
+    private Path getAclRoot(final Path leaf) throws IOException {
+      for (Path current = leaf; current != null; current = getParent(current)) {
+        if (startPaths.contains(current) || delegate.isDfsLink(current)) {
+          return current;  // We found root of the access control chain.
+        } 
+      }
+      throw new IOException("Not under a start path: " + leaf);
+    }
+  
+    private Acl makeLeafAcl(final Path leaf) throws IOException {
+      AclFileAttributeViews aclViews = delegate.getAclViews(leaf);
+      AclBuilder builder = new AclBuilder(leaf, aclViews.getCombinedAclView(),
+          supportedWindowsAccounts, builtinPrefix, namespace);
+      Acl leafAcl = builder.getFlattenedAcl()
+          .setInheritFrom(FOR_ACL_IS_AUTHORIZED)
+          .setInheritanceType(InheritanceType.LEAF_NODE)
+          .setEverythingCaseInsensitive()
+          .build();
+      return leafAcl;
     }
   }
 

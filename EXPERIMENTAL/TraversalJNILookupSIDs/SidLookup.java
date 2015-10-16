@@ -1,6 +1,7 @@
 import jcifs.smb.*;
-import java.util.*;
+
 import java.io.*;
+import java.util.*;
 
 public class SidLookup {
   private static final int MAX_TRIES = 5;

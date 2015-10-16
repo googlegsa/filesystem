@@ -14,23 +14,18 @@
 
 package com.google.enterprise.adaptor.fs;
 
-import static com.google.enterprise.adaptor.fs.AclView.user;
-import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
-
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
-
+import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.AclView.user;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
+import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 import com.google.enterprise.adaptor.fs.WindowsAclFileAttributeViews.Mpr;
-
-import org.junit.*;
-import org.junit.rules.ExpectedException;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Pointer;
@@ -39,12 +34,14 @@ import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
-import com.sun.jna.platform.win32.Win32Exception;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinNT.SID_NAME_USE;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
+
+import org.junit.*;
+import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -52,7 +49,6 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryFlag;
 import java.nio.file.attribute.AclEntryPermission;
-import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.UserPrincipal;
@@ -232,9 +228,9 @@ public class WindowsAclFileAttributeViewsTest extends TestWindowsAclViews {
 
   @Test
   public void testNewAclEntryMultipleFlags() throws Exception {
-    testNewAclEntryFlags((byte) (WinNT.OBJECT_INHERIT_ACE |
-        WinNT.CONTAINER_INHERIT_ACE | WinNT.INHERIT_ONLY_ACE |
-        WinNT.NO_PROPAGATE_INHERIT_ACE), AclEntryFlag.values());
+    testNewAclEntryFlags((byte) (WinNT.OBJECT_INHERIT_ACE
+        | WinNT.CONTAINER_INHERIT_ACE | WinNT.INHERIT_ONLY_ACE
+        | WinNT.NO_PROPAGATE_INHERIT_ACE), AclEntryFlag.values());
   }
 
   private void testNewAclEntryFlags(byte aceFlags,

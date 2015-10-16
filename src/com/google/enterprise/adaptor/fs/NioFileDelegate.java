@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -36,7 +37,11 @@ abstract class NioFileDelegate implements FileDelegate {
 
   @Override
   public Path getPath(String pathname) throws IOException {
-    return Paths.get(pathname);
+    try {
+      return Paths.get(pathname);
+    } catch (InvalidPathException e) {
+      throw new IOException("Invalid path: " + pathname, e);
+    }
   }
 
   @Override
