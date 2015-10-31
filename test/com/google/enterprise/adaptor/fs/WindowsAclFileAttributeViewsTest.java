@@ -568,48 +568,48 @@ public class WindowsAclFileAttributeViewsTest extends TestWindowsAclViews {
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureAccessDenied()
+  public void testGetShareAclViewNetShareGetInfoFailureAccessDenied()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_ACCESS_DENIED);
+    testGetShareAclViewNetShareGetInfoFailure(WinError.ERROR_ACCESS_DENIED);
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureInvalidLevel()
+  public void testGetShareAclViewNetShareGetInfoFailureInvalidLevel()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_INVALID_LEVEL);
+    testGetShareAclViewNetShareGetInfoFailure(WinError.ERROR_INVALID_LEVEL);
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureInvalidParameter()
+  public void testGetShareAclViewNetShareGetInfoFailureInvalidParameter()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_INVALID_PARAMETER);
+    testGetShareAclViewNetShareGetInfoFailure(WinError.ERROR_INVALID_PARAMETER);
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureInsufficientMemory()
+  public void testGetShareAclViewNetShareGetInfoFailureInsufficientMemory()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_NOT_ENOUGH_MEMORY);
+    testGetShareAclViewNetShareGetInfoFailure(WinError.ERROR_NOT_ENOUGH_MEMORY);
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureNetNameNotFound()
+  public void testGetShareAclViewNetShareGetInfoFailureNetNameNotFound()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(LMErr.NERR_NetNameNotFound);
+    testGetShareAclViewNetShareGetInfoFailure(LMErr.NERR_NetNameNotFound);
   }
 
   @Test
-  public void testGetShareAclViewNetSareGetInfoFailureOther()
+  public void testGetShareAclViewNetShareGetInfoFailureOther()
       throws Exception {
     TestHelper.assumeOsIsWindows();
-    testGetShareAclViewNetSareGetInfoFailure(WinError.ERROR_NOT_READY);
+    testGetShareAclViewNetShareGetInfoFailure(WinError.ERROR_NOT_READY);
   }
 
-  private void testGetShareAclViewNetSareGetInfoFailure(final int error)
+  private void testGetShareAclViewNetShareGetInfoFailure(final int error)
       throws Exception {
     Shlwapi shlwapi = new Shlwapi() {
         @Override
