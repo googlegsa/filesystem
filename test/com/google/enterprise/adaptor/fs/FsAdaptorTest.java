@@ -41,6 +41,7 @@ import java.io.File;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
@@ -679,6 +680,44 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testGetDocContentRegularFileRespondNoContent() throws Exception {
+    String fname = "test.html";
+    String content = "<html><title>Hello World</title></html>";
+    MockFile file = new MockFile(fname).setFileContents(content)
+        .setContentType("text/html");
+    root.addChildren(file);
+    testGetDocContentRespondNoContent(Paths.get(file.getPath()));
+  }
+
+  private void testGetDocContentRespondNoContent(Path crawlPath)
+      throws Exception {
+    adaptor.init(context);
+    DocId docId = delegate.newDocId(crawlPath);
+    MockRequest request = new MockRequest(docId) {
+        @Override
+        public boolean canRespondWithNoContent(Date lastModified) {
+          return true;
+        }
+      };
+    MockResponse response = new MockResponse() {
+        @Override
+        public OutputStream getOutputStream() throws IOException {
+          fail("attempted to write content");
+          return null;
+        }
+      };
+    adaptor.getDocContent(request, response);
+    assertFalse(response.notFound);
+    // Metadata and ACL should have been returned.
+    assertNotNull(response.metadata.get("Creation Time"));
+    assertNotNull(response.acl);
+    // But no content should be returned.
+    assertTrue(response.noContent);
+    assertNull(response.contentType);
+    assertNull(response.content);
+  }
+
+  @Test
   public void testGetDocContentDfsNamespace() throws Exception {
     testGetDocContentDfsNamespace(true /* indexFolders */);
   }
@@ -1072,6 +1111,15 @@ public class FsAdaptorTest {
           + " from response:/n" + html + "/n" + response.anchors, anchor);
       assertEquals(uri, anchor);
     }
+  }
+
+  @Test
+  public void testGetDocContentDirectoryRespondNoContent() throws Exception {
+    String[] files = { "subdir1", "subdir2", "test1.txt", "test2.txt" };
+    for (String file : files) {
+      root.addChildren(new MockFile(file, file.contains("dir")));
+    }
+    testGetDocContentRespondNoContent(rootPath);
   }
 
   @Test

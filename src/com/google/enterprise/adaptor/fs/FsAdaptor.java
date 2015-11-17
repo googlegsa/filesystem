@@ -838,7 +838,8 @@ public class FsAdaptor extends AbstractAdaptor {
     if (resultLinksToShare) {
       resp.setDisplayUrl(doc.toUri());
     }
-    resp.setLastModified(new Date(attrs.lastModifiedTime().toMillis()));
+    Date lastModified = new Date(attrs.lastModifiedTime().toMillis());
+    resp.setLastModified(lastModified);
     resp.addMetadata("Creation Time", dateFormatter.get().format(
         new Date(attrs.creationTime().toMillis())));
 
@@ -879,18 +880,26 @@ public class FsAdaptor extends AbstractAdaptor {
       // Populate the document filesystem ACL.
       getFileAcls(doc, resp);
 
-      // Populate the document content.
-      // Some filesystem let us read the metadata and ACL, but throws
-      // NoSuchFileException when trying to read directory contents.
-      try {
-        if (docIsDirectory) {
-          getDirectoryContent(doc, id, lastAccessTime, resp);
-        } else {
-          getFileContent(doc, lastAccessTime, resp);
+      // Check for If-Modified-Since. The filesystem does not change
+      // the last modified time if the ACL or metadata change, so we
+      // always return those, but can skip the content if unchanged.
+      if (req.canRespondWithNoContent(lastModified)) {
+        log.log(Level.FINE, "Content not modified since last crawl: {0}", doc);
+        resp.respondNoContent();
+      } else {
+        // Populate the document content.
+        // Some filesystem lets us read the metadata and ACL, but throws
+        // NoSuchFileException when trying to read directory contents.
+        try {
+          if (docIsDirectory) {
+            getDirectoryContent(doc, id, lastAccessTime, resp);
+          } else {
+            getFileContent(doc, lastAccessTime, resp);
+          }
+        } catch (FileNotFoundException | NoSuchFileException e) {
+          log.log(Level.INFO, "File or directory not found: {0}", doc);
+          resp.respondNotFound();
         }
-      } catch (FileNotFoundException | NoSuchFileException e) {
-        log.log(Level.INFO, "File or directory not found: {0}", doc);
-        resp.respondNotFound();
       }
     }
     log.exiting("FsAdaptor", "getDocContent");

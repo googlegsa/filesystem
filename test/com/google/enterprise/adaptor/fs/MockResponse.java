@@ -32,6 +32,7 @@ import java.util.Map;
 class MockResponse implements Response {
 
   boolean notModified = false;
+  boolean noContent = false;
   boolean notFound = false;
   boolean noIndex = false;
   String contentType;
@@ -46,6 +47,11 @@ class MockResponse implements Response {
   @Override
   public void respondNotModified() throws IOException {
     notModified = true;
+  }
+
+  @Override
+  public void respondNoContent() {
+    noContent = true;
   }
 
   @Override
@@ -121,11 +127,6 @@ class MockResponse implements Response {
 
   @Override
   public void setLock(boolean lock) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void respondNoContent() {
     throw new UnsupportedOperationException();
   }
 }

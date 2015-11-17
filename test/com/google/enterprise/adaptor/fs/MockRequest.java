@@ -22,25 +22,9 @@ import java.util.Date;
 /** A trivial implemenation of {@link Request} */
 class MockRequest implements Request {
   private final DocId docid;
-  private final Date lastAccess;
 
   MockRequest(DocId docid) {
-    this(docid, null);
-  }
-
-  MockRequest(DocId docid, Date lastAccess) {
     this.docid = docid;
-    this.lastAccess = lastAccess;
-  }
-
-  @Override
-  public boolean hasChangedSinceLastAccess(Date lastModified) {
-    return lastModified.after(lastAccess);
-  }
-
-  @Override
-  public Date getLastAccessTime() {
-    return lastAccess;
   }
 
   @Override
@@ -49,7 +33,17 @@ class MockRequest implements Request {
   }
 
   @Override
-  public boolean canRespondWithNoContent(Date d) {
-    throw new UnsupportedOperationException();
+  public boolean canRespondWithNoContent(Date lastModified) {
+    return false;
+  }
+
+  @Override
+  public boolean hasChangedSinceLastAccess(Date lastModified) {
+    return false;
+  }
+
+  @Override
+  public Date getLastAccessTime() {
+    return null;
   }
 }
