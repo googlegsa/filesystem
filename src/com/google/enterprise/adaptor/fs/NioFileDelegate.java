@@ -36,12 +36,9 @@ import java.nio.file.attribute.FileTime;
 abstract class NioFileDelegate implements FileDelegate {
 
   @Override
-  public Path getPath(String pathname) throws IOException {
-    try {
-      return Paths.get(pathname);
-    } catch (InvalidPathException e) {
-      throw new IOException("Invalid path: " + pathname, e);
-    }
+  public Path getPath(String pathname)
+      throws IOException, InvalidPathException {
+    return Paths.get(pathname);
   }
 
   @Override

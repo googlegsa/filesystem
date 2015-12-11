@@ -15,7 +15,6 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
@@ -24,7 +23,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
@@ -77,10 +75,6 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public Path getPath(String pathname) throws IOException {
-    if (Strings.isNullOrEmpty(pathname)) {
-      throw new InvalidPathException(pathname,
-                                     "pathname cannot be null or empty");
-    }
     return Paths.get(pathname);
   }
 

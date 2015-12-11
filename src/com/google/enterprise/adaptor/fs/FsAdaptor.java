@@ -420,7 +420,13 @@ public class FsAdaptor extends AbstractAdaptor {
       throw new InvalidConfigurationException("The configuration value "
           + CONFIG_SRC + " is empty. Please specify a valid root path.");
     }
-    startPaths = getStartPaths(sources, config.getValue(CONFIG_SRC_SEPARATOR));
+    try {
+      startPaths =
+          getStartPaths(sources, config.getValue(CONFIG_SRC_SEPARATOR));
+    } catch (InvalidPathException e) {
+      throw new InvalidConfigurationException(CONFIG_SRC
+          + " contains an invalid start path. " + e.getMessage());
+    }
 
     builtinPrefix = config.getValue(CONFIG_BUILTIN_PREFIX);
     log.log(Level.CONFIG, "builtinPrefix: {0}", builtinPrefix);
@@ -545,7 +551,7 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Parses the collection of startPaths from the supplied sources. */
   @VisibleForTesting
   Set<Path> getStartPaths(String sources, String separator)
-      throws IOException {
+      throws IOException, InvalidPathException {
     if (separator.isEmpty()) {
       // No separator implies a single startPath.
       return ImmutableSet.of(delegate.getPath(sources));
@@ -1524,7 +1530,7 @@ public class FsAdaptor extends AbstractAdaptor {
               "Authorization decision {0} for user {1} and doc {2}.",
               new Object[]{decision, user, id});
           result.put(id, decision);
-        } catch (IOException ioe) {
+        } catch (InvalidPathException | IOException ioe) {
           log.log(Level.WARNING, "Could not get ACL.", ioe);
           result.put(id, AuthzStatus.INDETERMINATE);
         }

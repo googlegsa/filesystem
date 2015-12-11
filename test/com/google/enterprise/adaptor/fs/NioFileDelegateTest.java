@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -74,6 +75,13 @@ public class NioFileDelegateTest {
 
   private void testGetPath(String pathname) throws Exception {
     assertTrue(Paths.get(pathname).equals(delegate.getPath(pathname)));
+  }
+
+  @Test
+  public void testGetPathInvalidPathException() throws Exception {
+    TestHelper.assumeOsIsWindows();
+    thrown.expect(InvalidPathException.class);
+    testGetPath("\\\\host\\");  // UNC path with no share.
   }
 
   @Test

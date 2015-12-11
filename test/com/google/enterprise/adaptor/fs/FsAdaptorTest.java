@@ -45,6 +45,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
@@ -125,6 +126,21 @@ public class FsAdaptorTest {
   @Test
   public void testAdaptorInitNoSourcePath() throws Exception {
     config.overrideKey("filesystemadaptor.src", "");
+    thrown.expect(InvalidConfigurationException.class);
+    adaptor.init(context);
+  }
+
+  @Test
+  public void testAdaptorInitInvalidPathException() throws Exception {
+    delegate = new MockFileDelegate(root) {
+      @Override
+      public Path getPath(String pathname) throws IOException {
+        throw new InvalidPathException(pathname, "The path is invalid");
+      }
+    };
+    adaptor = new FsAdaptor(delegate);
+
+    config.overrideKey("filesystemadaptor.src", "invalid path");
     thrown.expect(InvalidConfigurationException.class);
     adaptor.init(context);
   }
@@ -520,10 +536,26 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocContentInvalidPath() throws Exception {
+  public void testGetDocContentInvalidPathException() throws Exception {
+    // Create a file called "invalid", so it would actually be found
+    // if it was not hit with InvalidPathException.
+    MockFile invalid = new MockFile("invalid");
+    root.addChildren(invalid);
+    delegate = new MockFileDelegate(root) {
+      @Override
+      public Path getPath(String pathname) throws IOException {
+        if (pathname.contains("invalid")) {
+          throw new InvalidPathException(pathname, "The path is invalid");
+        } else {
+          return super.getPath(pathname);
+        }
+      }
+    };
+    adaptor = new FsAdaptor(delegate);
     adaptor.init(context);
     MockResponse response = new MockResponse();
-    adaptor.getDocContent(new MockRequest(new DocId("")), response);
+    adaptor.getDocContent(new MockRequest(new DocId(invalid.getPath())),
+                          response);
     assertTrue(response.notFound);
   }
 

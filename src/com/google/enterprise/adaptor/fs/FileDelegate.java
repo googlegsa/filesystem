@@ -20,6 +20,7 @@ import com.google.enterprise.adaptor.DocId;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -33,9 +34,8 @@ interface FileDelegate {
    *
    * @param pathname the path string
    * @return the real Path
-   * @throws IOException
    */
-  Path getPath(String pathname) throws IOException;
+  Path getPath(String pathname) throws IOException, InvalidPathException;
 
   /**
    * Returns {@code true} if the specified path represents
