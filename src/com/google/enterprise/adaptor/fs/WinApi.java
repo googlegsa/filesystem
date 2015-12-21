@@ -35,6 +35,18 @@ class WinApi {
     // Prevent instantiation.
   }
 
+  /**
+  * Helper class for (long) UNC paths
+  * https://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
+  */
+  public static class PathHelper {
+      // TODO: move to Shlwapi after migrating to Java 8
+      public String PathToUNC(String path) {
+          return path.replaceAll("^[^\\w]+",
+              "\\\\\\\\?\\\\UNC\\\\").replaceAll("/", "\\\\");
+      }
+  }
+
   public interface Kernel32Ex extends Kernel32 {
     Kernel32Ex INSTANCE = (Kernel32Ex) Native.loadLibrary("Kernel32",
         Kernel32Ex.class, W32APIOptions.UNICODE_OPTIONS);
