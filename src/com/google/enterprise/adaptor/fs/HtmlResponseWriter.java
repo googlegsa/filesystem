@@ -143,7 +143,16 @@ class HtmlResponseWriter implements Closeable {
   private String encodeDocId(DocId doc) {
     log.entering("HtmlResponseWriter", "encodeDocId", doc);
     URI uri = docIdEncoder.encodeDocId(doc);
-    uri = relativize(docUri, uri);
+    // The GSA has a bug where it fails to properly canonicalize relative
+    // URLs that contain a semicolon. So if the path contains a semicolon,
+    // force the HTML link href to be the full URL, rather than a relative URL.
+    // Note: The GSA has a separate bug that incorrectly displays documents
+    // whose URL contain a semicolon in Index Diagnostics. However, that
+    // bug does not impact the ability to index or search the documents.
+    // This work-around has no effect on that separate Index Diagnostics bug.
+    if (doc.getUniqueId().indexOf(';') == -1) {
+      uri = relativize(docUri, uri);
+    }
     String encoded = uri.toASCIIString();
     log.exiting("HtmlResponseWriter", "encodeDocId", encoded);
     return encoded;
