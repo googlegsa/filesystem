@@ -254,6 +254,9 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SKIP_SHARE_ACL = 
       "filesystemadaptor.skipShareAccessControl";
 
+  private static final String CONFIG_SKIP_SHARE_ACL_ON_ROOT_IF_ERROR =
+      "filesystemadaptor.skipShareAccessControlOnStartPathOnError";
+
   /** The config parameter name for the prefix for BUILTIN groups. */
   private static final String CONFIG_BUILTIN_PREFIX =
       "filesystemadaptor.builtinGroupPrefix";
@@ -329,6 +332,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private AdaptorContext context;
   private FileDelegate delegate;
   private boolean skipShareAcl;
+  private boolean skipShareAclOnRootIfError;
   private boolean monitorForUpdates;
 
   /** The set of file systems we will be traversing. */
@@ -391,6 +395,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_BUILTIN_PREFIX, "BUILTIN\\");
     config.addKey(CONFIG_NAMESPACE, Principal.DEFAULT_NAMESPACE);
     config.addKey(CONFIG_SKIP_SHARE_ACL, "false");
+    config.addKey(CONFIG_SKIP_SHARE_ACL_ON_ROOT_IF_ERROR, "false");
     config.addKey(CONFIG_CRAWL_HIDDEN_FILES, "false");
     config.addKey(CONFIG_INDEX_FOLDERS, "false");
     config.addKey(CONFIG_MAX_HTML_LINKS, "1000");
@@ -489,6 +494,10 @@ public class FsAdaptor extends AbstractAdaptor {
         config.getValue(CONFIG_SKIP_SHARE_ACL));
     log.log(Level.CONFIG, "skipShareAcl: {0}", skipShareAcl);
 
+    skipShareAclOnRootIfError = Boolean.parseBoolean(
+            config.getValue(CONFIG_SKIP_SHARE_ACL_ON_ROOT_IF_ERROR));
+    log.log(Level.CONFIG, "skipShareAclOnRootIfError: {0}", skipShareAclOnRootIfError);
+
     // Add filters that may exclude older content.
     lastAccessTimeFilter = getFileTimeFilter(config,
         CONFIG_LAST_ACCESSED_DAYS, CONFIG_LAST_ACCESSED_DATE);
@@ -568,7 +577,8 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   /** Verify that a startPath is valid. */
-  private void validateStartPath(Path startPath, boolean logging)
+  @VisibleForTesting
+  void validateStartPath(Path startPath, boolean logging)
       throws IOException, InvalidConfigurationException {
     try {
       delegate.newDocId(startPath);
@@ -671,11 +681,16 @@ public class FsAdaptor extends AbstractAdaptor {
       readShareAcls(sharePath);
       delegate.getAclViews(sharePath);
     } catch (IOException e) {
-      throw new IOException("Unable to read ACLs for " + sharePath
-          + ". This can happen if the Windows account used to crawl "
-          + "the path does not have sufficient permissions. A Windows "
-          + "account with sufficient permissions to read content, "
-          + "attributes and ACLs is required to crawl a path.", e);
+      final boolean isRoot = startPaths.contains(sharePath) || delegate.isDfsLink(sharePath);
+      if (isRoot && skipShareAclOnRootIfError) {
+        log.fine("Unable to read ACLs for start path " + sharePath + " skipping acl detection.");
+      } else {
+        throw new IOException("Unable to read ACLs for " + sharePath
+                + ". This can happen if the Windows account used to crawl "
+                + "the path does not have sufficient permissions. A Windows "
+                + "account with sufficient permissions to read content, "
+                + "attributes and ACLs is required to crawl a path.", e);
+      }
     }
   }
 
