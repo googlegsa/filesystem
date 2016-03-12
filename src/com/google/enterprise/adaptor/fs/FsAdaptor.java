@@ -327,6 +327,7 @@ public class FsAdaptor extends AbstractAdaptor {
   private Cache<Path, Hidden> isVisibleCache;
 
   private AdaptorContext context;
+  private DocIdEncoder docIdEncoder;
   private FileDelegate delegate;
   private boolean skipShareAcl;
   private boolean monitorForUpdates;
@@ -413,6 +414,7 @@ public class FsAdaptor extends AbstractAdaptor {
   @Override
   public void init(AdaptorContext context) throws Exception {
     this.context = context;
+    docIdEncoder = context.getDocIdEncoder();
     Config config = context.getConfig();
 
     String sources = config.getValue(CONFIG_SRC);
@@ -843,7 +845,10 @@ public class FsAdaptor extends AbstractAdaptor {
 
     if (resultLinksToShare) {
       resp.setDisplayUrl(doc.toUri());
+    } else {  // Result links back to this adaptor.
+      resp.setDisplayUrl(docIdEncoder.encodeDocId(id));
     }
+
     Date lastModified = new Date(attrs.lastModifiedTime().toMillis());
     resp.setLastModified(lastModified);
     resp.addMetadata("Creation Time", dateFormatter.get().format(
@@ -1069,7 +1074,6 @@ public class FsAdaptor extends AbstractAdaptor {
       // for now and copy it to the response later.
       SharedByteArrayOutputStream htmlOut = new SharedByteArrayOutputStream();
       Writer writer = new OutputStreamWriter(htmlOut, CHARSET);
-      DocIdEncoder docIdEncoder = context.getDocIdEncoder();
       try (HtmlResponseWriter htmlWriter =
            new HtmlResponseWriter(writer, docIdEncoder, Locale.ENGLISH)) {
         htmlWriter.start(docid, getFileName(doc));
@@ -1227,8 +1231,7 @@ public class FsAdaptor extends AbstractAdaptor {
     Writer writer = new OutputStreamWriter(response.getOutputStream(),
         CHARSET);
     // TODO(ejona): Get locale from request.
-    return new HtmlResponseWriter(writer, context.getDocIdEncoder(),
-        Locale.ENGLISH);
+    return new HtmlResponseWriter(writer, docIdEncoder, Locale.ENGLISH);
   }
 
   @VisibleForTesting

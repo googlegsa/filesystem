@@ -712,6 +712,22 @@ public class FsAdaptorTest {
   }
 
   @Test
+  public void testGetDocContentDisplayUrlIsAdaptor() throws Exception {
+    MockFile file = new MockFile("test.txt");
+    root.addChildren(file);
+    DocId docId = delegate.newDocId(Paths.get(file.getPath()));
+
+    // Force the displayUrl to point to the adaptor, rather than repository.
+    config.overrideKey("filesystemadaptor.searchResultsLinkToRepository",
+                       "false");
+    adaptor.init(context);
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(docId), response);
+    assertEquals(context.getDocIdEncoder().encodeDocId(docId),
+                 response.displayUrl);
+  }
+
+  @Test
   public void testGetDocContentRegularFileRespondNoContent() throws Exception {
     String fname = "test.html";
     String content = "<html><title>Hello World</title></html>";
