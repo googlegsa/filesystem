@@ -409,6 +409,10 @@ public class FsAdaptor extends AbstractAdaptor {
     // asyncDocIdSenderQueueSize to 40,000 entries. This would
     // make a full queue about 10MB in size.
     config.overrideKey("feed.maxUrls", "20000");
+    // Increase the response timeouts to tolerate crawling
+    // larger files and directories and/or slower file systems.
+    config.overrideKey("adaptor.docHeaderTimeoutSecs", "600");
+    config.overrideKey("adaptor.docContentTimeoutSecs", "600");
   }
 
   @Override
