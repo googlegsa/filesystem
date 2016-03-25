@@ -1447,8 +1447,8 @@ public class FsAdaptor extends AbstractAdaptor {
 
     @Override
     public String getName(Locale locale) {
-      // Locale is ignored, because pathnames are not localized.
-      return source.toString();
+      // TODO(bmj): Look up the "Source" prefix translation using Locale.
+      return "Source: " + source.toString();
     }
 
     @Override
