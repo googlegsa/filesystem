@@ -118,6 +118,6 @@ class MockAdaptorContext implements AdaptorContext {
 
   @Override
   public void setAuthzAuthority(AuthzAuthority authzAuthority) {
-    throw new UnsupportedOperationException();
+    // TODO: Write AuthZ unit tests.
   }
 }

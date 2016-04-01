@@ -51,7 +51,7 @@ public class HtmlResponseWriterTest {
   private StringWriter output = new StringWriter(1024);
   private HtmlResponseWriter writer = new HtmlResponseWriter(
       output, docIdEncoder, Locale.ENGLISH);
- 
+
   @Test
   public void testConstructorNullWriter() {
     thrown.expect(NullPointerException.class);
@@ -81,6 +81,52 @@ public class HtmlResponseWriterTest {
     writer.start(new DocId("root"), null);
     writer.addLink(new DocId("root/foo"), "foo");
     writer.addLink(new DocId("root/bar"), "bar");
+    writer.finish();
+    assertEquals(golden, output.toString());
+  }
+
+  @Test
+  public void testParentTrailingSlashRelativize() throws Exception {
+    String golden = "<!DOCTYPE html>\n"
+        + "<html><head><title>Folder root</title></head>"
+        + "<body><h1>Folder root</h1>"
+        + "<li><a href=\"foo\">foo</a></li>"
+        + "<li><a href=\"bar\">bar</a></li>"
+        + "</body></html>";
+    writer.start(new DocId("root/"), null);
+    writer.addLink(new DocId("root/foo"), "foo");
+    writer.addLink(new DocId("root/bar"), "bar");
+    writer.finish();
+    assertEquals(golden, output.toString());
+  }
+
+  @Test
+  public void testChildHasSemicolonNoRelativize() throws Exception {
+    String golden = "<!DOCTYPE html>\n"
+        + "<html><head><title>Folder root</title></head>"
+        + "<body><h1>Folder root</h1>"
+        + "<li><a href=\"foo\">foo</a></li>"
+        + "<li><a href=\"http://localhost/root/semi;colon\">semi;colon</a></li>"
+        + "</body></html>";
+    writer.start(new DocId("root/"), null);
+    writer.addLink(new DocId("root/foo"), "foo");
+    writer.addLink(new DocId("root/semi;colon"), "semi;colon");
+    writer.finish();
+    assertEquals(golden, output.toString());
+  }
+
+  @Test
+  public void testParentHasSemicolonNoRelativize() throws Exception {
+    String path = "root/semi;colon/";
+    String golden = "<!DOCTYPE html>\n"
+        + "<html><head><title>Folder semi;colon</title></head>"
+        + "<body><h1>Folder semi;colon</h1>"
+        + "<li><a href=\"http://localhost/" + path + "foo\">foo</a></li>"
+        + "<li><a href=\"http://localhost/" + path + "bar\">bar</a></li>"
+        + "</body></html>";
+    writer.start(new DocId(path), null);
+    writer.addLink(new DocId(path + "foo"), "foo");
+    writer.addLink(new DocId(path + "bar"), "bar");
     writer.finish();
     assertEquals(golden, output.toString());
   }
