@@ -19,6 +19,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import com.google.enterprise.adaptor.fs.WinApi.PathHelper;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
@@ -178,8 +179,9 @@ class WindowsAclFileAttributeViews {
    * @return AclFileAttributeViews of direct and inherited ACL entries
    */
   public AclFileAttributeViews getAclViews(Path path) throws IOException {
+    PathHelper pathhelper = new PathHelper();
     String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
-    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname,
+    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathhelper.PathToUNC(pathname),
         WinNT.DACL_SECURITY_INFORMATION 
         | WinNT.PROTECTED_DACL_SECURITY_INFORMATION 
         | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
