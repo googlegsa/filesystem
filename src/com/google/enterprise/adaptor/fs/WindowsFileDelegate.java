@@ -155,16 +155,14 @@ class WindowsFileDelegate extends NioFileDelegate {
    * get the file system ACL from the folder containing the link.
    */
   private WinNT.ACL getDfsNamespaceAcl(Path doc) throws Win32Exception {
-    WString wpath = new WString(doc.toString());
+    String uncPath = PathHelper.longPath(doc.toString());
+    WString wpath = new WString(uncPath);
     IntByReference lengthNeeded = new IntByReference();
     int daclType = WinNT.DACL_SECURITY_INFORMATION
         | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
         | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION;
 
-    PathHelper pathhelper = new PathHelper();
-
-    if (advapi32.GetFileSecurity(new WString(pathhelper.PathToUNC(wpath.toString())),
-      daclType, null, 0, lengthNeeded)) {
+    if (advapi32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
       throw new AssertionError("GetFileSecurity was expected to fail with "
           + "ERROR_INSUFFICIENT_BUFFER");
     }
@@ -361,11 +359,6 @@ class WindowsFileDelegate extends NioFileDelegate {
     if (!id.endsWith("/") && Files.isDirectory(doc)) {
       sb.append("/");
     }
-    // Windows maximum pathname length of 260 characters
-    // was circumvented with \\?\UNC\ prefix.
-    // For details see:
-    // http://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
-    // and WinApi.PathHelper class
     return new DocId(sb.toString());
   }
 

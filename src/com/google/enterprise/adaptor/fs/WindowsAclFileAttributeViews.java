@@ -179,10 +179,9 @@ class WindowsAclFileAttributeViews {
    * @return AclFileAttributeViews of direct and inherited ACL entries
    */
   public AclFileAttributeViews getAclViews(Path path) throws IOException {
-    PathHelper pathhelper = new PathHelper();
     String pathname = path.toRealPath(LinkOption.NOFOLLOW_LINKS).toString();
-    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathhelper.PathToUNC(pathname),
-        WinNT.DACL_SECURITY_INFORMATION 
+    WinNT.ACCESS_ACEStructure[] aces = getFileSecurity(pathname,
+        WinNT.DACL_SECURITY_INFORMATION
         | WinNT.PROTECTED_DACL_SECURITY_INFORMATION 
         | WinNT.UNPROTECTED_DACL_SECURITY_INFORMATION);
     ImmutableList.Builder<AclEntry> inherited = ImmutableList.builder();
@@ -502,7 +501,8 @@ class WindowsAclFileAttributeViews {
   /** Uses JNA to call native Windows {@code GetFileSecurity} function. */
   private WinNT.ACCESS_ACEStructure[] getFileSecurity(String pathname,
       int daclType) throws IOException {
-    WString wpath = new WString(pathname);
+    String uncPath = PathHelper.longPath(pathname);
+    WString wpath = new WString(uncPath);
     IntByReference lengthNeeded = new IntByReference();
 
     if (advapi32.GetFileSecurity(wpath, daclType, null, 0, lengthNeeded)) {
@@ -512,13 +512,14 @@ class WindowsAclFileAttributeViews {
 
     int rc = kernel32.GetLastError();
     if (rc != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
-      throw new IOException("Failed GetFileSecurity", new Win32Exception(rc));
+      throw new IOException("Failed GetFileSecurity for "
+          + wpath, new Win32Exception(rc));
     }
 
     Memory memory = new Memory(lengthNeeded.getValue());
     if (!advapi32.GetFileSecurity(wpath, daclType, memory, (int) memory.size(),
                                   lengthNeeded)) {
-      throw new IOException("Failed GetFileSecurity",
+      throw new IOException("Failed GetFileSecurity " + wpath,
           new Win32Exception(kernel32.GetLastError()));
     }
 

@@ -22,6 +22,7 @@ import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Netapi32;
 import com.sun.jna.platform.win32.WinDef.DWORD;
 import com.sun.jna.platform.win32.WinDef.ULONG;
+import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.StdCallLibrary;
@@ -36,15 +37,22 @@ class WinApi {
   }
 
   /**
-  * Helper class for (long) UNC paths
+  * Helper class for long paths
   * https://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
   */
   public static class PathHelper {
-      // TODO: move to Shlwapi after migrating to Java 8
-      public String PathToUNC(String path) {
-          return path.replaceAll("^[^\\w]+",
-              "\\\\\\\\?\\\\UNC\\\\").replaceAll("/", "\\\\");
+    public static String longPath(String path) {
+      if (path.length() < WinNT.MAX_PATH) {
+        return path;
       }
+      if (Shlwapi.INSTANCE.PathIsUNC(path)) {
+        return path.replaceAll("^[^\\w]+",
+            "\\\\\\\\?\\\\UNC\\\\").replaceAll("/", "\\\\");
+      } else {
+        return path.replaceAll("^[^\\w]*",
+            "\\\\\\\\?\\\\").replaceAll("/", "\\\\");
+      }
+    }
   }
 
   public interface Kernel32Ex extends Kernel32 {
