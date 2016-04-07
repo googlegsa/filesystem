@@ -48,11 +48,14 @@ import org.junit.rules.ExpectedException;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Collections;
 import java.util.List;
@@ -81,6 +84,53 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
   @After
   public void tearDown() {
+    delegate.destroy();
+  }
+
+  @Test
+  public void testLongPaths() throws Exception {
+    delegate.startMonitorPath(tempRoot, pusher);
+    Set<DocIdPusher.Record> changes = Sets.newHashSet();
+    String alpha = "abcdefghijklmnopqrstuvwxyz";
+    Path parent = tempRoot;
+    for (int i = 0; i < 20; i++) {
+      Path child = Paths.get(parent.toString(), "" + i + "_" + alpha);
+      Files.createDirectory(child);
+      assertTrue(delegate.isDirectory(child));
+      assertFalse(delegate.isRegularFile(child));
+      assertFalse(delegate.isHidden(child));
+      assertFalse(delegate.isDfsNamespace(child));
+      assertFalse(delegate.isDfsLink(child));
+
+      FileTime lastAccess = FileTime.fromMillis(10000);
+      delegate.setLastAccessTime(child, lastAccess);
+      BasicFileAttributes attrs = delegate.readBasicAttributes(child);
+      assertEquals(lastAccess, attrs.lastAccessTime());
+
+      Path file = Paths.get(child.toString(), "test.txt");
+      Files.write(file, alpha.getBytes("UTF-8"));
+      InputStream in = delegate.newInputStream(file);
+      assertEquals('a', in.read());
+      in.close();
+      assertEquals("text/plain", delegate.probeContentType(file));
+
+      DirectoryStream<Path> ds = delegate.newDirectoryStream(child);
+      assertNotNull(ds.iterator().next());
+      ds.close();
+
+      AclFileAttributeViews aclViews = delegate.getAclViews(child);
+      aclViews = delegate.getAclViews(file);
+
+      changes.add(newRecord(child));
+      changes.add(newRecord(file));
+      parent = child;
+    }
+    // Verify the monitor has not died.
+    Path file = newTempFile("test.txt");
+    Files.write(file, alpha.getBytes("UTF-8"));
+    changes.add(newRecord(file));
+
+    checkForChanges(changes);
     delegate.destroy();
   }
 
@@ -661,13 +711,6 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
       builder.append(File.separator);
     }
     return builder.toString();
-  }
-
-  @Test
-  public void testNewDocIdLongPath() throws Exception {
-    Path path = Paths.get(tempRoot.toString(), makeLongPath());
-    thrown.expect(IllegalArgumentException.class);
-    delegate.newDocId(path);
   }
 
   @Test

@@ -23,6 +23,7 @@ import com.google.enterprise.adaptor.DocIdPusher;
 import com.google.enterprise.adaptor.DocIdPusher.Record;
 import com.google.enterprise.adaptor.fs.WinApi.Kernel32Ex;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
+import com.google.enterprise.adaptor.fs.WinApi.PathHelper;
 
 import com.sun.jna.Memory;
 import com.sun.jna.Pointer;
@@ -154,7 +155,8 @@ class WindowsFileDelegate extends NioFileDelegate {
    * get the file system ACL from the folder containing the link.
    */
   private WinNT.ACL getDfsNamespaceAcl(Path doc) throws Win32Exception {
-    WString wpath = new WString(doc.toString());
+    String uncPath = PathHelper.longPath(doc.toString());
+    WString wpath = new WString(uncPath);
     IntByReference lengthNeeded = new IntByReference();
     int daclType = WinNT.DACL_SECURITY_INFORMATION
         | WinNT.PROTECTED_DACL_SECURITY_INFORMATION
@@ -357,15 +359,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     if (!id.endsWith("/") && Files.isDirectory(doc)) {
       sb.append("/");
     }
-    id = sb.toString();
-    // Windows has a maximum pathname length of 260 characters. This limit
-    // can be worked around with some effort.  For details see:
-    // http://msdn.microsoft.com/library/windows/desktop/aa365247.aspx
-    if (id.length() < WinNT.MAX_PATH) {
-      return new DocId(id);
-    } else {
-      throw new IllegalArgumentException("the path is too long");
-    }
+    return new DocId(sb.toString());
   }
 
   @Override
