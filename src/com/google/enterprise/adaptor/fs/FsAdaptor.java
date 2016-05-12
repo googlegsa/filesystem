@@ -14,6 +14,8 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -43,6 +45,7 @@ import com.google.enterprise.adaptor.Status;
 import com.google.enterprise.adaptor.StatusSource;
 import com.google.enterprise.adaptor.UserPrincipal;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
@@ -54,10 +57,12 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.text.ParseException;
@@ -72,6 +77,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -269,6 +275,12 @@ public class FsAdaptor extends AbstractAdaptor {
    *  file system repository or instead to this adaptor. */
   private static final String CONFIG_SEARCH_RESULTS_GO_TO_REPO
        = "filesystemadaptor.searchResultsLinkToRepository";
+
+  /** Properties filename to specify mime types. */
+  private static final String MIME_TYPE_PROP_FILENAME = "mime-type.properties";
+
+  /* mime type mapping */
+  private static final Properties mimeTypeProperties = getMimeTypes();
 
   /** Fragements used for creating the inherited ACL named resources. */
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
@@ -1153,11 +1165,103 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Adds the file's content to the response. */
   private void getFileContent(Path doc, FileTime lastAccessTime, Response resp)
       throws IOException {
-    resp.setContentType(delegate.probeContentType(doc));
+    resp.setContentType(getDocMimeType(doc));
     try (InputStream input = delegate.newInputStream(doc)) {
       copyStream(input, resp.getOutputStream());
     } finally {
       setLastAccessTime(doc, lastAccessTime);      
+    }
+  }
+
+  private String getDocMimeType(Path doc) throws IOException {
+    String fileName = doc.toString();
+    int pos = fileName.lastIndexOf(".");
+    if (pos != -1) {
+      String extension = fileName.substring(pos + 1);
+      String mimetype = mimeTypeProperties.getProperty(extension);
+      if (mimetype != null) {
+        return mimetype.trim();
+      }
+    }
+    return delegate.probeContentType(doc);
+  }
+
+  /**
+   * Load mime types from properties file.
+   * @return a Properties.
+   */
+  private static Properties loadMimeTypeProperties(Properties props) {
+    Properties properties = new Properties(props);
+    try (BufferedReader fileInput =
+        Files.newBufferedReader(Paths.get(MIME_TYPE_PROP_FILENAME), UTF_8)) {
+      properties.load(fileInput);
+    } catch (FileNotFoundException e1) {
+      log.log(Level.FINE, "No {0} file found", MIME_TYPE_PROP_FILENAME);
+    } catch (IOException e) {
+      log.log(Level.FINE, "IOException reading {0} file",
+          MIME_TYPE_PROP_FILENAME);
+    }
+    return properties;
+  }
+
+  private static Properties getMimeTypes() {
+    Properties properties = new Properties();
+
+    // mime type mapping from Microsoft Technet reference.
+    // https://technet.microsoft.com/en-us/library/ee309278(office.12).aspx
+    properties.setProperty("docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml."
+            + "document");
+    properties.setProperty("docm", "application/vnd.ms-word.document."
+        + "macroEnabled.12");
+    properties.setProperty("dotx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml."
+            + "template");
+    properties.setProperty("dotm", "application/vnd.ms-word.template."
+        + "macroEnabled.12");
+    properties.setProperty("xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    properties.setProperty("xlsm", "application/vnd.ms-excel.sheet."
+        + "macroEnabled.12");
+    properties.setProperty("xltx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.template");
+    properties.setProperty("xltm", "application/vnd.ms-excel.template."
+        + "macroEnabled.12");
+    properties.setProperty("xlsb", "application/vnd.ms-excel.sheet.binary."
+        + "macroEnabled.12");
+    properties.setProperty("xlam", "application/vnd.ms-excel.addin."
+        + "macroEnabled.12");
+    properties.setProperty("pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml."
+            + "presentation");
+    properties.setProperty("pptm",
+        "application/vnd.ms-powerpoint.presentation.macroEnabled.12");
+    properties.setProperty("ppsx",
+        "application/vnd.openxmlformats-officedocument.presentationml."
+            + "slideshow");
+    properties.setProperty("ppsm", "application/vnd.ms-powerpoint.slideshow."
+        + "macroEnabled.12");
+    properties.setProperty("potx",
+        "application/vnd.openxmlformats-officedocument.presentationml."
+            + "template");
+    properties.setProperty("potm", "application/vnd.ms-powerpoint.template."
+        + "macroEnabled.12");
+    properties.setProperty("ppam", "application/vnd.ms-powerpoint.addin."
+        + "macroEnabled.12");
+    properties.setProperty("sldx",
+        "application/vnd.openxmlformats-officedocument.presentationml.slide");
+    properties.setProperty("sldm", "application/vnd.ms-powerpoint.slide."
+        + "macroEnabled.12");
+
+    // get mime types from properties file.
+    return loadMimeTypeProperties(properties);
+  }
+
+  /* Set mime type properties. */
+  @VisibleForTesting
+  protected void setMimeTypeProperties(Properties prop) {
+    for (String key : prop.stringPropertyNames()) {
+      mimeTypeProperties.setProperty(key, prop.getProperty(key));
     }
   }
 

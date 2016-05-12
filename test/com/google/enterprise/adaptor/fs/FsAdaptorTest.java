@@ -56,6 +56,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 /** Test cases for {@link FsAdaptor}. */
@@ -709,6 +710,57 @@ public class FsAdaptorTest {
     // TODO: check metadata.
     assertNotNull(response.metadata.get("Creation Time"));
     // ACL checked in other tests.
+  }
+
+  @Test
+  public void testDocMimeType() throws Exception {
+    testGetDocMimeType(getMockFile("test.txt"), "text/plain", null);
+  }
+
+  @Test
+  public void testDocMimeTypeFromLocalMap() throws Exception {
+    String mimetype = "application/vnd.ms-excel.sheet.macroEnabled.12";
+    testGetDocMimeType(getMockFile("test.xlsm"), mimetype, null);
+  }
+
+  @Test
+  public void testDocMimeTypeFromProperties() throws Exception {
+    Properties props = new Properties();
+    String mimetype = "presentation format";
+    props.setProperty("ppt", mimetype);
+    testGetDocMimeType(getMockFile("test.ppt"), mimetype, props);
+  }
+
+  @Test
+  public void testDocMimeTypeNoExtension() throws Exception {
+    testGetDocMimeType(getMockFile("docx"), "text/plain", null);
+  }
+
+  @Test
+  public void testDocMimeTypeUnknownExtension() throws Exception {
+    testGetDocMimeType(getMockFile("test.xyz").setContentType(null),
+        null, null);
+  }
+
+  private MockFile getMockFile(String fname) throws Exception {
+    MockFile file = new MockFile(fname);
+    root.addChildren(file);
+    return file;
+  }
+
+  private void testGetDocMimeType(MockFile file, String expect, Properties prop)
+      throws Exception {
+    adaptor.init(context);
+    if (prop != null) {
+      adaptor.setMimeTypeProperties(prop);
+    }
+
+    DocId docId = delegate.newDocId(Paths.get(file.getPath()));
+    MockResponse response = new MockResponse();
+    adaptor.getDocContent(new MockRequest(docId), response);
+
+    assertFalse(response.notFound);
+    assertEquals(expect, response.contentType);
   }
 
   @Test
