@@ -15,6 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Locale.ENGLISH;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -1177,7 +1178,7 @@ public class FsAdaptor extends AbstractAdaptor {
     String fileName = doc.toString();
     int pos = fileName.lastIndexOf(".");
     if (pos != -1) {
-      String extension = fileName.substring(pos + 1);
+      String extension = fileName.substring(pos + 1).toLowerCase(ENGLISH);
       String mimetype = mimeTypeProperties.getProperty(extension);
       if (mimetype != null) {
         return mimetype.trim();
@@ -1195,6 +1196,10 @@ public class FsAdaptor extends AbstractAdaptor {
     try (BufferedReader fileInput =
         Files.newBufferedReader(Paths.get(MIME_TYPE_PROP_FILENAME), UTF_8)) {
       properties.load(fileInput);
+      for (String key : properties.stringPropertyNames()) {
+        mimeTypeProperties.setProperty(key.toLowerCase(ENGLISH),
+            properties.getProperty(key));
+      }
     } catch (FileNotFoundException e1) {
       log.log(Level.FINE, "No {0} file found", MIME_TYPE_PROP_FILENAME);
     } catch (IOException e) {
@@ -1261,7 +1266,8 @@ public class FsAdaptor extends AbstractAdaptor {
   @VisibleForTesting
   protected void setMimeTypeProperties(Properties prop) {
     for (String key : prop.stringPropertyNames()) {
-      mimeTypeProperties.setProperty(key, prop.getProperty(key));
+      mimeTypeProperties.setProperty(key.toLowerCase(ENGLISH),
+          prop.getProperty(key));
     }
   }
 

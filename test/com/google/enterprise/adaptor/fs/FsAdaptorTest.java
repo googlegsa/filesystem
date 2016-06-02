@@ -742,6 +742,30 @@ public class FsAdaptorTest {
         null, null);
   }
 
+  @Test
+  public void testDocMimeTypeFromLocalMapMixedCaseExtension() throws Exception {
+    String mimetype = "application/vnd.ms-excel.sheet.macroEnabled.12";
+    testGetDocMimeType(getMockFile("test.Xlsm"), mimetype, null);
+  }
+
+  @Test
+  public void testDocMimeTypeFromPropertiesMixedCaseExtension()
+      throws Exception {
+    Properties props = new Properties();
+    String mimetype = "presentation format";
+    props.setProperty("ppt", mimetype);
+    testGetDocMimeType(getMockFile("test.Ppt"), mimetype, props);
+  }
+
+  @Test
+  public void testDocMimeTypeFromPropertiesMixedCaseProperty()
+      throws Exception {
+    Properties props = new Properties();
+    String mimetype = "presentation format";
+    props.setProperty("Ppt", mimetype);
+    testGetDocMimeType(getMockFile("test.ppt"), mimetype, props);
+  }
+
   private MockFile getMockFile(String fname) throws Exception {
     MockFile file = new MockFile(fname);
     root.addChildren(file);
