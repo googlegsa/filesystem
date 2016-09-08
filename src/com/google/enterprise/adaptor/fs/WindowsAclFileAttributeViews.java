@@ -19,8 +19,8 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import com.google.enterprise.adaptor.fs.WinApi.PathHelper;
 import com.google.enterprise.adaptor.fs.WinApi.Netapi32Ex;
+import com.google.enterprise.adaptor.fs.WinApi.PathHelper;
 import com.google.enterprise.adaptor.fs.WinApi.Shlwapi;
 
 import com.sun.jna.Memory;
@@ -339,13 +339,11 @@ class WindowsAclFileAttributeViews {
       account = getAccountBySid(ace.getSID());
     } catch (Win32Exception e) {
       // Only the least significant 16-bits signifies the HR code.
-      if ((e.getHR().intValue() & 0xFFFF) == WinError.ERROR_NONE_MAPPED) {
-        log.log(Level.FINEST, "Skipping ACE with unresolvable SID: {0}.",
-            ace.getSidString());
-        return null;
-      } else {
-        throw e;
-      }
+      int errorCode = e.getHR().intValue() & 0xFFFF;
+      log.log(Level.FINEST,
+          "Skipping ACE with unresolvable SID: {0}  Error: {1} {2}",
+          new Object[] { ace.getSidString(), errorCode, e.getMessage() });
+      return null;
     }
     String accountName = (account.domain == null)
         ? account.name : account.domain + "\\" + account.name;
