@@ -18,6 +18,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Locale.ENGLISH;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.cache.Cache;
@@ -25,6 +26,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.enterprise.adaptor.AbstractAdaptor;
 import com.google.enterprise.adaptor.Acl;
 import com.google.enterprise.adaptor.Acl.InheritanceType;
@@ -47,8 +49,6 @@ import com.google.enterprise.adaptor.StatusSource;
 import com.google.enterprise.adaptor.UserPrincipal;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -66,6 +66,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.text.MessageFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -86,6 +87,8 @@ import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -364,6 +367,9 @@ public class FsAdaptor extends AbstractAdaptor {
 
   private boolean resultLinksToShare;
 
+  /** ExecutorService for asychronous pushing of large directory content. */
+  private ExecutorService asyncDirectoryPusherService;
+
   public FsAdaptor() {
     // At the moment, we only support Windows.
     if (System.getProperty("os.name").startsWith("Windows")) {
@@ -518,6 +524,10 @@ public class FsAdaptor extends AbstractAdaptor {
         config.getValue(CONFIG_MONITOR_UPDATES));
     log.log(Level.CONFIG, "monitorForUpdates: {0}", monitorForUpdates);
 
+    // Service for pushing large directory contents asynchronously.
+    asyncDirectoryPusherService = Executors.newFixedThreadPool(
+        Integer.parseInt(config.getValue("server.maxWorkerThreads")));
+
     // How often to update file systems Status for Dashboard, in minutes.
     long minutes =
         Integer.parseInt(config.getValue(CONFIG_STATUS_UPDATE_INTERVAL_MINS));
@@ -563,6 +573,9 @@ public class FsAdaptor extends AbstractAdaptor {
 
   @Override
   public void destroy() {
+    if (asyncDirectoryPusherService != null) {
+      asyncDirectoryPusherService.shutdownNow();
+    }
     statusUpdateService.cancel();
     delegate.destroy();
   }
@@ -1060,6 +1073,8 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Makes HTML document with web links to namespace's DFS links. */
   private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
       throws IOException {
+    // TODO (bmj): Handle large Namespaces by paying attention to maxHtmlLinks
+    // and sending excess to DocIdPusher.
     resp.setNoIndex(!indexFolders);
     try (HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
       writer.start(docid, getFileName(doc));
@@ -1078,88 +1093,88 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /* Makes HTML document with links this directory's files and folder. */
+  /* Makes HTML document with links to this directory's files and folders. */
   private void getDirectoryContent(Path doc, DocId docid,
       FileTime lastAccessTime, Response resp) throws IOException {
     resp.setNoIndex(!indexFolders);
-    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc)) {
-      // Large directories can have tens or hundreds of thousands of files.
-      // The GSA truncates large HTML documents at 2.5MB, so return
-      // the first maxHtmlLinks worth as HTML content and the rest as external
-      // anchors. But we cannot start writing the HTML content to the response
-      // until after we add all the external anchor metadata. So spool the HTML
-      // for now and copy it to the response later.
-      SharedByteArrayOutputStream htmlOut = new SharedByteArrayOutputStream();
-      Writer writer = new OutputStreamWriter(htmlOut, CHARSET);
-      try (HtmlResponseWriter htmlWriter =
-           new HtmlResponseWriter(writer, docIdEncoder, Locale.ENGLISH)) {
-        htmlWriter.start(docid, getFileName(doc));
-        int htmlLinks = 0;
-        for (Path file : files) {
-          DocId docId;
-          try {
-            docId = delegate.newDocId(file);
-          } catch (IllegalArgumentException e) {
-            log.log(Level.WARNING, "Skipping {0} because {1}.",
-                    new Object[] { file, e.getMessage() });
-            continue;
-          }
-          if (htmlLinks++ < maxHtmlLinks) {
-            // Add an HTML link.
-            htmlWriter.addLink(docId, getFileName(file));
-          } else {
-            // Add an external anchor.
-            resp.addAnchor(docIdEncoder.encodeDocId(docId),
-                           getFileName(file));
-          }
+
+    // Large directories can have tens or hundreds of thousands of files.
+    // The GSA truncates large HTML documents at 2.5MB, so return the first
+    // maxHtmlLinks worth as HTML content and send the rest to the DocIdPusher.
+    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+         HtmlResponseWriter htmlWriter = createHtmlResponseWriter(resp)) {
+      htmlWriter.start(docid, getFileName(doc));
+      int htmlLinks = 0;
+      for (Path file : files) {
+        DocId docId = delegate.newDocId(file);
+        if (htmlLinks++ < maxHtmlLinks) {
+          // Add an HTML link.
+          htmlWriter.addLink(docId, getFileName(file));
+        } else {
+          String message = MessageFormat.format(
+              "Directory listing for {0} exceeds maxHtmlSize of {1,number,#}. "
+              + "Switching to asynchronous feed of directory content.",
+              doc, maxHtmlLinks);
+          htmlWriter.addHtml(
+              "<p>" + htmlWriter.escapeContent(message) + "</p>");
+          log.log(Level.FINE, message);
+          asyncDirectoryPusherService.submit(
+              new AsyncDirectoryContentPusher(doc, lastAccessTime));
+          break;
         }
-        htmlWriter.finish();
       }
-      // Finally, write out the generated HTML links as content.
-      resp.setContentType("text/html; charset=" + CHARSET.name());
-      copyStream(htmlOut.getInputStream(), resp.getOutputStream());
+      htmlWriter.finish();
     } finally {
       setLastAccessTime(doc, lastAccessTime);
     }
   }
 
-  /**
-   * This implementation adds a {@link #getInputStream} method that
-   * shares the buffer with this output stream. The input stream
-   * cannot be obtained until the output stream is closed.
-   */
-  private static class SharedByteArrayOutputStream
-      extends ByteArrayOutputStream {
-    public SharedByteArrayOutputStream() {
-      super();
+  /* Feeds the directory's files and folders to the DocIdPusher. */
+  private class AsyncDirectoryContentPusher implements Runnable {
+    private final Path dir;
+    private final FileTime lastAccessTime;
+
+    public AsyncDirectoryContentPusher(Path dir, FileTime lastAccessTime) {
+      this.dir = dir;
+      this.lastAccessTime = lastAccessTime;
     }
 
-    public SharedByteArrayOutputStream(int size) {
-      super(size);
-    }
-
-    /** Is this output stream open? */
-    private boolean isOpen = true;
-
-    /** Marks this output stream as closed. */
-    @Override
-    public void close() throws IOException {
-      isOpen = false;
-      super.close();
-    }
-
-    /**
-     * Gets a <code>ByteArrayInputStream</code> that shares the
-     * output buffer, without copying it.
-     *
-     * @return a <code>ByteArrayInputStream</code>
-     * @throws IOException if the output stream is open
-     */
-    public ByteArrayInputStream getInputStream() throws IOException {
-      if (isOpen) {
-        throw new IOException("Output stream is open.");
+    public void run() {
+      log.log(Level.FINE, "Pushing contents of directory {0}",
+          getFileName(dir));
+      try (DirectoryStream<Path> paths = delegate.newDirectoryStream(dir)) {
+        context.getDocIdPusher().pushDocIds(
+            Iterables.transform(paths,
+                new Function<Path, DocId>() {
+                  @Override
+                  public DocId apply(Path path) {
+                    try {
+                      DocId docId = delegate.newDocId(path);
+                      log.log(Level.FINER, "Pushing docid {0}", docId);
+                      return docId;
+                    } catch (IOException e) {
+                      throw new WrappedException(
+                          "Failed to create DocId from path " + path, e);
+                    }
+                  }
+                }));
+      } catch (IOException | WrappedException | InterruptedException e) {
+        log.log(Level.WARNING, "Failed to push contents of directory " + dir,
+                e);
+      } finally {
+        try {
+          setLastAccessTime(dir, lastAccessTime);
+        } catch (IOException e) {
+          log.log(Level.WARNING, "Failed restore last access time for " + dir,
+                  e);
+        }
       }
-      return new ByteArrayInputStream(buf, 0, count);
+    }
+  }
+
+  private static class WrappedException extends RuntimeException {
+    public WrappedException(String message, Exception cause) {
+      super(message, cause);
     }
   }
 

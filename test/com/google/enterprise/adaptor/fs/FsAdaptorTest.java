@@ -22,6 +22,7 @@ import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
 import static org.junit.Assert.*;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.enterprise.adaptor.Acl;
@@ -1176,12 +1177,12 @@ public class FsAdaptorTest {
   }
 
   @Test
-  public void testGetDocContentDirectoryExternalAnchorsOnly() throws Exception {
+  public void testGetDocContentDirectoryPushedDocIdsOnly() throws Exception {
     testMaxHtmlLinks(0);
   }
 
   @Test
-  public void testGetDocContentDirectoryHtmlLinksAndAnchors() throws Exception {
+  public void testGetDocContentDirectoryHtmlLinksAndDocIds() throws Exception {
     testMaxHtmlLinks(2);
   }
 
@@ -1218,23 +1219,39 @@ public class FsAdaptorTest {
         + "Folder " + label + "</title></head><body><h1>Folder " + label
         + "</h1>"));
 
-    // Verify the links and anchors.
+    // Verify the HTML links.
     int i;
-    for (i = 0; i < files.length && i < maxHtmlLinks; i++) {
+    for (i = 0; i < files.length; i++) {
       String file = files[i];
       String expectedLink = "<li><a href=\"" + file
           + (file.contains("dir") ? "/" : "") + "\">" + file + "</a></li>";
-      assertTrue(html, html.contains(expectedLink));
+      if (i < maxHtmlLinks) {
+        assertTrue(html, html.contains(expectedLink));
+      } else {
+        assertFalse(html, html.contains(expectedLink));
+      }
     }
-    for (; i < files.length; i++) {
-      String file = files[i];
-      URI uri = context.getDocIdEncoder().encodeDocId(new DocId(
-          (file.contains("dir") ? file + "/" : file)));
-      URI anchor = response.anchors.get(file);
-      assertNotNull("File " + file + " with URI " + uri + " is missing"
-          + " from response:/n" + html + "/n" + response.anchors, anchor);
-      assertEquals(uri, anchor);
+
+    // If the number of children exceeds the maxHtmlLinks, they should
+    // all have been pushed to the DocIdPusher asynchronously.
+    Thread.sleep(100); // Wait for AsyncDirectoryContentPusher thread to finish.
+    List<Record> expected;
+    if (files.length > maxHtmlLinks) {
+      assertTrue(html, html.contains("<p>Directory listing for "));
+      assertTrue(html, html.contains(" exceeds maxHtmlSize of "));
+      ImmutableList.Builder<Record> builder = ImmutableList.builder();
+      for (String file : files) {
+        builder.add(new Record.Builder(getDocId(file)).build());
+      }
+      expected = builder.build();
+    } else {
+      // Nothing should have been pushed.
+      expected = ImmutableList.of();
     }
+    assertEquals(expected, pusher.getRecords());
+
+    // There should be no external anchors.
+    assertEquals(ImmutableMap.<String, URI>of(), response.anchors);
   }
 
   @Test

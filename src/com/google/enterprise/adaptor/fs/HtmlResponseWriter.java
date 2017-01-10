@@ -112,6 +112,21 @@ class HtmlResponseWriter implements Closeable {
   }
 
   /**
+   * Writes the supplied HTML fragment to the writer.
+   *
+   * @param htmlText A fragement of HTML to write
+   */
+  public void addHtml(String htmlText) throws IOException {
+    if (state != State.STARTED) {
+      throw new IllegalStateException("In unexpected state: " + state);
+    }
+    if (htmlText == null) {
+      throw new NullPointerException();
+    }
+    writer.write(htmlText);
+  }
+
+  /**
    * Complete HTML body and flush.
    */
   public void finish() throws IOException {
@@ -231,11 +246,11 @@ class HtmlResponseWriter implements Closeable {
     return label;
   }
 
-  private String escapeContent(String raw) {
+  public String escapeContent(String raw) {
     return raw.replace("&", "&amp;").replace("<", "&lt;");
   }
 
-  private String escapeAttributeValue(String raw) {
+  public String escapeAttributeValue(String raw) {
     return escapeContent(raw).replace("\"", "&quot;").replace("'", "&apos;");
   }
 }
