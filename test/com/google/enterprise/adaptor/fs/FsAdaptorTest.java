@@ -17,6 +17,7 @@ package com.google.enterprise.adaptor.fs;
 import static com.google.enterprise.adaptor.fs.AclView.GenericPermission.*;
 import static com.google.enterprise.adaptor.fs.AclView.group;
 import static com.google.enterprise.adaptor.fs.AclView.user;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
@@ -35,8 +36,12 @@ import com.google.enterprise.adaptor.GroupPrincipal;
 import com.google.enterprise.adaptor.InvalidConfigurationException;
 import com.google.enterprise.adaptor.UserPrincipal;
 
-import org.junit.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.FilterInputStream;
@@ -46,6 +51,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -107,6 +113,9 @@ public class FsAdaptorTest {
   }
 
   @Rule
+  public TemporaryFolder tempFolder = new TemporaryFolder();
+
+  @Rule
   public ExpectedException thrown = ExpectedException.none();
 
   private Path getPath(String path) {
@@ -115,6 +124,80 @@ public class FsAdaptorTest {
 
   private DocId getDocId(String path) throws IOException {
     return delegate.newDocId(getPath(path));
+  }
+
+  private Path writeMimeTypes(String content) throws IOException {
+    Path file = tempFolder.newFile("test-mime-types.properties").toPath();
+    Files.write(file, content.getBytes(UTF_8));
+    return file;
+  }
+
+  @Test
+  public void testLoadMimeTypesFileNotFound() throws Exception {
+    Path file = tempFolder.getRoot().toPath()
+        .resolve("non-existent-mime-types.properties");
+    Properties defaults = new Properties();
+    assertSame(defaults, FsAdaptor.loadMimeTypeProperties(file, defaults));
+  }
+
+  @Test
+  public void testLoadMimeTypesEmptyFile() throws Exception {
+    Path file = writeMimeTypes("");
+    Properties defaults = new Properties();
+    defaults.setProperty("ext1", "foo/bar");
+    defaults.setProperty("ext2", "foo/baz");
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals(new Properties(), mimeTypes);
+    // But the defaults should still work.
+    assertEquals("foo/bar", mimeTypes.getProperty("ext1"));
+    assertEquals("foo/baz", mimeTypes.getProperty("ext2"));
+  }
+
+  @Test
+  public void testLoadMimeTypesUniqueKey() throws Exception {
+    Path file = writeMimeTypes("ext1=foo/bar\n");
+    Properties defaults = new Properties();
+    defaults.setProperty("ext2", "foo/baz");
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals("foo/bar", mimeTypes.getProperty("ext1"));
+    assertEquals("foo/baz", mimeTypes.getProperty("ext2"));
+  }
+
+  @Test
+  public void testLoadMimeTypesMultipleKeys() throws Exception {
+    Path file = writeMimeTypes("ext1=foo/bar\next2=foo/baz\n");
+    Properties defaults = new Properties();
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals("foo/bar", mimeTypes.getProperty("ext1"));
+    assertEquals("foo/baz", mimeTypes.getProperty("ext2"));
+  }
+
+  @Test
+  public void testLoadMimeTypesOverrideDefaultValue() throws Exception {
+    Path file = writeMimeTypes("ext1=text/plain\n");
+    Properties defaults = new Properties();
+    defaults.setProperty("ext1", "foo/bar");
+    defaults.setProperty("ext2", "foo/baz");
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals("text/plain", mimeTypes.getProperty("ext1"));
+    assertEquals("foo/baz", mimeTypes.getProperty("ext2"));
+  }
+
+  @Test
+  public void testLoadMimeTypesToLowerExtensions() throws Exception {
+    Path file = writeMimeTypes("EXT1=text/plain\n");
+    Properties defaults = new Properties();
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals("text/plain", mimeTypes.getProperty("ext1"));
+    assertNull(mimeTypes.getProperty("EXT1"));
+  }
+
+  @Test
+  public void testLoadMimeTypesTrimValues() throws Exception {
+    Path file = writeMimeTypes("ext1=text/plain    \n");
+    Properties defaults = new Properties();
+    Properties mimeTypes = FsAdaptor.loadMimeTypeProperties(file, defaults);
+    assertEquals("text/plain", mimeTypes.getProperty("ext1"));
   }
 
   @Test

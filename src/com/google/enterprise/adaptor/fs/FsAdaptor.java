@@ -280,11 +280,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SEARCH_RESULTS_GO_TO_REPO
        = "filesystemadaptor.searchResultsLinkToRepository";
 
-  /** Properties filename to specify mime types. */
-  private static final String MIME_TYPE_PROP_FILENAME = "mime-type.properties";
-
-  /* mime type mapping */
-  private static final Properties mimeTypeProperties = getMimeTypes();
+  /** MIME type mapping. The format of the optional mime-type.properties file
+   *  is filename extensions as keys and MIME types as values. */
+  private static final Properties mimeTypeProperties =
+      getMimeTypes(Paths.get("mime-type.properties"));
 
   /** Fragements used for creating the inherited ACL named resources. */
   private static final String ALL_FOLDER_INHERIT_ACL = "allFoldersAcl";
@@ -1204,27 +1203,32 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /**
    * Load mime types from properties file.
+   * @param userMimeType Path of the optional mime-type.properties file.
+   * @param defaults The default file extension to mime type map properties.
    * @return a Properties.
    */
-  private static Properties loadMimeTypeProperties(Properties props) {
-    Properties properties = new Properties(props);
+  @VisibleForTesting
+  static Properties loadMimeTypeProperties(Path userMimeTypes,
+      Properties defaults) {
+    Properties properties = new Properties(defaults);
     try (BufferedReader fileInput =
-        Files.newBufferedReader(Paths.get(MIME_TYPE_PROP_FILENAME), UTF_8)) {
-      properties.load(fileInput);
-      for (String key : properties.stringPropertyNames()) {
-        mimeTypeProperties.setProperty(key.toLowerCase(ENGLISH),
-            properties.getProperty(key));
+         Files.newBufferedReader(userMimeTypes, UTF_8)) {
+      Properties overrides = new Properties();
+      overrides.load(fileInput);
+      for (String key : overrides.stringPropertyNames()) {
+        properties.setProperty(key.toLowerCase(ENGLISH),
+            overrides.getProperty(key).trim());
       }
-    } catch (FileNotFoundException e1) {
-      log.log(Level.FINE, "No {0} file found", MIME_TYPE_PROP_FILENAME);
+    } catch (FileNotFoundException | NoSuchFileException e1) {
+      log.log(Level.FINE, "No {0} file found", userMimeTypes);
+      return defaults;
     } catch (IOException e) {
-      log.log(Level.FINE, "IOException reading {0} file",
-          MIME_TYPE_PROP_FILENAME);
+      log.log(Level.WARNING, "Error reading " + userMimeTypes + " file", e);
     }
     return properties;
   }
 
-  private static Properties getMimeTypes() {
+  private static Properties getMimeTypes(Path userMimeTypes) {
     Properties properties = new Properties();
 
     // mime type mapping from Microsoft Technet reference.
@@ -1274,7 +1278,7 @@ public class FsAdaptor extends AbstractAdaptor {
         + "macroEnabled.12");
 
     // get mime types from properties file.
-    return loadMimeTypeProperties(properties);
+    return loadMimeTypeProperties(userMimeTypes, properties);
   }
 
   /* Set mime type properties. */
