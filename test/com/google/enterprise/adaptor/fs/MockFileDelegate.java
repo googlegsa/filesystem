@@ -15,7 +15,9 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
@@ -181,7 +183,13 @@ class MockFileDelegate implements FileDelegate {
   public List<Path> enumerateDfsLinks(Path doc) throws IOException {
     MockFile file = getFile(doc);
     if (file.isDfsNamespace()) {
-      return ImmutableList.copyOf(file.newDirectoryStream());
+      ImmutableList.Builder<Path> builder = ImmutableList.builder();
+      for (Path path : file.newDirectoryStream()) {
+        if (isDfsLink(path)) {
+          builder.add(path);
+        }
+      }
+      return builder.build();
     } else {
       throw new IOException("Not a DFS Root: " + doc);
     }

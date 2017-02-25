@@ -280,6 +280,13 @@ public class FsAdaptor extends AbstractAdaptor {
   private static final String CONFIG_SEARCH_RESULTS_GO_TO_REPO
        = "filesystemadaptor.searchResultsLinkToRepository";
 
+  /** Config parameter that determines whether crawling a DFS Namespace
+   *  uses NetDsfEnum to enumerate any DFS Links, or treats the DFS Namespace
+   *  like any other directory, returning regular files and folders as well
+   *  as DFS Links when crawled. */
+  private static final String CONFIG_DFS_NAMESPACE_AS_DIRECTORY =
+      "filesystemadaptor.allowFilesInDfsNamespaces";
+
   /** MIME type mapping. The format of the optional mime-type.properties file
    *  is filename extensions as keys and MIME types as values. */
   private static final Properties mimeTypeProperties =
@@ -336,6 +343,9 @@ public class FsAdaptor extends AbstractAdaptor {
   /** How to enforce preservation of last access time of files and folders. */
   private enum PreserveLastAccessTime { NEVER, IF_ALLOWED, ALWAYS };
   private PreserveLastAccessTime preserveLastAccessTime;
+
+  /** Allow regular files and folders in a DFS Namespace. */
+  private boolean allowFilesInDfsNamespaces;
 
   /** Cache of hidden and visible directories. */
   // TODO(bmj): Cache docIds too, for ACL inheritance purposes.
@@ -423,6 +433,8 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
     config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
     config.addKey(CONFIG_SEARCH_RESULTS_GO_TO_REPO, "true");
+    // TODO (bmj): should this default to true?
+    config.addKey(CONFIG_DFS_NAMESPACE_AS_DIRECTORY, "false");
     // Increase the max feed size, which also increases the
     // asyncDocIdSenderQueueSize to 40,000 entries. This would
     // make a full queue about 10MB in size.
@@ -487,6 +499,11 @@ public class FsAdaptor extends AbstractAdaptor {
     if (!resultLinksToShare) {
       context.setAuthzAuthority(new AccessChecker());
     }
+
+    allowFilesInDfsNamespaces = Boolean.parseBoolean(
+        config.getValue(CONFIG_DFS_NAMESPACE_AS_DIRECTORY));
+    log.log(Level.CONFIG, "allowFilesInDfsNamespaces: {0}",
+        allowFilesInDfsNamespaces);
 
     try {
       preserveLastAccessTime = Enum.valueOf(PreserveLastAccessTime.class,
@@ -608,23 +625,22 @@ public class FsAdaptor extends AbstractAdaptor {
              + " is not valid path - " + e.getMessage() + ".");
     }
 
+    // Do this as soon as possible, since it is selective in how it handles
+    // various exceptions.
+    validateShare(startPath);
+
     if (!crawlHiddenFiles && delegate.isHidden(startPath)) {
       throw new InvalidConfigurationException("The path " + startPath + " is "
           + "hidden. To crawl hidden content, you must set the configuration "
           + "property \"filesystemadaptor.crawlHiddenFiles\" to \"true\".");
     }
 
-    // TODO(mifern): Using a path of \\host\ns\link\FolderA will be
-    // considered non-DFS even though \\host\ns\link is a DFS link path.
-    // This is OK for now since it will fail all three checks below and
-    // will throw an InvalidConfigurationException.
     if (delegate.isDfsLink(startPath)) {
       Path dfsActiveStorage = delegate.resolveDfsLink(startPath);
       if (logging) {
         log.log(Level.INFO, "Using a DFS path resolved to {0}",
                 dfsActiveStorage);
       }
-      validateShare(startPath);
     } else if (delegate.isDfsNamespace(startPath)) {
       if (logging) {
         log.log(Level.INFO, "Using a DFS namespace {0}", startPath);
@@ -652,7 +668,6 @@ public class FsAdaptor extends AbstractAdaptor {
         log.log(Level.INFO, "Using a {0}DFS path {1}", new Object[] {
             ((getDfsRoot(startPath) == null) ? "non-" : ""), startPath });
       }
-      validateShare(startPath);
     }
   }
 
@@ -668,14 +683,13 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /** Verify the path is available and we have access to it. */
   private void validateShare(Path sharePath) throws IOException {
-    if (delegate.isDfsNamespace(sharePath)) {
-      throw new AssertionError("validateShare may only be called "
-          + "on DFS links or active storage paths.");
-    }
-
     // Verify that the adaptor has permission to read the contents of the root.
     try {
-      delegate.newDirectoryStream(sharePath).close();
+      if (delegate.isDfsNamespace(sharePath) && !allowFilesInDfsNamespaces) {
+        delegate.enumerateDfsLinks(sharePath);
+      } else {
+        delegate.newDirectoryStream(sharePath).close();
+      }
     } catch (AccessDeniedException e) {
       throw new IOException("Unable to list the contents of " + sharePath
           + ". This can happen if the Windows account used to crawl "
@@ -700,7 +714,9 @@ public class FsAdaptor extends AbstractAdaptor {
     // Verify that the adaptor has permission to read the Acl and share Acl.
     try {
       readShareAcls(sharePath);
-      delegate.getAclViews(sharePath);
+      if (delegate.isDfsNamespace(sharePath) && allowFilesInDfsNamespaces) {
+        delegate.getAclViews(sharePath);
+      }
     } catch (IOException e) {
       throw new IOException("Unable to read ACLs for " + sharePath
           + ". This can happen if the Windows account used to crawl "
@@ -749,51 +765,52 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   private ShareAcls readShareAcls(Path share) throws IOException {
-    Acl shareAcl;
-    Acl dfsShareAcl;
-    Path dfsRoot = getDfsRoot(share);
-
     if (skipShareAcl) {
       // Ignore the Share ACL, but create a benign placeholder.
-      dfsShareAcl = null;
-      shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
+      Acl shareAcl = new Acl.Builder().setEverythingCaseInsensitive()
           .setInheritanceType(InheritanceType.CHILD_OVERRIDES).build();
-    } else if (delegate.isDfsNamespace(share)) {
-      throw new AssertionError("readShareAcls may only be called "
-          + "on DFS links or active storage paths.");
-    } else if (dfsRoot != null && delegate.isDfsLink(dfsRoot)) {
+      return new ShareAcls(shareAcl, null);
+    }
+
+    Path dfsRoot = getDfsRoot(share);
+    if (dfsRoot == null) {
+      // For a non-DFS UNC we have only have a share Acl to push.
+      AclBuilder builder = new AclBuilder(share,
+          delegate.getShareAclView(share),
+          supportedWindowsAccounts, builtinPrefix, namespace);
+      Acl shareAcl = builder.getAcl().setInheritanceType(
+          InheritanceType.AND_BOTH_PERMIT).build();
+      return new ShareAcls(shareAcl, null);
+    } else {
       // For a DFS UNC we have a DFS Acl that must be sent. Also, the share Acl
       // must be the Acl for the target storage UNC.
       AclBuilder builder = new AclBuilder(share,
           delegate.getDfsShareAclView(dfsRoot),
           supportedWindowsAccounts, builtinPrefix, namespace);
-      dfsShareAcl = builder.getAcl().setInheritanceType(
+      Acl dfsShareAcl = builder.getAcl().setInheritanceType(
           InheritanceType.AND_BOTH_PERMIT).build();
 
-      // Push the Acl for the active storage UNC path.
-      Path activeStorage = delegate.resolveDfsLink(dfsRoot);
-      if (activeStorage == null) {
-        throw new IOException("The DFS path " + share
-            + " does not have an active storage.");
+      if (delegate.isDfsNamespace(dfsRoot)) {
+        // Use the DFS Acl as the Share Acl for ordinary files and folders
+        // in the DFS Namespace.
+        return new ShareAcls(dfsShareAcl, null);
+      } else {  // Is a DFS Link.
+        // Push the Acl for the active storage UNC path.
+        Path activeStorage = delegate.resolveDfsLink(dfsRoot);
+        if (activeStorage == null) {
+          throw new IOException("The DFS path " + share
+              + " does not have an active storage.");
+        }
+
+        builder = new AclBuilder(activeStorage,
+            delegate.getShareAclView(activeStorage),
+            supportedWindowsAccounts, builtinPrefix, namespace);
+        Acl shareAcl = builder.getAcl()
+            .setInheritFrom(delegate.newDocId(dfsRoot), DFS_SHARE_ACL)
+            .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
+        return new ShareAcls(shareAcl, dfsShareAcl);
       }
-
-      builder = new AclBuilder(activeStorage,
-          delegate.getShareAclView(activeStorage),
-          supportedWindowsAccounts, builtinPrefix, namespace);
-      shareAcl = builder.getAcl()
-          .setInheritFrom(delegate.newDocId(dfsRoot), DFS_SHARE_ACL)
-          .setInheritanceType(InheritanceType.AND_BOTH_PERMIT).build();
-    } else {
-      // For a non-DFS UNC we have only have a share Acl to push.
-      AclBuilder builder = new AclBuilder(share,
-          delegate.getShareAclView(share),
-          supportedWindowsAccounts, builtinPrefix, namespace);
-      dfsShareAcl = null;
-      shareAcl = builder.getAcl().setInheritanceType(
-          InheritanceType.AND_BOTH_PERMIT).build();
     }
-
-    return new ShareAcls(shareAcl, dfsShareAcl);
   }
 
   @Override
@@ -885,7 +902,7 @@ public class FsAdaptor extends AbstractAdaptor {
 
     // TODO(mifern): Include extended attributes.
 
-    if (delegate.isDfsNamespace(doc)) {
+    if (!allowFilesInDfsNamespaces && delegate.isDfsNamespace(doc)) {
       try {      
         // Enumerate links in a namespace.
         getDfsNamespaceContent(doc, id, resp);
@@ -968,11 +985,8 @@ public class FsAdaptor extends AbstractAdaptor {
 
   /* Populate the document ACL in the response. */
   private void getFileAcls(Path doc, Response resp) throws IOException {
-    if (delegate.isDfsNamespace(doc)) {
-      throw new AssertionError("getFileAcls may not be called on "
-          + "DFS namespace paths.");
-      }
-    final boolean isRoot = startPaths.contains(doc) || delegate.isDfsLink(doc);
+    final boolean isRoot = startPaths.contains(doc)
+        || delegate.isDfsNamespace(doc) || delegate.isDfsLink(doc);
     final boolean isDirectory = delegate.isDirectory(doc);
     AclFileAttributeViews aclViews = delegate.getAclViews(doc);
     boolean hasNoInheritedAcl =
