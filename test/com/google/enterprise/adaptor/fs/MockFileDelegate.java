@@ -180,18 +180,39 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public List<Path> enumerateDfsLinks(Path doc) throws IOException {
+  public DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException {
     MockFile file = getFile(doc);
     if (file.isDfsNamespace()) {
+      return new MockDfsLinkDirectoryStream(file);
+    } else {
+      throw new IOException("Not a DFS Root: " + doc);
+    }
+  }
+
+  private class MockDfsLinkDirectoryStream implements DirectoryStream<Path> {
+    private final List<Path> links;
+    private Iterator<Path> iterator;
+
+    public MockDfsLinkDirectoryStream(MockFile namespace) throws IOException {
       ImmutableList.Builder<Path> builder = ImmutableList.builder();
-      for (Path path : file.newDirectoryStream()) {
+      for (Path path : namespace.newDirectoryStream()) {
         if (isDfsLink(path)) {
           builder.add(path);
         }
       }
-      return builder.build();
-    } else {
-      throw new IOException("Not a DFS Root: " + doc);
+      links = builder.build();
+    }
+
+    @Override
+    public Iterator<Path> iterator() {
+      Preconditions.checkState(iterator == null,
+          "DirectoryStream can only have one iterator.");
+      iterator = links.iterator();
+      return iterator;
+    }
+
+    @Override
+    public void close() {
     }
   }
 

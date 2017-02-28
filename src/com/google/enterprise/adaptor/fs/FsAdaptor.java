@@ -645,22 +645,24 @@ public class FsAdaptor extends AbstractAdaptor {
       if (logging) {
         log.log(Level.INFO, "Using a DFS namespace {0}", startPath);
       }
-      for (Path link : delegate.enumerateDfsLinks(startPath)) {
-        // Postpone full validation until crawl time.
-        try {
-          Path dfsActiveStorage = delegate.resolveDfsLink(link);
-          if (logging) {
-            log.log(Level.INFO, "DFS path {0} resolved to {1}",
-                    new Object[] {link, dfsActiveStorage});
-            // When called from init(), set the initial status of enumerated
-            // DFS links as unavailable, as we are not calling validateShare()
-            // at this time. The actual status will be set when this is
-            // called from the statusUpdateService or getDocContent().
-            updateStatus(link, Status.Code.UNAVAILABLE);
+      try (DirectoryStream<Path> links = delegate.newDfsLinkStream(startPath)) {
+        for (Path link : links) {
+          // Postpone full validation until crawl time.
+          try {
+            Path dfsActiveStorage = delegate.resolveDfsLink(link);
+            if (logging) {
+              log.log(Level.INFO, "DFS path {0} resolved to {1}",
+                      new Object[] {link, dfsActiveStorage});
+              // When called from init(), set the initial status of enumerated
+              // DFS links as unavailable, as we are not calling validateShare()
+              // at this time. The actual status will be set when this is
+              // called from the statusUpdateService or getDocContent().
+              updateStatus(link, Status.Code.UNAVAILABLE);
+            }
+          } catch (IOException e) {
+            log.log(Level.WARNING, "Unable to resolve DFS link " + startPath, e);
+            updateStatus(link, e);
           }
-        } catch (IOException e) {
-          log.log(Level.WARNING, "Unable to resolve DFS link " + startPath, e);
-          updateStatus(link, e);
         }
       }
     } else {
@@ -686,7 +688,7 @@ public class FsAdaptor extends AbstractAdaptor {
     // Verify that the adaptor has permission to read the contents of the root.
     try {
       if (delegate.isDfsNamespace(sharePath)) {
-        delegate.enumerateDfsLinks(sharePath);
+        delegate.newDfsLinkStream(sharePath).close();
       }
       if (!delegate.isDfsNamespace(sharePath) || allowFilesInDfsNamespaces) {
         delegate.newDirectoryStream(sharePath).close();
@@ -1092,16 +1094,18 @@ public class FsAdaptor extends AbstractAdaptor {
     resp.setNoIndex(!indexFolders);
     try (HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
       writer.start(docid, getFileName(doc));
-      for (Path link : delegate.enumerateDfsLinks(doc)) {
-        DocId docId;
-        try {
-          docId = delegate.newDocId(link);
-        } catch (IllegalArgumentException e) {
-          log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
-                  new Object[] { link, e.getMessage() });
-          continue;
+      try (DirectoryStream<Path> links = delegate.newDfsLinkStream(doc)) {
+        for (Path link : links) {
+          DocId docId;
+          try {
+            docId = delegate.newDocId(link);
+          } catch (IllegalArgumentException e) {
+            log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
+                    new Object[] { link, e.getMessage() });
+            continue;
+          }
+          writer.addLink(docId, getFileName(link));
         }
-        writer.addLink(docId, getFileName(link));
       }
       writer.finish();
     }

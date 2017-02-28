@@ -41,6 +41,7 @@ import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.PointerByReference;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -48,6 +49,7 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -306,34 +308,54 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
-  public List<Path> enumerateDfsLinks(Path doc) throws IOException {
-    PointerByReference buf = new PointerByReference();
-    IntByReference bufSize = new IntByReference();
+  public DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException {
+    return new DfsLinkDirectoryStream(doc);
+  }
 
-    int rc = netapi32.NetDfsEnum(doc.toString(), 1, -1, buf, bufSize, null);
-    if (rc != LMErr.NERR_Success) {
-      throw new IOException("Unable to enumerate DFS links for " + doc
-          + ". Code: " + rc);
+  private class DfsLinkDirectoryStream implements DirectoryStream<Path> {
+    private final List<Path> links;
+    private Iterator<Path> iterator;
+
+    public DfsLinkDirectoryStream(Path doc) throws IOException {
+      PointerByReference buf = new PointerByReference();
+      IntByReference bufSize = new IntByReference();
+
+      int rc = netapi32.NetDfsEnum(doc.toString(), 1, -1, buf, bufSize, null);
+      if (rc != LMErr.NERR_Success) {
+        throw new IOException("Unable to enumerate DFS links for " + doc
+            + ". Code: " + rc);
+      }
+
+      int numLinks = bufSize.getValue();
+      ImmutableList.Builder<Path> builder = ImmutableList.builder();
+      try {
+        Pointer bufp = buf.getValue();
+        for (int i = 0; i < numLinks; i++) {
+          Netapi32Ex.DFS_INFO_1 info = new Netapi32Ex.DFS_INFO_1(bufp);
+          Path path = Paths.get(info.EntryPath.toString());
+          // NetDfsEnum includes the namespace itself in the enumeration. The
+          // namespace has a nameCount of 0, the links have a nameCount > 0.
+          if (path.getNameCount() > 0) {
+            builder.add(preserveOriginalNamespace(doc, path));
+          }
+          bufp = bufp.share(info.size());
+        }
+        links = builder.build();
+      } finally {
+        netapi32.NetApiBufferFree(buf.getValue());
+      }
     }
 
-    int numLinks = bufSize.getValue();
-    ImmutableList.Builder<Path> builder = ImmutableList.builder();
-    try {
-      Pointer bufp = buf.getValue();
-      for (int i = 0; i < numLinks; i++) {
-        Netapi32Ex.DFS_INFO_1 info = new Netapi32Ex.DFS_INFO_1(bufp);
-        Path path = Paths.get(info.EntryPath.toString());
-        // For some reason, NetDfsEnum includes the namespace itself in the
-        // enumeration. The namespace has a nameCount of 0, the links have a
-        // nameCount > 0.
-        if (path.getNameCount() > 0) {
-          builder.add(preserveOriginalNamespace(doc, path));
-        }
-        bufp = bufp.share(info.size());
-      }
-      return builder.build();
-    } finally {
-      netapi32.NetApiBufferFree(buf.getValue());
+    @Override
+    public Iterator<Path> iterator() {
+      Preconditions.checkState(iterator == null,
+          "DirectoryStream can only have one iterator.");
+      iterator = links.iterator();
+      return iterator;
+    }
+
+    @Override
+    public void close() {
     }
   }
 
