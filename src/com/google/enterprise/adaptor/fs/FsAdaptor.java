@@ -714,7 +714,7 @@ public class FsAdaptor extends AbstractAdaptor {
     // Verify that the adaptor has permission to read the Acl and share Acl.
     try {
       readShareAcls(sharePath);
-      if (delegate.isDfsNamespace(sharePath) && allowFilesInDfsNamespaces) {
+      if (!delegate.isDfsNamespace(sharePath) || allowFilesInDfsNamespaces) {
         delegate.getAclViews(sharePath);
       }
     } catch (IOException e) {
