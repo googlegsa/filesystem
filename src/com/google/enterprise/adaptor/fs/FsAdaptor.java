@@ -685,9 +685,10 @@ public class FsAdaptor extends AbstractAdaptor {
   private void validateShare(Path sharePath) throws IOException {
     // Verify that the adaptor has permission to read the contents of the root.
     try {
-      if (delegate.isDfsNamespace(sharePath) && !allowFilesInDfsNamespaces) {
+      if (delegate.isDfsNamespace(sharePath)) {
         delegate.enumerateDfsLinks(sharePath);
-      } else {
+      }
+      if (!delegate.isDfsNamespace(sharePath) || allowFilesInDfsNamespaces) {
         delegate.newDirectoryStream(sharePath).close();
       }
     } catch (AccessDeniedException e) {
