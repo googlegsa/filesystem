@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Preconditions;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
@@ -25,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.util.Iterator;
 
 interface FileDelegate {
   /**
@@ -204,4 +206,29 @@ interface FileDelegate {
    * terminating any file system change monitors.
    */
   void destroy();
+
+  /**
+   * Helper class for wrapping a collection of {@link Path} as a
+   * {@link DirectoryStream}.
+   */
+  abstract static class AbstractPathDirectoryStream
+      implements DirectoryStream<Path> {
+    protected Iterable<Path> paths;
+    private boolean mayGetIterator = true;
+
+    @Override
+    public Iterator<Path> iterator() {
+      Preconditions.checkState(paths != null,
+          "Iterable paths field must be set.");
+      Preconditions.checkState(mayGetIterator,
+          "DirectoryStream can only have one iterator.");
+      mayGetIterator = false;
+      return paths.iterator();
+    }
+
+    @Override
+    public void close() {
+      mayGetIterator = false;
+    }
+  }
 }

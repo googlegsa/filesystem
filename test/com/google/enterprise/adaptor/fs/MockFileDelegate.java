@@ -16,7 +16,6 @@ package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
@@ -24,6 +23,7 @@ import com.google.enterprise.adaptor.DocId;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,7 +31,6 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Iterator;
-import java.util.List;
 
 class MockFileDelegate implements FileDelegate {
 
@@ -189,30 +188,19 @@ class MockFileDelegate implements FileDelegate {
     }
   }
 
-  private class MockDfsLinkDirectoryStream implements DirectoryStream<Path> {
-    private final List<Path> links;
-    private Iterator<Path> iterator;
-
+  private class MockDfsLinkDirectoryStream extends AbstractPathDirectoryStream {
     public MockDfsLinkDirectoryStream(MockFile namespace) throws IOException {
-      ImmutableList.Builder<Path> builder = ImmutableList.builder();
-      for (Path path : namespace.newDirectoryStream()) {
-        if (isDfsLink(path)) {
-          builder.add(path);
-        }
-      }
-      links = builder.build();
-    }
-
-    @Override
-    public Iterator<Path> iterator() {
-      Preconditions.checkState(iterator == null,
-          "DirectoryStream can only have one iterator.");
-      iterator = links.iterator();
-      return iterator;
-    }
-
-    @Override
-    public void close() {
+      paths = Iterables.filter(namespace.newDirectoryStream(),
+          new Predicate<Path>() {
+            @Override
+            public boolean apply(Path path) {
+              try {
+                return isDfsLink(path);
+              } catch (IOException e) {
+                throw new DirectoryIteratorException(e);
+              }
+            }
+          });
     }
   }
 

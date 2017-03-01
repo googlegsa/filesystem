@@ -15,12 +15,14 @@
 package com.google.enterprise.adaptor.fs;
 
 import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.FileDelegate.AbstractPathDirectoryStream;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -34,7 +36,6 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -391,28 +392,14 @@ class MockFile {
     }
   }
 
-  private class MockDirectoryStream implements DirectoryStream<Path> {
-    private Iterator<Path> iterator;
-
+  private class MockDirectoryStream extends AbstractPathDirectoryStream {
     MockDirectoryStream(List<MockFile> files) {
-      ArrayList<Path> paths = new ArrayList<Path>();
+      ImmutableSortedSet.Builder<Path> builder =
+          ImmutableSortedSet.naturalOrder();
       for (MockFile file : files) {
-        paths.add(Paths.get(file.getPath()));
+        builder.add(Paths.get(file.getPath()));
       }
-      Collections.sort(paths);
-      iterator = paths.iterator();
+      paths = builder.build();
     }
-
-    @Override
-    public Iterator<Path> iterator() {
-      Preconditions.checkState(iterator != null,
-          "multiple attempts to get iterator");
-      Iterator<Path> rtn = iterator;
-      iterator = null;
-      return rtn;
-    }
-
-    @Override
-    public void close() {}
   }
 }

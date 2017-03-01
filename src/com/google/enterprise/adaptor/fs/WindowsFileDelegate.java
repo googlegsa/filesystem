@@ -49,7 +49,6 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -312,10 +311,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     return new DfsLinkDirectoryStream(doc);
   }
 
-  private class DfsLinkDirectoryStream implements DirectoryStream<Path> {
-    private final List<Path> links;
-    private Iterator<Path> iterator;
-
+  private class DfsLinkDirectoryStream extends AbstractPathDirectoryStream {
     public DfsLinkDirectoryStream(Path doc) throws IOException {
       PointerByReference buf = new PointerByReference();
       IntByReference bufSize = new IntByReference();
@@ -340,22 +336,10 @@ class WindowsFileDelegate extends NioFileDelegate {
           }
           bufp = bufp.share(info.size());
         }
-        links = builder.build();
+        paths = builder.build();
       } finally {
         netapi32.NetApiBufferFree(buf.getValue());
       }
-    }
-
-    @Override
-    public Iterator<Path> iterator() {
-      Preconditions.checkState(iterator == null,
-          "DirectoryStream can only have one iterator.");
-      iterator = links.iterator();
-      return iterator;
-    }
-
-    @Override
-    public void close() {
     }
   }
 
