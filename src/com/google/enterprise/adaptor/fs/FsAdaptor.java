@@ -433,7 +433,7 @@ public class FsAdaptor extends AbstractAdaptor {
     config.addKey(CONFIG_MONITOR_UPDATES, "true");
     config.addKey(CONFIG_STATUS_UPDATE_INTERVAL_MINS, "15");
     config.addKey(CONFIG_SEARCH_RESULTS_GO_TO_REPO, "true");
-    // TODO (bmj): should this default to true?
+    // TODO(bmj): should this default to true?
     config.addKey(CONFIG_DFS_NAMESPACE_AS_DIRECTORY, "false");
     // Increase the max feed size, which also increases the
     // asyncDocIdSenderQueueSize to 40,000 entries. This would
