@@ -280,6 +280,7 @@ public class FsAdaptorTest {
 
   private void makeDfsNamespace(MockFile dfsNamespace) {
     dfsNamespace.setIsDfsNamespace(true);
+    dfsNamespace.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     for (int i = 0; i < 5; i++) {
       MockFile dfsLink = new MockFile("dfsLink" + i, true);
       dfsLink.setIsDfsLink(true);
@@ -927,21 +928,40 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentDfsNamespace() throws Exception {
-    testGetDocContentDfsNamespace(true /* indexFolders */);
+    testGetDocContentDfsNamespace(true /* indexFolders */,
+                                  false /* allowRegularFiles */);
   }
 
   @Test
   public void testGetDocContentDfsNamespaceNoIndex() throws Exception {
-    testGetDocContentDfsNamespace(false /* indexFolders */);
+    testGetDocContentDfsNamespace(false /* indexFolders */,
+                                  false /* allowRegularFiles */);
   }
 
-  private void testGetDocContentDfsNamespace(boolean indexFolders)
+  @Test
+  public void testGetDocContentDfsNamespaceAllowFiles() throws Exception {
+    testGetDocContentDfsNamespace(true /* indexFolders */,
+                                  true /* allowRegularFiles */);
+  }
+
+  @Test
+  public void testGetDocContentDfsNamespaceNoIndexAllowFiles()
       throws Exception {
+    testGetDocContentDfsNamespace(false /* indexFolders */,
+                                  true /* allowRegularFiles */);
+  }
+
+  private void testGetDocContentDfsNamespace(boolean indexFolders,
+      boolean allowRegularFiles) throws Exception {
     makeDfsNamespace(root);
+    root.addChildren(new MockFile("regularFile"),
+                     new MockFile("regularFolder", true));
     FileTime modifyTime = root.getLastModifiedTime();
     Date modifyDate = new Date(modifyTime.toMillis());
     config.overrideKey("filesystemadaptor.indexFolders",
                        Boolean.toString(indexFolders));
+    config.overrideKey("filesystemadaptor.allowFilesInDfsNamespaces",
+                       Boolean.toString(allowRegularFiles));
     adaptor.init(context);
     MockRequest request = new MockRequest(delegate.newDocId(rootPath));
     MockResponse response = new MockResponse();
@@ -959,6 +979,9 @@ public class FsAdaptorTest {
         + "<li><a href=\"dfsLink2/\">dfsLink2</a></li>"
         + "<li><a href=\"dfsLink3/\">dfsLink3</a></li>"
         + "<li><a href=\"dfsLink4/\">dfsLink4</a></li>"
+        + ((!allowRegularFiles) ? ""
+             : ("<li><a href=\"regularFile\">regularFile</a></li>"
+                + "<li><a href=\"regularFolder/\">regularFolder</a></li>"))
         + "</body></html>";
     assertEquals(expectedContent, response.content.toString("UTF-8"));
     assertNotNull(response.metadata.get("Creation Time"));
@@ -1396,6 +1419,7 @@ public class FsAdaptorTest {
         .flags(FILE_INHERIT, DIRECTORY_INHERIT)));
     root.addChildren(dfsLink);
     root.setIsDfsNamespace(true);
+    root.setDfsShareAclView(MockFile.FULL_ACCESS_ACLVIEW);
     root.setAclView(MockFile.EMPTY_ACLVIEW);
     testGetDocContentDfsLinkAcls(dfsLink,
         Collections.singleton(new GroupPrincipal(groupName)),
