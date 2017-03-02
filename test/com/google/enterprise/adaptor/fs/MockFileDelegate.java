@@ -178,7 +178,7 @@ class MockFileDelegate implements FileDelegate {
 
   @Override
   public DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException {
-    final MockFile file = getFile(doc);
+    MockFile file = getFile(doc);
     if (!file.isDfsNamespace()) {
       throw new IOException("Not a DFS Root: " + doc);
     }
