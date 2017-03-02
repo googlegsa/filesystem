@@ -15,14 +15,13 @@
 package com.google.enterprise.adaptor.fs;
 
 import static com.google.enterprise.adaptor.fs.AclView.group;
-import static com.google.enterprise.adaptor.fs.FileDelegate.AbstractPathDirectoryStream;
+import static com.google.enterprise.adaptor.fs.FileDelegate.PathDirectoryStream;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -36,6 +35,7 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -332,7 +332,18 @@ class MockFile {
     if (!isDirectory) {
       throw new NotDirectoryException("not a directory " + getPath());
     }
-    return new MockDirectoryStream(directoryContents);
+    return new PathDirectoryStream() {
+      @Override
+      public Iterable<Path> getPaths() {
+        // TODO(bmj): Use ImmutableSortedMultiset after upgrading guava.
+        ArrayList<Path> paths = new ArrayList<Path>();
+        for (MockFile file : directoryContents) {
+          paths.add(Paths.get(file.getPath()));
+        }
+        Collections.sort(paths);
+        return Collections.unmodifiableList(paths);
+      }
+    };
   }
 
   @Override
@@ -389,17 +400,6 @@ class MockFile {
       } else {
         return 0L;
       }
-    }
-  }
-
-  private class MockDirectoryStream extends AbstractPathDirectoryStream {
-    MockDirectoryStream(List<MockFile> files) {
-      ImmutableSortedSet.Builder<Path> builder =
-          ImmutableSortedSet.naturalOrder();
-      for (MockFile file : files) {
-        builder.add(Paths.get(file.getPath()));
-      }
-      paths = builder.build();
     }
   }
 }

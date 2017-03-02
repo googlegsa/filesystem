@@ -211,15 +211,19 @@ interface FileDelegate {
    * Helper class for wrapping a collection of {@link Path} as a
    * {@link DirectoryStream}.
    */
-  abstract static class AbstractPathDirectoryStream
+  abstract static class PathDirectoryStream
       implements DirectoryStream<Path> {
-    protected Iterable<Path> paths;
+    private final Iterable<Path> paths;
     private boolean mayGetIterator = true;
+
+    public abstract Iterable<Path> getPaths() throws IOException;
+
+    PathDirectoryStream() throws IOException {
+      paths = getPaths();
+    }
 
     @Override
     public Iterator<Path> iterator() {
-      Preconditions.checkState(paths != null,
-          "Iterable paths field must be set.");
       Preconditions.checkState(mayGetIterator,
           "DirectoryStream can only have one iterator.");
       mayGetIterator = false;
