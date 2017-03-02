@@ -182,18 +182,13 @@ class MockFileDelegate implements FileDelegate {
     if (!file.isDfsNamespace()) {
       throw new IOException("Not a DFS Root: " + doc);
     }
-    return new PathDirectoryStream() {
-      @Override
-      public Iterable<Path> getPaths() throws IOException {
-        ImmutableList.Builder<Path> builder = ImmutableList.builder();
-        for (Path path : file.newDirectoryStream()) {
-          if (isDfsLink(path)) {
-            builder.add(path);
-          }
-        }
-        return builder.build();
+    ImmutableList.Builder<Path> builder = ImmutableList.builder();
+    for (Path path : file.newDirectoryStream()) {
+      if (isDfsLink(path)) {
+        builder.add(path);
       }
-    };
+    }
+    return new PathDirectoryStream(builder.build());
   }
 
   @Override

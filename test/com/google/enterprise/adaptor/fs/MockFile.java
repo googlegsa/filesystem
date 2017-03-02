@@ -332,18 +332,13 @@ class MockFile {
     if (!isDirectory) {
       throw new NotDirectoryException("not a directory " + getPath());
     }
-    return new PathDirectoryStream() {
-      @Override
-      public Iterable<Path> getPaths() {
-        // TODO(bmj): Use ImmutableSortedMultiset after upgrading guava.
-        ArrayList<Path> paths = new ArrayList<Path>();
-        for (MockFile file : directoryContents) {
-          paths.add(Paths.get(file.getPath()));
-        }
-        Collections.sort(paths);
-        return Collections.unmodifiableList(paths);
-      }
-    };
+    // TODO(bmj): Use ImmutableSortedMultiset after upgrading guava.
+    ArrayList<Path> paths = new ArrayList<Path>();
+    for (MockFile file : directoryContents) {
+      paths.add(Paths.get(file.getPath()));
+    }
+    Collections.sort(paths);
+    return new PathDirectoryStream(Collections.unmodifiableList(paths));
   }
 
   @Override

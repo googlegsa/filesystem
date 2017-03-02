@@ -211,15 +211,13 @@ interface FileDelegate {
    * Helper class for wrapping a collection of {@link Path} as a
    * {@link DirectoryStream}.
    */
-  abstract static class PathDirectoryStream
+  static class PathDirectoryStream
       implements DirectoryStream<Path> {
     private final Iterable<Path> paths;
     private boolean mayGetIterator = true;
 
-    public abstract Iterable<Path> getPaths() throws IOException;
-
-    PathDirectoryStream() throws IOException {
-      paths = getPaths();
+    PathDirectoryStream(Iterable<Path> paths) {
+      this.paths = paths;
     }
 
     @Override
