@@ -14,6 +14,7 @@
 
 package com.google.enterprise.adaptor.fs;
 
+import com.google.common.base.Preconditions;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
@@ -25,7 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.util.List;
+import java.util.Iterator;
 
 interface FileDelegate {
   /**
@@ -136,15 +137,15 @@ interface FileDelegate {
   Path resolveDfsLink(Path doc) throws IOException;
 
   /**
-   * Returns a list of DFS links contained within a DFS namespace.
-   * The supplied path would typically be like
+   * Returns a {@link DirectoryStream} of DFS links contained within a
+   * DFS namespace. The supplied path would typically be like
    * {@code \\\\server\\namespace} or {@code \\\\domain\\namespace}.
    *
    * @param doc the DFS UNC path to a DFS namespace
-   * @returns a List of DFS link paths
+   * @returns a DirectoryStream of DFS link paths
    * @throws IOException if doc is not a DFS namespace or is not accessable
    */
-  List<Path> enumerateDfsLinks(Path doc) throws IOException;
+  DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException;
 
   /**
    * Returns an {@link AclFileAttributeViews} that contains the directly
@@ -205,4 +206,30 @@ interface FileDelegate {
    * terminating any file system change monitors.
    */
   void destroy();
+
+  /**
+   * Helper class for wrapping a collection of {@link Path} as a
+   * {@link DirectoryStream}.
+   */
+  static class PathDirectoryStream implements DirectoryStream<Path> {
+    private final Iterable<Path> paths;
+    private boolean mayGetIterator = true;
+
+    PathDirectoryStream(Iterable<Path> paths) {
+      this.paths = paths;
+    }
+
+    @Override
+    public Iterator<Path> iterator() {
+      Preconditions.checkState(mayGetIterator,
+          "DirectoryStream can only have one iterator.");
+      mayGetIterator = false;
+      return paths.iterator();
+    }
+
+    @Override
+    public void close() {
+      mayGetIterator = false;
+    }
+  }
 }

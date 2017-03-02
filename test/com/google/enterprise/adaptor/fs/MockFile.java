@@ -15,6 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import static com.google.enterprise.adaptor.fs.AclView.group;
+import static com.google.enterprise.adaptor.fs.FileDelegate.PathDirectoryStream;
 import static java.nio.file.attribute.AclEntryFlag.*;
 import static java.nio.file.attribute.AclEntryPermission.*;
 import static java.nio.file.attribute.AclEntryType.*;
@@ -331,7 +332,13 @@ class MockFile {
     if (!isDirectory) {
       throw new NotDirectoryException("not a directory " + getPath());
     }
-    return new MockDirectoryStream(directoryContents);
+    // TODO(bmj): Use ImmutableSortedMultiset after upgrading guava.
+    ArrayList<Path> paths = new ArrayList<Path>();
+    for (MockFile file : directoryContents) {
+      paths.add(Paths.get(file.getPath()));
+    }
+    Collections.sort(paths);
+    return new PathDirectoryStream(Collections.unmodifiableList(paths));
   }
 
   @Override
@@ -389,30 +396,5 @@ class MockFile {
         return 0L;
       }
     }
-  }
-
-  private class MockDirectoryStream implements DirectoryStream<Path> {
-    private Iterator<Path> iterator;
-
-    MockDirectoryStream(List<MockFile> files) {
-      ArrayList<Path> paths = new ArrayList<Path>();
-      for (MockFile file : files) {
-        paths.add(Paths.get(file.getPath()));
-      }
-      Collections.sort(paths);
-      iterator = paths.iterator();
-    }
-
-    @Override
-    public Iterator<Path> iterator() {
-      Preconditions.checkState(iterator != null,
-          "multiple attempts to get iterator");
-      Iterator<Path> rtn = iterator;
-      iterator = null;
-      return rtn;
-    }
-
-    @Override
-    public void close() {}
   }
 }

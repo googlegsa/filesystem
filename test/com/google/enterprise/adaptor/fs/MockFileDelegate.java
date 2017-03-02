@@ -15,9 +15,7 @@
 package com.google.enterprise.adaptor.fs;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.enterprise.adaptor.AsyncDocIdPusher;
 import com.google.enterprise.adaptor.DocId;
 
@@ -31,7 +29,6 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Iterator;
-import java.util.List;
 
 class MockFileDelegate implements FileDelegate {
 
@@ -180,19 +177,18 @@ class MockFileDelegate implements FileDelegate {
   }
 
   @Override
-  public List<Path> enumerateDfsLinks(Path doc) throws IOException {
+  public DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException {
     MockFile file = getFile(doc);
-    if (file.isDfsNamespace()) {
-      ImmutableList.Builder<Path> builder = ImmutableList.builder();
-      for (Path path : file.newDirectoryStream()) {
-        if (isDfsLink(path)) {
-          builder.add(path);
-        }
-      }
-      return builder.build();
-    } else {
+    if (!file.isDfsNamespace()) {
       throw new IOException("Not a DFS Root: " + doc);
     }
+    ImmutableList.Builder<Path> builder = ImmutableList.builder();
+    for (Path path : file.newDirectoryStream()) {
+      if (isDfsLink(path)) {
+        builder.add(path);
+      }
+    }
+    return new PathDirectoryStream(builder.build());
   }
 
   @Override

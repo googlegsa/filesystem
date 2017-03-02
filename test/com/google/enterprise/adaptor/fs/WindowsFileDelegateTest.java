@@ -682,7 +682,8 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
 
     WindowsFileDelegate delegate =
         new WindowsFileDelegate(null, null, netapi, null, 0);
-    return delegate.enumerateDfsLinks(Paths.get("\\\\host\\namespace"));
+    Path namespace = Paths.get("\\\\host\\namespace");
+    return ImmutableList.copyOf(delegate.newDfsLinkStream(namespace));
   }
 
   @Test

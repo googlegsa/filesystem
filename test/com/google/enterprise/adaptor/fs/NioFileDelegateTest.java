@@ -37,7 +37,6 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.util.List;
 import java.util.Set;
 
 /** Tests for {@link NioFileDelegate} */
@@ -254,7 +253,7 @@ public class NioFileDelegateTest {
     }
 
     @Override
-    public List<Path> enumerateDfsLinks(Path doc) throws IOException {
+    public DirectoryStream<Path> newDfsLinkStream(Path doc) throws IOException {
       throw new UnsupportedOperationException();
     }
   }
