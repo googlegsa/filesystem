@@ -618,13 +618,6 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Verify that a startPath is valid. */
   private void validateStartPath(Path startPath, boolean logging)
       throws IOException, InvalidConfigurationException {
-    try {
-      delegate.newDocId(startPath);
-    } catch (IllegalArgumentException e) {
-        throw new InvalidConfigurationException("The path " + startPath
-             + " is not valid path - " + e.getMessage() + ".");
-    }
-
     // Do this as soon as possible, since it is selective in how it handles
     // various exceptions.
     validateShare(startPath);
@@ -911,7 +904,7 @@ public class FsAdaptor extends AbstractAdaptor {
         getDirectoryStreamContent(doc, id, null, resp,
             new DirectoryStreamFactory() {
               @Override
-              public DirectoryStream<Path>newDirectoryStream(Path source)
+              public DirectoryStream<Path> newDirectoryStream(Path source)
                   throws IOException {
                 return delegate.newDfsLinkStream(source);
               }
@@ -959,7 +952,14 @@ public class FsAdaptor extends AbstractAdaptor {
         // NoSuchFileException when trying to read directory contents.
         try {
           if (docIsDirectory) {
-            getDirectoryStreamContent(doc, id, lastAccessTime, resp, delegate);
+            getDirectoryStreamContent(doc, id, lastAccessTime, resp,
+                new DirectoryStreamFactory() {
+                  @Override
+                  public DirectoryStream<Path> newDirectoryStream(Path source)
+                      throws IOException {
+                    return delegate.newDirectoryStream(source);
+                  }
+                });
           } else {
             getFileContent(doc, lastAccessTime, resp);
           }
@@ -970,6 +970,13 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
     log.exiting("FsAdaptor", "getDocContent");
+  }
+
+  /**
+   * Factory interface for creating new DirectoryStreams.
+   */
+  private interface DirectoryStreamFactory {
+    DirectoryStream<Path> newDirectoryStream(Path source) throws IOException;
   }
 
   /**
@@ -1113,8 +1120,8 @@ public class FsAdaptor extends AbstractAdaptor {
           htmlWriter.addLink(docId, getFileName(path));
         } else {
           String message = MessageFormat.format(
-              "Content listing for {0} exceeds maxHtmlSize of {1,number,#}. "
-              + "Switching to asynchronous feed of content.",
+              "Listing of children for {0} exceeds maxHtmlSize of {1,number,#}."
+              + " Switching to asynchronous feed of child DocIds.",
               source, maxHtmlLinks);
           htmlWriter.addHtml(
               "<p>" + htmlWriter.escapeContent(message) + "</p>");
@@ -1145,7 +1152,7 @@ public class FsAdaptor extends AbstractAdaptor {
     }
 
     public void run() {
-      log.log(Level.FINE, "Pushing contents of {0}",
+      log.log(Level.FINE, "Pushing children of {0}",
           getFileName(source));
       try (DirectoryStream<Path> paths = factory.newDirectoryStream(source)) {
         context.getDocIdPusher().pushDocIds(
@@ -1164,13 +1171,13 @@ public class FsAdaptor extends AbstractAdaptor {
                   }
                 }));
       } catch (IOException | WrappedException | InterruptedException e) {
-        log.log(Level.WARNING, "Failed to push contents of " + source, e);
+        log.log(Level.WARNING, "Failed to push child DocIds of " + source, e);
       } finally {
         try {
           setLastAccessTime(source, lastAccessTime);
         } catch (IOException e) {
-          log.log(Level.WARNING, "Failed restore last access time for " + source,
-                  e);
+          log.log(Level.WARNING, "Failed restore last access time for "
+                   + source, e);
         }
       }
     }

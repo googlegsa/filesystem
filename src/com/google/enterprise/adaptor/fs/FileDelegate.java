@@ -28,7 +28,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Iterator;
 
-interface FileDelegate extends DirectoryStreamFactory {
+interface FileDelegate {
   /**
    * Returns the real {@link Path} represented by the path string.
    * This is equivalent to {@code Paths.get(pathname)}.
