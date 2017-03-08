@@ -1138,7 +1138,7 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /* Feeds the DirectoryStream's content to the DocIdPusher. */
+  /* Feeds the DirectoryStream's paths as DocIds to the DocIdPusher. */
   private class AsyncDirectoryStreamContentPusher implements Runnable {
     private final Path dir;
     private final FileTime lastAccessTime;
