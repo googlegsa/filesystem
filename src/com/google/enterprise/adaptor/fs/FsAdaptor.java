@@ -904,9 +904,9 @@ public class FsAdaptor extends AbstractAdaptor {
         getDirectoryStreamContent(doc, id, null, resp,
             new DirectoryStreamFactory() {
               @Override
-              public DirectoryStream<Path> newDirectoryStream(Path source)
+              public DirectoryStream<Path> newDirectoryStream(Path dir)
                   throws IOException {
-                return delegate.newDfsLinkStream(source);
+                return delegate.newDfsLinkStream(dir);
               }
             });
         updateStatus(doc, Status.Code.NORMAL);
@@ -955,9 +955,9 @@ public class FsAdaptor extends AbstractAdaptor {
             getDirectoryStreamContent(doc, id, lastAccessTime, resp,
                 new DirectoryStreamFactory() {
                   @Override
-                  public DirectoryStream<Path> newDirectoryStream(Path source)
+                  public DirectoryStream<Path> newDirectoryStream(Path dir)
                       throws IOException {
-                    return delegate.newDirectoryStream(source);
+                    return delegate.newDirectoryStream(dir);
                   }
                 });
           } else {
@@ -976,7 +976,7 @@ public class FsAdaptor extends AbstractAdaptor {
    * Factory interface for creating new DirectoryStreams.
    */
   private interface DirectoryStreamFactory {
-    DirectoryStream<Path> newDirectoryStream(Path source) throws IOException;
+    DirectoryStream<Path> newDirectoryStream(Path dir) throws IOException;
   }
 
   /**
@@ -1101,7 +1101,7 @@ public class FsAdaptor extends AbstractAdaptor {
   }
 
   /* Makes HTML document with links to this DirectoryStream's contents. */
-  private void getDirectoryStreamContent(Path source, DocId docid,
+  private void getDirectoryStreamContent(Path doc, DocId docid,
        FileTime lastAccessTime, Response resp, DirectoryStreamFactory factory)
        throws IOException {
     resp.setNoIndex(!indexFolders);
@@ -1109,9 +1109,9 @@ public class FsAdaptor extends AbstractAdaptor {
     // Large directories can have tens or hundreds of thousands of files.
     // The GSA truncates large HTML documents at 2.5MB, so return the first
     // maxHtmlLinks worth as HTML content and send the rest to the DocIdPusher.
-    try (DirectoryStream<Path> paths = factory.newDirectoryStream(source);
+    try (DirectoryStream<Path> paths = factory.newDirectoryStream(doc);
          HtmlResponseWriter htmlWriter = createHtmlResponseWriter(resp)) {
-      htmlWriter.start(docid, getFileName(source));
+      htmlWriter.start(docid, getFileName(doc));
       int htmlLinks = 0;
       for (Path path : paths) {
         DocId docId = delegate.newDocId(path);
@@ -1122,39 +1122,39 @@ public class FsAdaptor extends AbstractAdaptor {
           String message = MessageFormat.format(
               "Listing of children for {0} exceeds maxHtmlSize of {1,number,#}."
               + " Switching to asynchronous feed of child DocIds.",
-              source, maxHtmlLinks);
+              doc, maxHtmlLinks);
           htmlWriter.addHtml(
               "<p>" + htmlWriter.escapeContent(message) + "</p>");
           log.log(Level.FINE, message);
           asyncDirectoryPusherService.submit(
-              new AsyncDirectoryStreamContentPusher(source, lastAccessTime,
+              new AsyncDirectoryStreamContentPusher(doc, lastAccessTime,
                                                     factory));
           break;
         }
       }
       htmlWriter.finish();
     } finally {
-      setLastAccessTime(source, lastAccessTime);
+      setLastAccessTime(doc, lastAccessTime);
     }
   }
 
   /* Feeds the DirectoryStream's content to the DocIdPusher. */
   private class AsyncDirectoryStreamContentPusher implements Runnable {
-    private final Path source;
+    private final Path dir;
     private final FileTime lastAccessTime;
     private final DirectoryStreamFactory factory;
 
-    public AsyncDirectoryStreamContentPusher(Path source,
+    public AsyncDirectoryStreamContentPusher(Path dir,
           FileTime lastAccessTime, DirectoryStreamFactory factory) {
-      this.source = source;
+      this.dir = dir;
       this.lastAccessTime = lastAccessTime;
       this.factory = factory;
     }
 
     public void run() {
       log.log(Level.FINE, "Pushing children of {0}",
-          getFileName(source));
-      try (DirectoryStream<Path> paths = factory.newDirectoryStream(source)) {
+          getFileName(dir));
+      try (DirectoryStream<Path> paths = factory.newDirectoryStream(dir)) {
         context.getDocIdPusher().pushDocIds(
             Iterables.transform(paths,
                 new Function<Path, DocId>() {
@@ -1171,13 +1171,13 @@ public class FsAdaptor extends AbstractAdaptor {
                   }
                 }));
       } catch (IOException | WrappedException | InterruptedException e) {
-        log.log(Level.WARNING, "Failed to push child DocIds of " + source, e);
+        log.log(Level.WARNING, "Failed to push child DocIds of " + dir, e);
       } finally {
         try {
-          setLastAccessTime(source, lastAccessTime);
+          setLastAccessTime(dir, lastAccessTime);
         } catch (IOException e) {
-          log.log(Level.WARNING, "Failed restore last access time for "
-                   + source, e);
+          log.log(Level.WARNING, "Failed to restore last access time for "
+                  + dir, e);
         }
       }
     }
