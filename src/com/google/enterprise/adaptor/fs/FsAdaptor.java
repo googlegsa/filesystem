@@ -618,13 +618,6 @@ public class FsAdaptor extends AbstractAdaptor {
   /** Verify that a startPath is valid. */
   private void validateStartPath(Path startPath, boolean logging)
       throws IOException, InvalidConfigurationException {
-    try {
-      delegate.newDocId(startPath);
-    } catch (IllegalArgumentException e) {
-        throw new InvalidConfigurationException("The path " + startPath
-             + " is not valid path - " + e.getMessage() + ".");
-    }
-
     // Do this as soon as possible, since it is selective in how it handles
     // various exceptions.
     validateShare(startPath);
@@ -906,9 +899,16 @@ public class FsAdaptor extends AbstractAdaptor {
     // TODO(mifern): Include extended attributes.
 
     if (!allowFilesInDfsNamespaces && delegate.isDfsNamespace(doc)) {
-      try {      
-        // Enumerate links in a namespace.
-        getDfsNamespaceContent(doc, id, resp);
+      try {
+        // Enumerate DFS Links in a DFS Namespace.
+        getDirectoryStreamContent(doc, id, null, resp,
+            new DirectoryStreamFactory() {
+              @Override
+              public DirectoryStream<Path> newDirectoryStream(Path dir)
+                  throws IOException {
+                return delegate.newDfsLinkStream(dir);
+              }
+            });
         updateStatus(doc, Status.Code.NORMAL);
       } catch (IOException e) {
         updateStatus(doc, e);
@@ -952,7 +952,14 @@ public class FsAdaptor extends AbstractAdaptor {
         // NoSuchFileException when trying to read directory contents.
         try {
           if (docIsDirectory) {
-            getDirectoryContent(doc, id, lastAccessTime, resp);
+            getDirectoryStreamContent(doc, id, lastAccessTime, resp,
+                new DirectoryStreamFactory() {
+                  @Override
+                  public DirectoryStream<Path> newDirectoryStream(Path dir)
+                      throws IOException {
+                    return delegate.newDirectoryStream(dir);
+                  }
+                });
           } else {
             getFileContent(doc, lastAccessTime, resp);
           }
@@ -963,6 +970,13 @@ public class FsAdaptor extends AbstractAdaptor {
       }
     }
     log.exiting("FsAdaptor", "getDocContent");
+  }
+
+  /**
+   * Factory interface for creating new DirectoryStreams.
+   */
+  private interface DirectoryStreamFactory {
+    DirectoryStream<Path> newDirectoryStream(Path dir) throws IOException;
   }
 
   /**
@@ -1086,58 +1100,35 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /* Makes HTML document with web links to namespace's DFS links. */
-  private void getDfsNamespaceContent(Path doc, DocId docid, Response resp)
-      throws IOException {
-    // TODO (bmj): Handle large Namespaces by paying attention to maxHtmlLinks
-    // and sending excess to DocIdPusher.
-    resp.setNoIndex(!indexFolders);
-    try (HtmlResponseWriter writer = createHtmlResponseWriter(resp)) {
-      writer.start(docid, getFileName(doc));
-      try (DirectoryStream<Path> links = delegate.newDfsLinkStream(doc)) {
-        for (Path link : links) {
-          DocId docId;
-          try {
-            docId = delegate.newDocId(link);
-          } catch (IllegalArgumentException e) {
-            log.log(Level.WARNING, "Skipping DFS link {0} because {1}.",
-                    new Object[] { link, e.getMessage() });
-            continue;
-          }
-          writer.addLink(docId, getFileName(link));
-        }
-      }
-      writer.finish();
-    }
-  }
-
-  /* Makes HTML document with links to this directory's files and folders. */
-  private void getDirectoryContent(Path doc, DocId docid,
-      FileTime lastAccessTime, Response resp) throws IOException {
+  /* Makes HTML document with links to this DirectoryStream's contents. */
+  private void getDirectoryStreamContent(Path doc, DocId docid,
+       FileTime lastAccessTime, Response resp, DirectoryStreamFactory factory)
+       throws IOException {
     resp.setNoIndex(!indexFolders);
 
     // Large directories can have tens or hundreds of thousands of files.
     // The GSA truncates large HTML documents at 2.5MB, so return the first
     // maxHtmlLinks worth as HTML content and send the rest to the DocIdPusher.
-    try (DirectoryStream<Path> files = delegate.newDirectoryStream(doc);
+    try (DirectoryStream<Path> paths = factory.newDirectoryStream(doc);
          HtmlResponseWriter htmlWriter = createHtmlResponseWriter(resp)) {
       htmlWriter.start(docid, getFileName(doc));
       int htmlLinks = 0;
-      for (Path file : files) {
-        DocId docId = delegate.newDocId(file);
+      for (Path path : paths) {
+        DocId docId = delegate.newDocId(path);
         if (htmlLinks++ < maxHtmlLinks) {
           // Add an HTML link.
-          htmlWriter.addLink(docId, getFileName(file));
+          htmlWriter.addLink(docId, getFileName(path));
         } else {
           String message = MessageFormat.format(
-              "Directory listing for {0} exceeds maxHtmlSize of {1,number,#}. "
-              + "Switching to asynchronous feed of directory content.",
+              "Listing of children for {0} exceeds maxHtmlSize of {1,number,#}."
+              + " Switching to asynchronous feed of child DocIds.",
               doc, maxHtmlLinks);
           htmlWriter.addHtml(
               "<p>" + htmlWriter.escapeContent(message) + "</p>");
           log.log(Level.FINE, message);
           asyncDirectoryPusherService.submit(
-              new AsyncDirectoryContentPusher(doc, lastAccessTime));
+              new AsyncDirectoryStreamContentPusher(doc, lastAccessTime,
+                                                    factory));
           break;
         }
       }
@@ -1147,20 +1138,23 @@ public class FsAdaptor extends AbstractAdaptor {
     }
   }
 
-  /* Feeds the directory's files and folders to the DocIdPusher. */
-  private class AsyncDirectoryContentPusher implements Runnable {
+  /* Feeds the DirectoryStream's paths as DocIds to the DocIdPusher. */
+  private class AsyncDirectoryStreamContentPusher implements Runnable {
     private final Path dir;
     private final FileTime lastAccessTime;
+    private final DirectoryStreamFactory factory;
 
-    public AsyncDirectoryContentPusher(Path dir, FileTime lastAccessTime) {
+    public AsyncDirectoryStreamContentPusher(Path dir,
+          FileTime lastAccessTime, DirectoryStreamFactory factory) {
       this.dir = dir;
       this.lastAccessTime = lastAccessTime;
+      this.factory = factory;
     }
 
     public void run() {
-      log.log(Level.FINE, "Pushing contents of directory {0}",
+      log.log(Level.FINE, "Pushing children of {0}",
           getFileName(dir));
-      try (DirectoryStream<Path> paths = delegate.newDirectoryStream(dir)) {
+      try (DirectoryStream<Path> paths = factory.newDirectoryStream(dir)) {
         context.getDocIdPusher().pushDocIds(
             Iterables.transform(paths,
                 new Function<Path, DocId>() {
@@ -1177,14 +1171,13 @@ public class FsAdaptor extends AbstractAdaptor {
                   }
                 }));
       } catch (IOException | WrappedException | InterruptedException e) {
-        log.log(Level.WARNING, "Failed to push contents of directory " + dir,
-                e);
+        log.log(Level.WARNING, "Failed to push child DocIds of " + dir, e);
       } finally {
         try {
           setLastAccessTime(dir, lastAccessTime);
         } catch (IOException e) {
-          log.log(Level.WARNING, "Failed restore last access time for " + dir,
-                  e);
+          log.log(Level.WARNING, "Failed to restore last access time for "
+                  + dir, e);
         }
       }
     }
@@ -1336,7 +1329,8 @@ public class FsAdaptor extends AbstractAdaptor {
    */
   private void setLastAccessTime(Path doc, FileTime lastAccessTime)
       throws IOException {
-    if (preserveLastAccessTime == PreserveLastAccessTime.NEVER) {
+    if (lastAccessTime == null
+        || preserveLastAccessTime == PreserveLastAccessTime.NEVER) {
       return;
     }
     try {

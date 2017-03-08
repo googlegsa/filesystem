@@ -1343,7 +1343,7 @@ public class FsAdaptorTest {
     Thread.sleep(100); // Wait for AsyncDirectoryContentPusher thread to finish.
     List<Record> expected;
     if (files.length > maxHtmlLinks) {
-      assertTrue(html, html.contains("<p>Directory listing for "));
+      assertTrue(html, html.contains("<p>Listing of children for "));
       assertTrue(html, html.contains(" exceeds maxHtmlSize of "));
       ImmutableList.Builder<Record> builder = ImmutableList.builder();
       for (String file : files) {
