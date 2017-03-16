@@ -406,11 +406,35 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
   }
 
+  /**
+   * An Exponential BackOff that never stops, but does have a maximum sleep
+   * duration between retries.
+   * Modelled after com.google.api.client.util.ExponentialBackOff.
+   */
+  private class NeverEndingExponentialBackOff {
+    private final int initialIntervalMillis = 500;
+    private final int maxIntervalMillis = 15 * 60 * 1000; // 15 mins
+    private final float multiplier = 1.5F;
+    private int nextIntervalMillis = initialIntervalMillis;
+
+    public synchronized int nextBackOffMillis() {
+      int millis = nextIntervalMillis;
+      nextIntervalMillis =
+          Math.min((int) (nextIntervalMillis * multiplier), maxIntervalMillis);
+      return millis;
+    }
+
+    public synchronized void reset() {
+      nextIntervalMillis = initialIntervalMillis;
+    }
+  }
+
   private class MonitorThread extends Thread {
     private final Path watchPath;
     private final AsyncDocIdPusher pusher;
     private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
+    private final NeverEndingExponentialBackOff backOff;
 
     // We may temporarily stop accepting notifications if we receive a flood.
     private boolean paused = false;
@@ -425,7 +449,8 @@ class WindowsFileDelegate extends NioFileDelegate {
       this.watchPath = watchPath;
       this.pusher = pusher;
       this.startSignal = startSignal;
-      stopEvent = Kernel32.INSTANCE.CreateEvent(null, false, false, null);
+      stopEvent = kernel32.CreateEvent(null, false, false, null);
+      backOff = new NeverEndingExponentialBackOff();
     }
 
     public void shutdown() {
@@ -449,13 +474,31 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     public void run() {
       log.entering("WindowsFileDelegate", "MonitorThread.run", watchPath);
-      try {
-        runMonitorLoop();
-      } catch (IOException e) {
-        log.log(Level.WARNING, "Unable to monitor " + watchPath, e);
-      } finally {
-        // Wake up caller, in case monitor fails to start up.
-        startSignal.countDown();
+      while (true) {
+        try {
+          runMonitorLoop();
+          break;  // Only shutdown returns cleanly from runMonitorLoop.
+        } catch (IOException e) {
+          log.log(Level.WARNING, "Error monitoring " + watchPath, e);
+          int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
+              backOff.nextBackOffMillis(), false);
+          if (waitResult == Kernel32.WAIT_TIMEOUT) {
+            log.log(Level.FINE, "Retrying file monitor for {0} after error.",
+                watchPath);
+          } else if (waitResult == WinBase.WAIT_OBJECT_0) {
+            log.log(Level.FINE, "Terminate event has been set; ending file "
+                + "monitor for {0}.", watchPath);
+            break;
+          } else if (waitResult == WinBase.WAIT_FAILED) {
+            log.log(Level.FINE, "Wait failure; ending file monitor for {0}. "
+                + "GetLastError: {1}",
+                new Object[] { watchPath, kernel32.GetLastError() });
+            break;
+          }
+        } finally {
+          // Wake up caller, in case monitor fails to start up.
+          startSignal.countDown();
+        }
       }
       log.exiting("WindowsFileDelegate", "MonitorThread.run", watchPath);
     }
@@ -538,17 +581,24 @@ class WindowsFileDelegate extends NioFileDelegate {
 
         // Signal any waiting threads that the monitor is now active.
         startSignal.countDown();
+        backOff.reset();
 
         boolean logging = !paused();
         if (logging) {
           log.log(Level.FINER, "Waiting for notifications for {0}.", watchPath);
         }
         int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
-            Kernel32.INFINITE, true);
+            15 * 60 * 1000 /* 15 min timeout in millisecs */, true);
         if (waitResult == Kernel32Ex.WAIT_IO_COMPLETION) {
           if (logging) {
             log.log(Level.FINER, "A notification was sent to the monitor "
                 + "callback for {0}.", watchPath);
+          }
+          continue;
+        } else if (waitResult == Kernel32.WAIT_TIMEOUT) {
+          if (logging) {
+            log.log(Level.FINER, "Timed out waiting for notifications from {0}."
+                + " Retrying.", watchPath);
           }
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
