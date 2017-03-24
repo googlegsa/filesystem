@@ -98,13 +98,20 @@ class WindowsFileDelegate extends NioFileDelegate {
   }
 
   @Override
-  public AclFileAttributeView getDfsShareAclView(Path doc) {
-    // First check for explicit permissions on the DFS link.
-    WinNT.ACL dacl = getDfsExplicitAcl(doc);
-    if (dacl == null) {
-      // If no explicit permissions, use the permissions from the local
-      // filesystem of the namespace server.
-      dacl = getDfsNamespaceAcl(doc.getParent());
+  public AclFileAttributeView getDfsShareAclView(Path doc) throws IOException {
+    WinNT.ACL dacl;
+    if (isDfsNamespace(doc)) {
+      dacl = getDfsNamespaceAcl(doc);
+    } else if (isDfsLink(doc)) {
+      // First check for explicit permissions on the DFS link.
+      dacl = getDfsExplicitAcl(doc);
+      if (dacl == null) {
+        // If no explicit permissions, use the permissions from the local
+        // filesystem of the namespace server.
+        dacl = getDfsNamespaceAcl(doc.getParent());
+      }
+    } else {
+      throw new IllegalArgumentException("doc must be a DFS Namespace or Link");
     }
 
     ImmutableList.Builder<AclEntry> builder = ImmutableList.builder();
