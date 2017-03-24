@@ -490,10 +490,11 @@ class WindowsFileDelegate extends NioFileDelegate {
             log.log(Level.FINE, "Terminate event has been received; ending file"
                 + " monitor for {0}.", watchPath);
             break;
-          } else if (waitResult == WinBase.WAIT_FAILED) {
-            log.log(Level.FINE, "Wait failure; ending file monitor for {0}. "
-                + "GetLastError: {1}",
-                new Object[] { watchPath, kernel32.GetLastError() });
+          } else {
+            log.log(Level.WARNING,
+                "Unexpected result from WaitForSingleObjectEx: {0}. "
+                 + "GetLastError: {1}. Ending file monitor for {2}.",
+                 new Object[] {waitResult, kernel32.GetLastError(), watchPath});
             break;
           }
         } finally {
@@ -594,12 +595,6 @@ class WindowsFileDelegate extends NioFileDelegate {
           if (logging) {
             log.log(Level.FINER, "A notification was sent to the monitor "
                 + "callback for {0}.", watchPath);
-          }
-          continue;
-        } else if (waitResult == Kernel32.WAIT_TIMEOUT) {
-          if (logging) {
-            log.log(Level.FINER, "Timed out waiting for notifications from {0}."
-                + " Retrying.", watchPath);
           }
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
