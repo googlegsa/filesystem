@@ -411,21 +411,22 @@ class WindowsFileDelegate extends NioFileDelegate {
    * duration between retries.
    * Modelled after com.google.api.client.util.ExponentialBackOff.
    */
-  private class NeverEndingExponentialBackOff {
-    private final int initialIntervalMillis = 500;
-    private final int maxIntervalMillis = 15 * 60 * 1000; // 15 mins
-    private final float multiplier = 1.5F;
-    private int nextIntervalMillis = initialIntervalMillis;
+  private static class ExponentialBackOff {
+    private static final int INITIAL_INTERVAL_MILLIS = 500;
+    private static final int MAX_INTERVAL_MILLIS =
+        (int) TimeUnit.MINUTES.toMillis(15);
+    private static final float MULTIPLIER = 1.5F;
+    private int nextIntervalMillis = INITIAL_INTERVAL_MILLIS;
 
     public synchronized int nextBackOffMillis() {
       int millis = nextIntervalMillis;
-      nextIntervalMillis =
-          Math.min((int) (nextIntervalMillis * multiplier), maxIntervalMillis);
+      nextIntervalMillis = Math.min(
+          (int) (nextIntervalMillis * MULTIPLIER), MAX_INTERVAL_MILLIS);
       return millis;
     }
 
     public synchronized void reset() {
-      nextIntervalMillis = initialIntervalMillis;
+      nextIntervalMillis = INITIAL_INTERVAL_MILLIS;
     }
   }
 
@@ -434,7 +435,7 @@ class WindowsFileDelegate extends NioFileDelegate {
     private final AsyncDocIdPusher pusher;
     private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
-    private final NeverEndingExponentialBackOff backOff;
+    private final ExponentialBackOff backOff;
 
     // We may temporarily stop accepting notifications if we receive a flood.
     private boolean paused = false;
@@ -450,7 +451,7 @@ class WindowsFileDelegate extends NioFileDelegate {
       this.pusher = pusher;
       this.startSignal = startSignal;
       stopEvent = kernel32.CreateEvent(null, false, false, null);
-      backOff = new NeverEndingExponentialBackOff();
+      backOff = new ExponentialBackOff();
     }
 
     public void shutdown() {
@@ -486,8 +487,8 @@ class WindowsFileDelegate extends NioFileDelegate {
             log.log(Level.FINE, "Retrying file monitor for {0} after error.",
                 watchPath);
           } else if (waitResult == WinBase.WAIT_OBJECT_0) {
-            log.log(Level.FINE, "Terminate event has been set; ending file "
-                + "monitor for {0}.", watchPath);
+            log.log(Level.FINE, "Terminate event has been received; ending file"
+                + " monitor for {0}.", watchPath);
             break;
           } else if (waitResult == WinBase.WAIT_FAILED) {
             log.log(Level.FINE, "Wait failure; ending file monitor for {0}. "
@@ -588,7 +589,7 @@ class WindowsFileDelegate extends NioFileDelegate {
           log.log(Level.FINER, "Waiting for notifications for {0}.", watchPath);
         }
         int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
-            15 * 60 * 1000 /* 15 min timeout in millisecs */, true);
+            Kernel32.INFINITE, true);
         if (waitResult == Kernel32Ex.WAIT_IO_COMPLETION) {
           if (logging) {
             log.log(Level.FINER, "A notification was sent to the monitor "
@@ -602,7 +603,7 @@ class WindowsFileDelegate extends NioFileDelegate {
           }
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
-          log.log(Level.FINE, "Terminate event has been set, ending file "
+          log.log(Level.FINE, "Terminate event has been received, ending file "
               + "monitor for {0}.", watchPath);
           return;
         } else {

@@ -947,10 +947,8 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     // Delegate with a Kernel32Ex that fails ReadDirectoryChangesW.
     Kernel32Ex kernel32 =
         new ChangeFailingKernel32(Kernel32Ex.INSTANCE, 0, 64, 64, 53);
-
     WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, kernel32, null, null, 2000);
-
+        new WindowsFileDelegate(null, kernel32, null, null, 0);
     delegate.startMonitorPath(tempRoot, pusher);
 
     Files.write(file1, contents);
@@ -959,7 +957,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     // This should be missed during the ReadDirectoryChangesW errors
     Files.write(file2, contents);
 
-    // Wait for the error BackOffs to expire.
+    // Wait for the 3 error BackOffs to expire (0.5 + 0.75 + 1.125 = 2.375)
     Thread.sleep(2500);
 
     // Monitoring should be re-enabled, so this one should go through.
@@ -971,9 +969,8 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   /**
    * A Kernel32 implementation that returns one of the specified error codes on
    * each call to ReadDirectoryChangesW. A non-zero return code indicates the
-   * call will fail, and the code will be returned by GetLastError. A return
-   * code of 0 indicates call success, and the delegate's ReadDirectoryChangesW
-   * is called.
+   * call will fail, and the code will be returned by GetLastError. A code of 0
+   * indicates the delegate's ReadDirectoryChangesW should be called.
    */
   private class ChangeFailingKernel32 extends UnsupportedKernel32 {
     private final Kernel32Ex delegate;
