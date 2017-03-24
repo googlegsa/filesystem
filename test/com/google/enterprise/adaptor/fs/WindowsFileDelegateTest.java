@@ -37,6 +37,7 @@ import com.sun.jna.platform.win32.Advapi32;
 import com.sun.jna.platform.win32.LMErr;
 import com.sun.jna.platform.win32.W32Errors;
 import com.sun.jna.platform.win32.Win32Exception;
+import com.sun.jna.platform.win32.WinBase;
 import com.sun.jna.platform.win32.WinDef.ULONG;
 import com.sun.jna.platform.win32.WinError;
 import com.sun.jna.platform.win32.WinNT;
@@ -934,6 +935,110 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     Files.write(file5, contents);
     checkForChanges(pusher, Collections.singleton(newRecord(file5)));
     delegate.destroy();
+  }
+
+  @Test
+  public void testMonitorBackOffOnError() throws Exception {
+    Path file1 = newTempFile(tempRoot, "test1.txt");
+    Path file2 = newTempFile(tempRoot, "test2.txt");
+    Path file3 = newTempFile(tempRoot, "test3.txt");
+    byte[] contents = "Hello World".getBytes("UTF-8");
+
+    // Delegate with a Kernel32Ex that fails ReadDirectoryChangesW.
+    Kernel32Ex kernel32 =
+        new ChangeFailingKernel32(Kernel32Ex.INSTANCE, 0, 64, 64, 53);
+    WindowsFileDelegate delegate =
+        new WindowsFileDelegate(null, kernel32, null, null, 0);
+    delegate.startMonitorPath(tempRoot, pusher);
+
+    Files.write(file1, contents);
+    checkForChanges(Collections.singleton(newRecord(file1)));
+
+    // This should be missed during the ReadDirectoryChangesW errors
+    Files.write(file2, contents);
+
+    // Wait for the 3 error BackOffs to expire (0.5 + 0.75 + 1.125 = 2.375)
+    Thread.sleep(2500);
+
+    // Monitoring should be re-enabled, so this one should go through.
+    Files.write(file3, contents);
+    checkForChanges(Collections.singleton(newRecord(file3)));
+    delegate.destroy();
+  }
+
+  /**
+   * A Kernel32 implementation that returns one of the specified error codes on
+   * each call to ReadDirectoryChangesW. A non-zero return code indicates the
+   * call will fail, and the code will be returned by GetLastError. A code of 0
+   * indicates the delegate's ReadDirectoryChangesW should be called.
+   */
+  private class ChangeFailingKernel32 extends UnsupportedKernel32 {
+    private final Kernel32Ex delegate;
+    private final int[] codes;
+    int index;
+    int lastError;
+
+    public ChangeFailingKernel32(Kernel32Ex delegate, int... codes) {
+      this.delegate = delegate;
+      this.codes = codes;
+      index = 0;
+      lastError = Integer.MAX_VALUE;
+    }
+
+    @Override
+    public boolean ReadDirectoryChangesW(HANDLE handle,
+        FILE_NOTIFY_INFORMATION info, int length, boolean watchSubtree,
+        int notifyFilter, IntByReference bytesReturned, OVERLAPPED overlapped,
+        OVERLAPPED_COMPLETION_ROUTINE completionRoutine) {
+      if (index < codes.length && codes[index] != 0) {
+        lastError = codes[index++];
+        return false;
+      }
+      index++;
+      return delegate.ReadDirectoryChangesW(handle, info, length, watchSubtree,
+          notifyFilter, bytesReturned, overlapped, completionRoutine);
+    }
+
+    @Override
+    public int GetLastError() {
+      if (lastError == Integer.MAX_VALUE) {
+        return delegate.GetLastError();
+      } else {
+        int error = lastError;
+        lastError = Integer.MAX_VALUE;
+        return error;
+      }
+    }
+
+    @Override
+    public HANDLE CreateFile(String fileName, int access, int mode,
+        WinBase.SECURITY_ATTRIBUTES attrs, int disposition, int flags,
+        HANDLE templateFile) {
+      return delegate.CreateFile(fileName, access, mode, attrs, disposition,
+          flags, templateFile);
+    }
+
+    @Override
+    public HANDLE CreateEvent(WinBase.SECURITY_ATTRIBUTES attrs,
+        boolean manualReset, boolean initialState, String name) {
+      return delegate.CreateEvent(attrs, manualReset, initialState, name);
+    }
+
+    @Override
+    public boolean SetEvent(HANDLE handle) {
+      return delegate.SetEvent(handle);
+    }
+
+    @Override
+    public boolean CloseHandle(HANDLE handle) {
+      return delegate.CloseHandle(handle);
+    }
+
+    @Override
+    public int WaitForSingleObjectEx(HANDLE handle, int milliseconds,
+        boolean alertable) {
+      return delegate.WaitForSingleObjectEx(handle, milliseconds, alertable);
+    }
   }
 
   private void checkForChanges(Set<DocIdPusher.Record> expected)

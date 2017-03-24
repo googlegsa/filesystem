@@ -406,11 +406,36 @@ class WindowsFileDelegate extends NioFileDelegate {
     }
   }
 
+  /**
+   * An Exponential BackOff that never stops, but does have a maximum sleep
+   * duration between retries.
+   * Modelled after com.google.api.client.util.ExponentialBackOff.
+   */
+  private static class ExponentialBackOff {
+    private static final int INITIAL_INTERVAL_MILLIS = 500;
+    private static final int MAX_INTERVAL_MILLIS =
+        (int) TimeUnit.MINUTES.toMillis(15);
+    private static final float MULTIPLIER = 1.5F;
+    private int nextIntervalMillis = INITIAL_INTERVAL_MILLIS;
+
+    public synchronized int nextBackOffMillis() {
+      int millis = nextIntervalMillis;
+      nextIntervalMillis = Math.min(
+          (int) (nextIntervalMillis * MULTIPLIER), MAX_INTERVAL_MILLIS);
+      return millis;
+    }
+
+    public synchronized void reset() {
+      nextIntervalMillis = INITIAL_INTERVAL_MILLIS;
+    }
+  }
+
   private class MonitorThread extends Thread {
     private final Path watchPath;
     private final AsyncDocIdPusher pusher;
     private final CountDownLatch startSignal;
     private final HANDLE stopEvent;
+    private final ExponentialBackOff backOff;
 
     // We may temporarily stop accepting notifications if we receive a flood.
     private boolean paused = false;
@@ -425,7 +450,8 @@ class WindowsFileDelegate extends NioFileDelegate {
       this.watchPath = watchPath;
       this.pusher = pusher;
       this.startSignal = startSignal;
-      stopEvent = Kernel32.INSTANCE.CreateEvent(null, false, false, null);
+      stopEvent = kernel32.CreateEvent(null, false, false, null);
+      backOff = new ExponentialBackOff();
     }
 
     public void shutdown() {
@@ -449,13 +475,32 @@ class WindowsFileDelegate extends NioFileDelegate {
 
     public void run() {
       log.entering("WindowsFileDelegate", "MonitorThread.run", watchPath);
-      try {
-        runMonitorLoop();
-      } catch (IOException e) {
-        log.log(Level.WARNING, "Unable to monitor " + watchPath, e);
-      } finally {
-        // Wake up caller, in case monitor fails to start up.
-        startSignal.countDown();
+      while (true) {
+        try {
+          runMonitorLoop();
+          break;  // Only shutdown returns cleanly from runMonitorLoop.
+        } catch (IOException e) {
+          log.log(Level.WARNING, "Error monitoring " + watchPath, e);
+          int waitResult = kernel32.WaitForSingleObjectEx(stopEvent,
+              backOff.nextBackOffMillis(), false);
+          if (waitResult == Kernel32.WAIT_TIMEOUT) {
+            log.log(Level.FINE, "Retrying file monitor for {0} after error.",
+                watchPath);
+          } else if (waitResult == WinBase.WAIT_OBJECT_0) {
+            log.log(Level.FINE, "Terminate event has been received; ending file"
+                + " monitor for {0}.", watchPath);
+            break;
+          } else {
+            log.log(Level.WARNING,
+                "Unexpected result from WaitForSingleObjectEx: {0}. "
+                 + "GetLastError: {1}. Ending file monitor for {2}.",
+                 new Object[] {waitResult, kernel32.GetLastError(), watchPath});
+            break;
+          }
+        } finally {
+          // Wake up caller, in case monitor fails to start up.
+          startSignal.countDown();
+        }
       }
       log.exiting("WindowsFileDelegate", "MonitorThread.run", watchPath);
     }
@@ -538,6 +583,7 @@ class WindowsFileDelegate extends NioFileDelegate {
 
         // Signal any waiting threads that the monitor is now active.
         startSignal.countDown();
+        backOff.reset();
 
         boolean logging = !paused();
         if (logging) {
@@ -552,7 +598,7 @@ class WindowsFileDelegate extends NioFileDelegate {
           }
           continue;
         } else if (waitResult == WinBase.WAIT_OBJECT_0) {
-          log.log(Level.FINE, "Terminate event has been set, ending file "
+          log.log(Level.FINE, "Terminate event has been received, ending file "
               + "monitor for {0}.", watchPath);
           return;
         } else {
