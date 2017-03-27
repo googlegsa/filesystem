@@ -1288,6 +1288,7 @@ public class FsAdaptor extends AbstractAdaptor {
         "application/vnd.openxmlformats-officedocument.presentationml.slide");
     properties.setProperty("sldm", "application/vnd.ms-powerpoint.slide."
         + "macroEnabled.12");
+    properties.setProperty("msg", "application/vnd.ms-outlook");
 
     // get mime types from properties file.
     return loadMimeTypeProperties(userMimeTypes, properties);
