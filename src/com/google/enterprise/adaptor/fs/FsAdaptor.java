@@ -1192,7 +1192,10 @@ public class FsAdaptor extends AbstractAdaptor {
   /* Adds the file's content to the response. */
   private void getFileContent(Path doc, FileTime lastAccessTime, Response resp)
       throws IOException {
-    resp.setContentType(getDocMimeType(doc));
+    String mimeType = getDocMimeType(doc);
+    log.log(Level.FINER, "Content type for {0}: {1}",
+        new Object[] {doc, mimeType});
+    resp.setContentType(mimeType);
     try (InputStream input = delegate.newInputStream(doc)) {
       copyStream(input, resp.getOutputStream());
     } finally {
@@ -1288,6 +1291,8 @@ public class FsAdaptor extends AbstractAdaptor {
         "application/vnd.openxmlformats-officedocument.presentationml.slide");
     properties.setProperty("sldm", "application/vnd.ms-powerpoint.slide."
         + "macroEnabled.12");
+
+    // Other MS Office mime types not included in the above reference.
     properties.setProperty("msg", "application/vnd.ms-outlook");
 
     // get mime types from properties file.
