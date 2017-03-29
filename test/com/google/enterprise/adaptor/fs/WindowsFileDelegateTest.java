@@ -136,143 +136,33 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
   }
 
   @Test
-  public void testGetExplicitDfsShareAclView() throws Exception {
-    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
-    AclFileAttributeView expectedAcl = new AclView(
-        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
-        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
-
-    AclFileAttributeView aclView = getExplicitDfsShareAclView(
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessAllowedAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessDeniedAce", null))
-        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
-        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build());
-
-    assertNotNull(aclView);
-    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
-  }
-
-  private static AclFileAttributeView getExplicitDfsShareAclView(
-      WinNT.ACCESS_ACEStructure... aces) throws Exception {
-    byte[] dacl = buildDaclMemory(aces);
-    final Memory daclMemory = new Memory(dacl.length);
-    daclMemory.write(0, dacl, 0, dacl.length);
-    final Netapi32Ex.DFS_INFO_150 dfsInfo150 = new Netapi32Ex.DFS_INFO_150();
-    dfsInfo150.SdLengthReserved = new ULONG(dacl.length);
-    dfsInfo150.pSecurityDescriptor = daclMemory;
-    dfsInfo150.write();
-
-    Netapi32Ex netapi = new UnsupportedNetapi32() {
-        @Override
-        public int NetDfsGetInfo(String dfsPath, String serverName,
-            String shareName, int level, PointerByReference bufptr) {
-          assertEquals(150, level);
-          bufptr.setValue(dfsInfo150.getPointer());
-          return WinError.ERROR_SUCCESS;
-        }
-        @Override
-        public int NetApiBufferFree(Pointer buf) {
-          return WinError.ERROR_SUCCESS;
-        }
-      };
-
-    WindowsAclFileAttributeViews wafav =
-        new TestAclFileAttributeViews(null, null, null, netapi, null);
-    WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, wafav, 0);
-
-    return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
+  public void testGetDfsShareAclViewAclOnLink() throws Exception {
+    testGetDfsShareAclView("\\\\host\\namespace\\link", 0, true);
   }
 
   @Test
-  public void testGetExplicitDfsShareAclViewError() throws Exception {
-    Netapi32Ex netapi = new UnsupportedNetapi32() {
-        @Override
-        public int NetDfsGetInfo(String dfsPath, String serverName,
-            String shareName, int level, PointerByReference bufptr) {
-          assertEquals(150, level);
-          return WinError.ERROR_ACCESS_DENIED;
-        }
-        @Override
-        public int NetApiBufferFree(Pointer buf) {
-          return WinError.ERROR_SUCCESS;
-        }
-      };
-
-    WindowsAclFileAttributeViews wafav =
-        new TestAclFileAttributeViews(null, null, null, netapi, null);
-    WindowsFileDelegate delegate =
-        new WindowsFileDelegate(null, null, netapi, wafav, 0);
-
-    thrown.expect(Win32Exception.class);
-    delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
+  public void testGetDfsShareAclViewNoAclOnLink() throws Exception {
+    testGetDfsShareAclView("\\\\host\\namespace\\link",
+        W32Errors.ERROR_INSUFFICIENT_BUFFER, false);
   }
 
   @Test
-  public void testGetDfsShareAclView() throws Exception {
-    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
-    AclFileAttributeView expectedAcl = new AclView(
-        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
-        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+  public void testGetDfsShareAclViewAclOnNamespace() throws Exception {
+    testGetDfsShareAclView("\\\\host\\namespace",
+        W32Errors.ERROR_INSUFFICIENT_BUFFER, false);
+  }
 
-    AclFileAttributeView aclView = getDfsShareAclView(
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessAllowedAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessDeniedAce", null))
-        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
-        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build());
-
-    assertNotNull(aclView);
-    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  @Test
+  public void testGetDfsShareAclViewNotDfs() throws Exception {
+    thrown.expect(IllegalArgumentException.class);
+    testGetDfsShareAclView("\\\\host\\share", 0, false);
   }
 
   @Test
   public void testGetDfsShareAclViewUnsupportedAceType() throws Exception {
     thrown.expect(IllegalArgumentException.class);
     AclFileAttributeView aclView = getDfsShareAclView(
+        "\\\\host\\namespace\\link", 0, true,
         new AceBuilder()
         .setSid(AccountSid.group("SystemAuditAce", null))
         .setType(WinNT.SYSTEM_AUDIT_ACE_TYPE)
@@ -281,14 +171,63 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         .build());
   }
 
-  private static AclFileAttributeView getDfsShareAclView(
+  @Test
+  public void testGetDfsShareAclViewError() throws Exception {
+    thrown.expect(Win32Exception.class);
+    getDfsShareAclView("\\\\host\\namespace\\link",
+        WinError.ERROR_ACCESS_DENIED, false);
+  }
+
+  private void testGetDfsShareAclView(String path,
+      final int lastError, boolean isLinkAcl) throws Exception {
+    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
+    AclFileAttributeView expectedAcl = new AclView(
+        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+
+    AclFileAttributeView aclView = getDfsShareAclView(path, lastError,
+        isLinkAcl,
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessAllowedAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessDeniedAce", null))
+        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
+        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build());
+
+    assertNotNull(aclView);
+    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  }
+
+  private static AclFileAttributeView getDfsShareAclView(String path,
+      final int lastError, final boolean isLinkAcl,
       WinNT.ACCESS_ACEStructure... aces) throws Exception {
     final byte[] dacl = buildDaclMemory(aces);
+
     Kernel32Ex kernel32 = new UnsupportedKernel32() {
         @Override
         public int GetLastError() {
           // For when GetFileSecurity returns false.
-          return W32Errors.ERROR_INSUFFICIENT_BUFFER;
+          return lastError;
         }
       };
     Advapi32 advapi32 = new UnsupportedAdvapi32() {
@@ -296,6 +235,9 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         public boolean GetFileSecurity(WString lpFileName,
             int RequestedInformation, Pointer pointer, int nLength,
             IntByReference lpnLengthNeeded) {
+          if (isLinkAcl || lastError != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
+            return false;
+          }
           if (nLength < dacl.length) {
             lpnLengthNeeded.setValue(dacl.length);
             return false;
@@ -306,20 +248,44 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         }
       };
 
-    final Memory dfsInfo150 = new Memory(Native.LONG_SIZE + Pointer.SIZE);
-    dfsInfo150.setLong(0, 0L);
-    dfsInfo150.setPointer(Native.LONG_SIZE, null);
+    final Netapi32Ex.DFS_INFO_150 dfsInfo150 = new Netapi32Ex.DFS_INFO_150();
+    if (isLinkAcl) {
+      Memory daclMemory = new Memory(dacl.length);
+      daclMemory.write(0, dacl, 0, dacl.length);
+      dfsInfo150.SdLengthReserved = new ULONG(dacl.length);
+      dfsInfo150.pSecurityDescriptor = daclMemory;
+    } else {
+      dfsInfo150.SdLengthReserved = new ULONG(0);
+      dfsInfo150.pSecurityDescriptor = null;
+    }
+    dfsInfo150.write();
+    final Netapi32Ex.DFS_INFO_3 linkDfsInfo3 = newDfsInfo3(0x00000001);
+    final Netapi32Ex.DFS_INFO_3 namespaceDfsInfo3 = newDfsInfo3(0x00000101);
+
     Netapi32Ex netapi = new UnsupportedNetapi32() {
         @Override
         public int NetDfsGetInfo(String dfsPath, String serverName,
             String shareName, int level, PointerByReference bufptr) {
-          assertEquals(150, level);
-          bufptr.setValue(dfsInfo150);
-          return WinError.ERROR_SUCCESS;
+          if (level == 3) {
+            if (dfsPath.contains("link")) {
+              bufptr.setValue(linkDfsInfo3.getPointer());
+              return LMErr.NERR_Success;
+            } else if (dfsPath.contains("namespace")) {
+              bufptr.setValue(namespaceDfsInfo3.getPointer());
+              return LMErr.NERR_Success;
+            } else {
+              return WinError.ERROR_NOT_FOUND;
+            }
+          }
+          if (level == 150 && dfsPath.contains("link")) {
+            bufptr.setValue(dfsInfo150.getPointer());
+            return LMErr.NERR_Success;
+          }
+          return WinError.ERROR_NOT_SUPPORTED;
         }
         @Override
         public int NetApiBufferFree(Pointer buf) {
-          return WinError.ERROR_SUCCESS;
+          return LMErr.NERR_Success;
         }
       };
 
@@ -328,51 +294,7 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     WindowsFileDelegate delegate =
         new WindowsFileDelegate(advapi32, kernel32, netapi, wafav, 0);
 
-    return delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
-  }
-
-  @Test
-  public void testGetDfsShareAclViewError() throws Exception {
-    Kernel32Ex kernel32 = new UnsupportedKernel32() {
-        @Override
-        public int GetLastError() {
-          // For when GetFileSecurity returns false.
-          return WinError.ERROR_ACCESS_DENIED;
-        }
-      };
-    Advapi32 advapi32 = new UnsupportedAdvapi32() {
-        @Override
-        public boolean GetFileSecurity(WString lpFileName,
-            int RequestedInformation, Pointer pointer, int nLength,
-            IntByReference lpnLengthNeeded) {
-          return false;
-        }
-      };
-
-    final Memory dfsInfo150 = new Memory(Native.LONG_SIZE + Pointer.SIZE);
-    dfsInfo150.setLong(0, 0L);
-    dfsInfo150.setPointer(Native.LONG_SIZE, null);
-    Netapi32Ex netapi = new UnsupportedNetapi32() {
-        @Override
-        public int NetDfsGetInfo(String dfsPath, String serverName,
-            String shareName, int level, PointerByReference bufptr) {
-          assertEquals(150, level);
-          bufptr.setValue(dfsInfo150);
-          return WinError.ERROR_SUCCESS;
-        }
-        @Override
-        public int NetApiBufferFree(Pointer buf) {
-          return WinError.ERROR_SUCCESS;
-        }
-      };
-
-    WindowsAclFileAttributeViews wafav =
-        new TestAclFileAttributeViews(null, null, null, netapi, null);
-    WindowsFileDelegate delegate =
-        new WindowsFileDelegate(advapi32, kernel32, netapi, wafav, 0);
-
-    thrown.expect(Win32Exception.class);
-    delegate.getDfsShareAclView(Paths.get("\\\\host\\namespace\\link"));
+    return delegate.getDfsShareAclView(Paths.get(path));
   }
 
   @Test
