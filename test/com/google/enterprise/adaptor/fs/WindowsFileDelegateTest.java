@@ -135,6 +135,46 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     delegate.destroy();
   }
 
+  private void testGetDfsShareAclView(String path,
+      int lastError, boolean isLinkAcl) throws Exception {
+    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
+    AclFileAttributeView expectedAcl = new AclView(
+        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
+        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
+        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
+
+    AclFileAttributeView aclView = getDfsShareAclView(path, lastError,
+        isLinkAcl,
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessAllowedAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
+        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.user("AccessDeniedAce", null))
+        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_READ)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
+        .build(),
+        new AceBuilder()
+        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
+        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
+        .setPerms(WinNT.GENERIC_ALL)
+        .setFlags(WinNT.OBJECT_INHERIT_ACE)
+        .build());
+
+    assertNotNull(aclView);
+    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
+  }
+
   @Test
   public void testGetDfsShareAclViewAclOnLink() throws Exception {
     testGetDfsShareAclView("\\\\host\\namespace\\link", 0, true);
@@ -176,46 +216,6 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
     thrown.expect(Win32Exception.class);
     getDfsShareAclView("\\\\host\\namespace\\link",
         WinError.ERROR_ACCESS_DENIED, false);
-  }
-
-  private void testGetDfsShareAclView(String path,
-      final int lastError, boolean isLinkAcl) throws Exception {
-    // The *_OBJECT_ACE_TYPEs will get filtered out by newAclEntry().
-    AclFileAttributeView expectedAcl = new AclView(
-        group("AccessAllowedAce").type(ALLOW).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT),
-        user("AccessDeniedAce").type(DENY).perms(GENERIC_READ)
-        .flags(FILE_INHERIT, DIRECTORY_INHERIT));
-
-    AclFileAttributeView aclView = getDfsShareAclView(path, lastError,
-        isLinkAcl,
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessAllowedAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessAllowedObjectAce", null))
-        .setType(WinNT.ACCESS_ALLOWED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.user("AccessDeniedAce", null))
-        .setType(WinNT.ACCESS_DENIED_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_READ)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE, WinNT.CONTAINER_INHERIT_ACE)
-        .build(),
-        new AceBuilder()
-        .setSid(AccountSid.group("AccessDeniedObjectAce", null))
-        .setType(WinNT.ACCESS_DENIED_OBJECT_ACE_TYPE)
-        .setPerms(WinNT.GENERIC_ALL)
-        .setFlags(WinNT.OBJECT_INHERIT_ACE)
-        .build());
-
-    assertNotNull(aclView);
-    assertEquals(expectedAcl.getAcl(), aclView.getAcl());
   }
 
   private static AclFileAttributeView getDfsShareAclView(String path,
