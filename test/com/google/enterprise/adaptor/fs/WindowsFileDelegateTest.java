@@ -235,7 +235,12 @@ public class WindowsFileDelegateTest extends TestWindowsAclViews {
         public boolean GetFileSecurity(WString lpFileName,
             int RequestedInformation, Pointer pointer, int nLength,
             IntByReference lpnLengthNeeded) {
-          if (isLinkAcl || lastError != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
+          // If we were expecting to pull the ACL of the DFS Link,
+          // we should never get here.
+          assertFalse(isLinkAcl);
+          // Any error other than INSUFFICIENT_BUFFER is a an intended to
+          // simulate a failed system call.
+          if (lastError != W32Errors.ERROR_INSUFFICIENT_BUFFER) {
             return false;
           }
           if (nLength < dacl.length) {
