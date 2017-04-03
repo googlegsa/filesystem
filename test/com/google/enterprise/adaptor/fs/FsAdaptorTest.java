@@ -651,7 +651,8 @@ public class FsAdaptorTest {
     adaptor.init(context);
     MockResponse response = new MockResponse();
     adaptor.getDocContent(new MockRequest(getDocId("unsupported")), response);
-    assertTrue(response.notFound);
+    assertEquals(true, response.noIndex);
+    assertEquals(false, response.notFound);
   }
 
   @Test
@@ -2074,7 +2075,8 @@ public class FsAdaptorTest {
     MockRequest request = new MockRequest(getDocId(file.getPath()));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
-    assertEquals(excluded, response.notFound);
+    assertEquals(excluded, response.noIndex);
+    assertEquals(false, response.notFound);
   }
 
   @Test

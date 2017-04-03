@@ -848,15 +848,15 @@ public class FsAdaptor extends AbstractAdaptor {
       return;
     }      
 
-    if (!isFileOrFolder(doc)) {
-      log.log(Level.INFO, "The path {0} is not a regular file or directory.",
-              doc);
+    if (!isVisibleDescendantOfRoot(doc)) {
       resp.respondNotFound();
       return;
     }
 
-    if (!isVisibleDescendantOfRoot(doc)) {
-      resp.respondNotFound();
+    if (!isFileOrFolder(doc)) {
+      log.log(Level.INFO, "The path {0} is not a regular file or directory.",
+              doc);
+      resp.setNoIndex(true);
       return;
     }
 
@@ -873,14 +873,14 @@ public class FsAdaptor extends AbstractAdaptor {
       if (lastAccessTimeFilter.excluded(lastAccessTime)) {
         log.log(Level.FINE, "Skipping {0} because it was last accessed {1}.",
             new Object[] {doc, lastAccessTime.toString().substring(0, 10)});
-        resp.respondNotFound();
+        resp.setNoIndex(true);
         return;
       }
       if (lastModifiedTimeFilter.excluded(attrs.lastModifiedTime())) {
         log.log(Level.FINE, "Skipping {0} because it was last modified {1}.",
             new Object[] {doc, 
                 attrs.lastModifiedTime().toString().substring(0, 10)});
-        resp.respondNotFound();
+        resp.setNoIndex(true);
         return;
       }
     }
