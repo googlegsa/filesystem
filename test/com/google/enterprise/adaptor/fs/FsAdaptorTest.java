@@ -653,6 +653,7 @@ public class FsAdaptorTest {
     adaptor.getDocContent(new MockRequest(getDocId("unsupported")), response);
     assertEquals(true, response.noIndex);
     assertEquals(false, response.notFound);
+    assertNotNull(response.content);
   }
 
   @Test
@@ -2077,6 +2078,7 @@ public class FsAdaptorTest {
     adaptor.getDocContent(request, response);
     assertEquals(excluded, response.noIndex);
     assertEquals(false, response.notFound);
+    assertNotNull(response.content);
   }
 
   @Test

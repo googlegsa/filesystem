@@ -857,6 +857,7 @@ public class FsAdaptor extends AbstractAdaptor {
       log.log(Level.INFO, "The path {0} is not a regular file or directory.",
               doc);
       resp.setNoIndex(true);
+      resp.getOutputStream().close();
       return;
     }
 
@@ -874,6 +875,7 @@ public class FsAdaptor extends AbstractAdaptor {
         log.log(Level.FINE, "Skipping {0} because it was last accessed {1}.",
             new Object[] {doc, lastAccessTime.toString().substring(0, 10)});
         resp.setNoIndex(true);
+        resp.getOutputStream().close();
         return;
       }
       if (lastModifiedTimeFilter.excluded(attrs.lastModifiedTime())) {
@@ -881,6 +883,7 @@ public class FsAdaptor extends AbstractAdaptor {
             new Object[] {doc, 
                 attrs.lastModifiedTime().toString().substring(0, 10)});
         resp.setNoIndex(true);
+        resp.getOutputStream().close();
         return;
       }
     }
