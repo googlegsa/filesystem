@@ -647,11 +647,19 @@ public class FsAdaptorTest {
 
   @Test
   public void testGetDocContentUnsupportedPath() throws Exception {
-    root.addChildren(new MockFile("unsupported").setIsRegularFile(false));
+    root.addChildren(
+        new MockFile("unsupported")
+        .setFileContents("unsupported file type")
+        .setIsRegularFile(false));
     adaptor.init(context);
     MockResponse response = new MockResponse();
     adaptor.getDocContent(new MockRequest(getDocId("unsupported")), response);
-    assertTrue(response.notFound);
+    assertEquals(true, response.noIndex);
+    assertEquals(false, response.notFound);
+    assertNotNull(response.content);
+    assertEquals("", response.content.toString("UTF-8"));
+    assertEquals(0, response.metadata.size());
+    assertNull(response.acl);
   }
 
   @Test
@@ -2067,14 +2075,19 @@ public class FsAdaptorTest {
 
   private void testFileTimeFilter(MockFile file, boolean excluded)
       throws Exception {
-    file.setFileContents("<html><title>Hello World</title></html>");
+    String contents = ("<html><title>Hello World</title></html>");
+    file.setFileContents(contents);
     file.setContentType("text/html");
     root.addChildren(file);
     adaptor.init(context);
     MockRequest request = new MockRequest(getDocId(file.getPath()));
     MockResponse response = new MockResponse();
     adaptor.getDocContent(request, response);
-    assertEquals(excluded, response.notFound);
+    assertEquals(excluded, response.noIndex);
+    assertEquals(false, response.notFound);
+    assertNotNull(response.content);
+    String expectedContent = (excluded) ? "" : contents;
+    assertEquals(expectedContent, response.content.toString("UTF-8"));
   }
 
   @Test
