@@ -2075,7 +2075,7 @@ public class FsAdaptorTest {
 
   private void testFileTimeFilter(MockFile file, boolean excluded)
       throws Exception {
-    String contents = ("<html><title>Hello World</title></html>");
+    String contents = "<html><title>Hello World</title></html>";
     file.setFileContents(contents);
     file.setContentType("text/html");
     root.addChildren(file);
