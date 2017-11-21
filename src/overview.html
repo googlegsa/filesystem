@@ -23,10 +23,10 @@ GSA index a single UNC share.  DFS is supported.
     <li>Read the content of documents</li> 
     <li>Read attributes of files and folders</li>
     <li>Read permissions (ACLs) for both files and folders</li>
-    <li>Write basic attributes permissions. See below: <em>Advanced Topics > 
+    <li>Write basic attributes permissions. See below: <em>Advanced Topics &gt;
     Not changing 'last access' of the documents on the share</em></li>
     <li>Read permissions (ACLs) for the file share. See below:
-    <em>Advanced Topics > Skipping Share Access Control</em></li>
+    <em>Advanced Topics &gt; Skipping Share Access Control</em></li>
   </ul>
 
   <p>Membership in one of these groups grants a Windows account the
@@ -43,7 +43,7 @@ GSA index a single UNC share.  DFS is supported.
   these groups on the local machine that exports the Windows Share. More
   information in the Microsoft documentation, on the <a
   href="http://msdn.microsoft.com/en-us/library/bb525388(VS.85).aspx">
-  NetShareGetinfo function</a>.</p>
+  NetShareGetinfo function</a>.
 
 <h4>Configure GSA for Adaptor</h4>
 <ol>
@@ -187,7 +187,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   folders is platform dependent. On Windows file sytems a file or
   folder is considered hidden if the DOS <code>hidden</code>
   attribute is set.
-  <p/>
+  <p>
   By default, hidden files are not indexed and the contents of
   hidden folders are not indexed. Setting
   <code>filesystemadaptor.crawlHiddenFiles</code> to <code>true</code>
@@ -208,7 +208,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   the Namespace's links. Since these generated documents tend to be
   uninteresting as search results, the adaptor sets the 'noindex'
   flag in the crawl response by default.
-  <p/>
+  <p>
   Setting <code>filesystemadaptor.indexFolders</code> to <code>true</code>
   will allow these generated documents of links to be indexed by the
   Search Appliance. The default value is:
@@ -225,7 +225,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   However, if folders contain tens or even hundreds of thousands
   of files, the generated HTML could exceed the GSA's maximum
   document size to index.
-  <p/>
+  <p>
   This configuration property sets the maximum number of links
   that the generated HTML listing will contain. Folder contents
   in excess of that value will be supplied as external anchors,
@@ -256,13 +256,13 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   Failure to preserve last access times can fool backup and archive systems
   into thinking the file or folder has been recently accessed by a human,
   preventing the movement of least recently used items to secondary storage.
-  </p>
+  <p>
   If the adaptor is unable to restore the last access time for the file,
   it is likely the traversal user does not have sufficient privileges to
   write the file's attributes. As a precaution, the adaptor rejects crawl
   requests for the filesystem to prevent altering the last access timestamps
   for potentially thousands of files.
-  </p>
+  <p>
   The <code>filesystemadaptor.preserveLastAccessTime</code> property
   has three possible values: 
   <ul>
@@ -296,7 +296,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   indexing files and folders whose ancestor is hidden.
   A folder is considered hidden if the DOS <code>hidden</code>
   attribute is set.
-  <p/>
+  <p>
   The default maximum cache size is 50,000 entries, which would
   typically consume 10-15 megabytes of RAM.
   </dd>
@@ -307,7 +307,7 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   The adaptor periodically checks the availability of the file
   systems being crawled and updates their status displayed on
   the Dashboard.
-  <p/>
+  <p>
   This configuration property sets interval, in minutes, between
   status checks. The default status update interval is 15 minutes.
   </dd>
@@ -317,8 +317,8 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   <dd>
   This boolean configuration property enables or disables sending
   the Access Control List (ACL) for the file share to the GSA.
-  See below: <em>Advanced Topics > Skipping Share Access Control</em>.
-  <p/>
+  See below: <em>Advanced Topics &gt; Skipping Share Access Control</em>.
+  <p>
   Normally, the share ACLs are sent to the GSA, so the default value is:
   <pre>
   false
@@ -332,11 +332,11 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   whose time of last access is earlier than a specific date.  The cut-off
   date is specified in <a href="http://www.w3.org/TR/NOTE-datetime">
   ISO8601</a> date format, <code>YYYY-MM-DD</code>.
-  <p/>
+  <p>
   Setting <code>filesystemadaptor.lastAccessedDate</code> to
   <code>2010-01-01</code> would only crawl content that has been accessed
   since the beginning of 2010.
-  <p/>
+  <p>
   By default, filtering content based upon last accessed time is disabled.
   <br>
   Only one of <code>filesystemadaptor.lastAccessedDate</code> or
@@ -351,13 +351,13 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   absolute cut-off date used by <code>filesystemadaptor.lastAccessedDate</code>,
   this property can be used to expire previously indexed content if it
   has not been accessed in a while.
-  <p/>
+  <p>
   The expiration window is specified as a positive integer number of days.
   <br>
   Setting <code>filesystemadaptor.lastAccessedDays</code> to
   <code>365</code> would only crawl content that has been accessed
   in the last year.
-  <p/>
+  <p>
   By default, filtering content based upon last accessed time is disabled.
   <br>
   Only one of <code>filesystemadaptor.lastAccessedDate</code> or
@@ -371,11 +371,11 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   whose time of last access is earlier than a specific date.  The cut-off
   date is specified in <a href="http://www.w3.org/TR/NOTE-datetime">
   ISO8601</a> date format, <code>YYYY-MM-DD</code>.
-  <p/>
+  <p>
   Setting <code>filesystemadaptor.lastModifiedDate</code> to
   <code>2010-01-01</code> would only crawl content that has been modified
   since the beginning of 2010.
-  <p/>
+  <p>
   By default, filtering content based upon last modified time is disabled.
   <br>
   Only one of <code>filesystemadaptor.lastModifiedDate</code> or
@@ -390,26 +390,24 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   absolute cut-off date used by <code>filesystemadaptor.lastModifiedDate</code>,
   this property can be used to expire previously indexed content if it
   has not been modified in a while.
-  <p/>
+  <p>
   The expiration window is specified as a positive integer number of days.
   <br>
   Setting <code>filesystemadaptor.lastModifiedDays</code> to
   <code>365</code> would only crawl content that has been modified
   in the last year.
-  <p/>
+  <p>
   By default, filtering content based upon last modified time is disabled.
   <br>
   Only one of <code>filesystemadaptor.lastModifiedDate</code> or
   <code>filesystemadaptor.lastModifiedDays</code> may be specified.
   </dd>
-  <br>
   <dt>
   <code>adaptor.namespace</code>
   </dt>
   <dd>
   Namespace used for ACLs sent to GSA.  Defaults to "Default".
   </dd>
-  <br>
   <dt>
   <code>server.port</code>
   </dt>
@@ -418,7 +416,6 @@ java.util.logging.ConsoleHandler.formatter=com.google.enterprise.adaptor.CustomF
   Each instance of an adaptor on same machine requires a unique port.
   Defaults to 5678.
   </dd>
-  <br>
   <dt>
   <code>server.dashboardPort</code>
   </dt>
@@ -482,9 +479,9 @@ its parent or if it breaks inheritance and defines its own set of permissions.
 </p>
 
 <h4>non-DFS ACL inheritance</h4>
-<img src="non_dfs_acls.jpg" />
+<img src="non_dfs_acls.jpg" alt="non-DFS ACLs image">
 
 <h4>DFS ACL inheritance</h4>
-<img src="dfs_acls.jpg" />
+<img src="dfs_acls.jpg" alt="DFS ACLs image">
 
 </body>
